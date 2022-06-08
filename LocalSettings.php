@@ -124,8 +124,8 @@ $wgRightsIcon = "";
 # Path to the GNU diff3 utility. Used for conflict resolution.
 $wgDiff3 = "/usr/bin/diff3";
 
-wfLoadSkin( 'MinervaNeue' );
-$wgDefaultSkin = 'minerva';
+wfLoadSkin( 'Vector' );
+$wgDefaultSkin = 'vector';
 
 wfLoadExtension( 'VisualEditor' );
 
