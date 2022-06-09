@@ -81,9 +81,11 @@ $wgMemCachedServers = [];
 
 ## To enable image uploads, make sure the 'images' directory
 ## is writable, then set this to true:
-$wgEnableUploads = false;
+$wgEnableUploads = true;
 $wgUseImageMagick = true;
 $wgImageMagickConvertCommand = "/usr/bin/convert";
+
+$wgFileExtensions = array( 'png', 'gif', 'jpg', 'jpeg');
 
 # InstantCommons allows wiki to use images from https://commons.wikimedia.org
 $wgUseInstantCommons = false;
@@ -128,6 +130,8 @@ wfLoadSkin( 'Vector' );
 $wgDefaultSkin = 'vector';
 
 wfLoadExtension( 'VisualEditor' );
+
+$wgLogos = "resources/assets/forgotten-runes-logo.png"
 
 
 # End of automatically generated settings.
