@@ -131,7 +131,7 @@ $wgDefaultSkin = 'vector';
 
 wfLoadExtension( 'VisualEditor' );
 
-$wgLogos = "resources/assets/forgotten-runes-logo.png"
+$wgLogos = "/resources/assets/forgotten-runes-logo.png"
 
 
 # End of automatically generated settings.
