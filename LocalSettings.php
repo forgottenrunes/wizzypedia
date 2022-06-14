@@ -133,6 +133,8 @@ wfLoadExtension( 'VisualEditor' );
 
 $wgFavicon = $wgScriptPath . "/resources/assets/favicon.png";
 
+$wgAllowExternalImages = true;
+
 
 # End of automatically generated settings.
 # Add more configuration options below.
