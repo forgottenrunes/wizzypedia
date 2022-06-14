@@ -1,0 +1,10 @@
+version: '2'
+
+services:
+    wizzypedia:
+        build: ./mediawiki
+        ports:
+        - "8080:80"
+        image: test
+        volumes: 
+        - "./:/var/www/html/wizzypedia"
