@@ -32,7 +32,7 @@ $wgShowExceptionDetails = true;
 $wgScriptPath = "";
 
 ## The protocol and server name to use in fully-qualified URLs
-$wgServer = "https://wizzypedia.forgottenrunes.com";
+$wgServer = "https://wizzypedia.herokuapp.com";
 
 ## The URL path to static resources (images, scripts, etc.)
 $wgResourceBasePath = $wgScriptPath;
