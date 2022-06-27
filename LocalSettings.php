@@ -135,6 +135,8 @@ $wgFavicon = $wgScriptPath . "/resources/assets/favicon.png";
 
 $wgAllowExternalImages = true;
 
+## https://www.mediawiki.org/wiki/Manual:$wgMaxAnimatedGifArea
+$wgMaxAnimatedGifArea = 1000000000;
 
 # End of automatically generated settings.
 # Add more configuration options below.
