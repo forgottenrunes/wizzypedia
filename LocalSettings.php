@@ -32,7 +32,7 @@ $wgShowExceptionDetails = true;
 $wgScriptPath = "";
 
 ## The protocol and server name to use in fully-qualified URLs
-$wgServer = "https://wizzypedia.herokuapp.com";
+$wgServer = "https://wizzypedia.forgottenrunes.com";
 
 ## The URL path to static resources (images, scripts, etc.)
 $wgResourceBasePath = $wgScriptPath;
@@ -137,6 +137,28 @@ $wgAllowExternalImages = true;
 
 ## https://www.mediawiki.org/wiki/Manual:$wgMaxAnimatedGifArea
 $wgMaxAnimatedGifArea = 1000000000;
+    
+wfLoadExtension( 'AWS' );
+
+// Configure AWS credentials.
+// THIS IS NOT NEEDED if your EC2 instance has an IAM instance profile.
+$wgAWSCredentials = [
+	'key' => getenv("S3_KEY"),
+	'secret' => getenv("S3_SECRET"),
+	'token' => false
+];
+
+$wgAWSRegion = 'us-east-1'; # Northern Virginia
+
+// Replace <something> with the name of your S3 bucket, e.g. wonderfulbali234.
+$wgAWSBucketName = getenv("S3_NAME");
+
+// If you anticipate using several hundred buckets, one per wiki, then it's probably better to use one bucket
+// with the top level subdirectory as the wiki's name, and permissions properly configured of course.
+// While there are no more performance losses by using such a scheme, it might make things messy. Hence, it's
+// still a good idea to use one bucket per wiki unless you are approaching your 1,000 bucket per account limit.
+$wgAWSBucketTopSubdirectory = "/$wgDBname"; # leading slash is required
+
 
 # End of automatically generated settings.
 # Add more configuration options below.
