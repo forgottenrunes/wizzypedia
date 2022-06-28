@@ -130,6 +130,8 @@ wfLoadSkin( 'Vector' );
 $wgDefaultSkin = 'vector';
 
 wfLoadExtension( 'VisualEditor' );
+wfLoadExtension( 'TemplateStyles' );
+wfLoadExtension( 'UploadWizard' );
 
 $wgFavicon = $wgScriptPath . "/resources/assets/favicon.png";
 
