@@ -61,7 +61,7 @@ final class Versions
   'psr/http-message' => '1.0.1@f6561bf28d520154e4b0ec72be95418abe6d9363',
   'psr/log' => '1.1.4@d49695b909c3b7628b6289db5479a1c204601f11',
   'ralouphie/getallheaders' => '3.0.3@120b605dfeb996808c31b6477290a714d356e822',
-  'symfony/deprecation-contracts' => 'v2.5.1@e8b495ea28c1d97b5e0c121748d6f9b53d075c66',
+  'symfony/deprecation-contracts' => 'v2.5.2@e8b495ea28c1d97b5e0c121748d6f9b53d075c66',
   'symfony/polyfill-php80' => 'v1.25.0@4407588e0d3f1f52efb65fbe92babe41f37fe50c',
   'symfony/yaml' => 'v5.4.3@e80f87d2c9495966768310fc531b487ce64237a2',
   'wikimedia/assert' => 'v0.5.1@27c983fddac1197dc37f6a7cec00fc02861529cd',
@@ -156,7 +156,7 @@ final class Versions
   'symfony/polyfill-intl-grapheme' => 'v1.26.0@433d05519ce6990bf3530fba6957499d327395c2',
   'symfony/polyfill-intl-normalizer' => 'v1.26.0@219aa369ceff116e673852dce47c3a41794c14bd',
   'symfony/polyfill-php73' => 'v1.26.0@e440d35fa0286f77fb45b79a03fedbeda9307e85',
-  'symfony/service-contracts' => 'v2.5.1@24d9dc654b83e91aa59f9d167b131bc3b5bea24c',
+  'symfony/service-contracts' => 'v2.5.2@4b426aac47d6427cc1a1d0f7e2ac724627f5966c',
   'symfony/string' => 'v5.4.10@4432bc7df82a554b3e413a8570ce2fea90e94097',
   'symfony/var-dumper' => 'v5.4.9@af52239a330fafd192c773795520dc2dd62b5657',
   'theseer/tokenizer' => '1.2.1@34a41e998c2183e22995f158c581e7b5e755ab9e',
@@ -164,9 +164,9 @@ final class Versions
   'webmozart/assert' => '1.11.0@11cb2199493b2f8a3b53e7f19068fc6aac760991',
   'wikimedia/testing-access-wrapper' => '2.0.0@280e613c76f481f2fe90e0ea22361080b6ab0d65',
   'wmde/hamcrest-html-matchers' => 'v1.0.0@f0f727f80bdb97831628329cfe508fce2a44028a',
-  'symfony/polyfill-ctype' => '1.99@a1f25b8e059fd530d64e888cf425b6f88c2a5a18',
-  'symfony/polyfill-mbstring' => '1.99@a1f25b8e059fd530d64e888cf425b6f88c2a5a18',
-  'mediawiki/core' => 'dev-master@a1f25b8e059fd530d64e888cf425b6f88c2a5a18',
+  'symfony/polyfill-ctype' => '1.99@b63aa489429d6e0de5c604f6b14cfd496a5f1dd6',
+  'symfony/polyfill-mbstring' => '1.99@b63aa489429d6e0de5c604f6b14cfd496a5f1dd6',
+  'mediawiki/core' => 'dev-master@b63aa489429d6e0de5c604f6b14cfd496a5f1dd6',
 );
 
     private function __construct()
