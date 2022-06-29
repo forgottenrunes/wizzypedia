@@ -173,4 +173,4 @@ $wgUploadWizardConfig = [
 		// Initial value for the description field.
 		'description' => 'Uploaded by UploadWizard'
 	]
-]
+];
