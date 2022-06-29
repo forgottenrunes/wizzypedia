@@ -159,6 +159,7 @@ $wgAWSBucketName = getenv("S3_NAME");
 // still a good idea to use one bucket per wiki unless you are approaching your 1,000 bucket per account limit.
 $wgAWSBucketTopSubdirectory = "/$wgDBname"; # leading slash is required
 
+wfLoadExtension( 'UploadWizard' );
 
 # End of automatically generated settings.
 # Add more configuration options below.
