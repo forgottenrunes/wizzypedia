@@ -164,3 +164,13 @@ wfLoadExtension( 'UploadWizard' );
 # End of automatically generated settings.
 # Add more configuration options below.
 
+
+$wgUploadWizardConfig = [
+	'tutorial' => [
+	 	'skip' => true
+	], // Skip the tutorial
+	'defaults' => [
+		// Initial value for the description field.
+		'description' => 'Uploaded by UploadWizard'
+	]
+]

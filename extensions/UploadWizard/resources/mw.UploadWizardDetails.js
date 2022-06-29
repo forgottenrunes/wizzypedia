@@ -519,7 +519,7 @@
 			// XXX if we have FileAPI, it might be clever to look at file attrs, saved
 			// in the upload object for use here later, perhaps
 			if ( dateObj === undefined ) {
-				return;
+				return new Date();
 			}
 
 			dateStr = dateObj.getFullYear() + '-' + pad( dateObj.getMonth() + 1 ) + '-' + pad( dateObj.getDate() );
