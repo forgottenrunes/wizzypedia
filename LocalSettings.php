@@ -163,6 +163,8 @@ $wgAWSBucketName = getenv("S3_NAME");
 $wgAWSBucketTopSubdirectory = "/ttqfd9eooxmdfdav"; # leading slash is required
 
 wfLoadExtension( 'UploadWizard' );
+wfLoadExtension( 'Scribunto' );
+$wgScribuntoDefaultEngine = 'luastandalone';
 
 # End of automatically generated settings.
 # Add more configuration options below.
