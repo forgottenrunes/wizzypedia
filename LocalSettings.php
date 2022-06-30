@@ -29,7 +29,7 @@ $wgShowExceptionDetails = true;
 ## For more information on customizing the URLs
 ## (like /w/index.php/Page_title to /wiki/Page_title) please see:
 ## https://www.mediawiki.org/wiki/Manual:Short_URL
-$wgScriptPath = "";
+$wgScriptPath = "wiki";
 
 ## The protocol and server name to use in fully-qualified URLs
 $wgServer = "https://wizzypedia.forgottenrunes.com";
@@ -130,6 +130,8 @@ wfLoadSkin( 'Vector' );
 $wgDefaultSkin = 'vector';
 
 wfLoadExtension( 'VisualEditor' );
+wfLoadExtension( 'TemplateStyles' );
+
 
 $wgFavicon = $wgScriptPath . "/resources/assets/favicon.png";
 
