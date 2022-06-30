@@ -29,7 +29,7 @@ $wgShowExceptionDetails = true;
 ## For more information on customizing the URLs
 ## (like /w/index.php/Page_title to /wiki/Page_title) please see:
 ## https://www.mediawiki.org/wiki/Manual:Short_URL
-$wgScriptPath = "wiki";
+$wgScriptPath = "";
 
 ## The protocol and server name to use in fully-qualified URLs
 $wgServer = "https://wizzypedia.forgottenrunes.com";
@@ -176,3 +176,8 @@ $wgUploadWizardConfig = [
 		'description' => 'Uploaded by UploadWizard'
 	]
 ];
+
+// Group permissions
+// Anonymous users can't create pages or edit pages
+$wgGroupPermissions['*']['createpage'] = false;
+$wgGroupPermissions['*']['edit'] = false;
