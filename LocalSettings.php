@@ -159,7 +159,8 @@ $wgAWSBucketName = getenv("S3_NAME");
 // with the top level subdirectory as the wiki's name, and permissions properly configured of course.
 // While there are no more performance losses by using such a scheme, it might make things messy. Hence, it's
 // still a good idea to use one bucket per wiki unless you are approaching your 1,000 bucket per account limit.
-$wgAWSBucketTopSubdirectory = "/$wgDBname"; # leading slash is required
+// $wgAWSBucketTopSubdirectory = "/$wgDBname"; # leading slash is required
+$wgAWSBucketTopSubdirectory = "/ttqfd9eooxmdfdav"; # leading slash is required
 
 wfLoadExtension( 'UploadWizard' );
 
