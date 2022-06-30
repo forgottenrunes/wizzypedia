@@ -16,7 +16,6 @@ sublime-*
 sftp-config.json
 
 # Composer
-/vendor
 /composer.lock
 
 # NPM
