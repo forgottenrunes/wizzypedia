@@ -60,10 +60,10 @@ $wgEmailAuthentication = true;
 
 ## Database settings
 $wgDBtype = "mysql";
-$wgDBserver = "cxmgkzhk95kfgbq4.cbetxkdyhwsb.us-east-1.rds.amazonaws.com";
-$wgDBname = "plb8m3w63z6muu8r";
-$wgDBuser = "lc78v6nzc1vc69r0";
-$wgDBpassword = "zt691468loxnp01r";
+$wgDBserver = getenv("DB_SERVER");
+$wgDBname = getenv("DB_NAME");
+$wgDBuser = getenv("DB_USER");
+$wgDBpassword = getenv("DB_PASS");
 
 # MySQL specific settings
 $wgDBprefix = "";
