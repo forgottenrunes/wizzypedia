@@ -168,6 +168,7 @@ wfLoadExtension( 'UploadWizard' );
 wfLoadExtension( 'Scribunto' );
 wfLoadExtension( 'Cargo' );
 wfLoadExtension( 'DataTransfer' );
+wfLoadExtension( 'PageForms' );
 
 $wgScribuntoDefaultEngine = 'luastandalone';
 
