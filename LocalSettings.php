@@ -60,10 +60,10 @@ $wgEmailAuthentication = true;
 
 ## Database settings
 $wgDBtype = "mysql";
-$wgDBserver = getenv("DB_SERVER");
-$wgDBname = getenv("DB_NAME");
-$wgDBuser = getenv("DB_USER");
-$wgDBpassword = getenv("DB_PASS");
+$wgDBserver = "cxmgkzhk95kfgbq4.cbetxkdyhwsb.us-east-1.rds.amazonaws.com";
+$wgDBname = "plb8m3w63z6muu8r";
+$wgDBuser = "lc78v6nzc1vc69r0";
+$wgDBpassword = "zt691468loxnp01r";
 
 # MySQL specific settings
 $wgDBprefix = "";
@@ -129,8 +129,7 @@ $wgDiff3 = "/usr/bin/diff3";
 wfLoadSkin( 'Vector' );
 $wgDefaultSkin = 'vector';
 
-wfLoadExtension( 'VisualEditor' );
-wfLoadExtension( 'TemplateStyles' );
+
 
 
 $wgFavicon = $wgScriptPath . "/resources/assets/favicon.png";
@@ -162,9 +161,14 @@ $wgAWSBucketName = getenv("S3_NAME");
 // $wgAWSBucketTopSubdirectory = "/$wgDBname"; # leading slash is required
 $wgAWSBucketTopSubdirectory = "/ttqfd9eooxmdfdav"; # leading slash is required
 
+//Extensions
+wfLoadExtension( 'VisualEditor' );
+wfLoadExtension( 'TemplateStyles' );
 wfLoadExtension( 'UploadWizard' );
 wfLoadExtension( 'Scribunto' );
 wfLoadExtension( 'Cargo' );
+wfLoadExtension( 'DataTransfer' );
+
 $wgScribuntoDefaultEngine = 'luastandalone';
 
 # End of automatically generated settings.
