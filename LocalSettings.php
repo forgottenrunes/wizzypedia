@@ -164,6 +164,7 @@ $wgAWSBucketTopSubdirectory = "/ttqfd9eooxmdfdav"; # leading slash is required
 
 wfLoadExtension( 'UploadWizard' );
 wfLoadExtension( 'Scribunto' );
+wfLoadExtension( 'Cargo' );
 $wgScribuntoDefaultEngine = 'luastandalone';
 
 # End of automatically generated settings.

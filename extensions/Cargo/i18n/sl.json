@@ -1,0 +1,10 @@
+{
+	"@metadata": {
+		"authors": [
+			"Eleassar"
+		]
+	},
+	"cargo-viewdata-defaultformat": "Privzeto",
+	"cargo-cargotables-action-deletereplacement": "Izbriši",
+	"cargo-cargotables-action-delete": "Izbriši"
+}
