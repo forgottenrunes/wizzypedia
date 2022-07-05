@@ -1,3 +1,10 @@
 RewriteEngine On
-RewriteRule ^/?fr/wiki(/.*)?$ %{DOCUMENT_ROOT}/index.php [L]
-RewriteRule ^/fr*$ %{DOCUMENT_ROOT}/index.php [L]
+# RewriteRule ^/?fr/wiki(/.*)?$ %{DOCUMENT_ROOT}/index.php [L]
+# RewriteRule ^/fr*$ %{DOCUMENT_ROOT}/index.php [L]
+
+RewriteEngine On
+RewriteBase /
+RewriteRule ^/(.*):(.*) /index.php/$1:$2
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*) /index.php/$1 [L,QSA]

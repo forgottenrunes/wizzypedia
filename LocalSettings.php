@@ -190,3 +190,5 @@ $wgUploadWizardConfig = [
 // Anonymous users can't create pages or edit pages
 $wgGroupPermissions['*']['createpage'] = false;
 $wgGroupPermissions['*']['edit'] = false;
+
+$wgArticlePath = "/$1";
