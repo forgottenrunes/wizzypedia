@@ -172,6 +172,7 @@ wfLoadExtension( 'PageForms' );
 wfLoadExtension( 'ParserFunctions' );
 wfLoadExtension( 'Poem' );
 wfLoadExtension( 'Nuke' );
+wfLoadExtension( 'CodeEditor' );
 
 $wgScribuntoDefaultEngine = 'luastandalone';
 $wgPFEnableStringFunctions = true;
