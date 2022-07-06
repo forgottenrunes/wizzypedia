@@ -175,6 +175,7 @@ wfLoadExtension( 'Poem' );
 wfLoadExtension( 'Nuke' );
 wfLoadExtension( 'WikiEditor' );
 wfLoadExtension( 'CodeEditor' );
+$wgDefaultUserOptions['usebetatoolbar'] = 1;
 
 $wgScribuntoDefaultEngine = 'luastandalone';
 
