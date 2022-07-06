@@ -170,12 +170,14 @@ wfLoadExtension( 'Cargo' );
 wfLoadExtension( 'DataTransfer' );
 wfLoadExtension( 'PageForms' );
 wfLoadExtension( 'ParserFunctions' );
+$wgPFEnableStringFunctions = true;
 wfLoadExtension( 'Poem' );
 wfLoadExtension( 'Nuke' );
+wfLoadExtension( 'WikiEditor' );
 wfLoadExtension( 'CodeEditor' );
 
 $wgScribuntoDefaultEngine = 'luastandalone';
-$wgPFEnableStringFunctions = true;
+
 
 # End of automatically generated settings.
 # Add more configuration options below.
