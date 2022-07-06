@@ -169,6 +169,9 @@ wfLoadExtension( 'Scribunto' );
 wfLoadExtension( 'Cargo' );
 wfLoadExtension( 'DataTransfer' );
 wfLoadExtension( 'PageForms' );
+wfLoadExtension( 'ParserFunctions' );
+wfLoadExtension( 'Poem' );
+wfLoadExtension( 'Nuke' );
 
 $wgScribuntoDefaultEngine = 'luastandalone';
 
