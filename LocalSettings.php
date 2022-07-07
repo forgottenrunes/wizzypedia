@@ -176,6 +176,7 @@ wfLoadExtension( 'Nuke' );
 wfLoadExtension( 'WikiEditor' );
 wfLoadExtension( 'CodeEditor' );
 $wgDefaultUserOptions['usebetatoolbar'] = 1;
+wfLoadExtension( 'ImageMap' );
 
 $wgScribuntoDefaultEngine = 'luastandalone';
 
