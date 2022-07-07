@@ -31,6 +31,7 @@
 		"ext-intl": "*",
 		"ext-json": "*",
 		"ext-libxml": "*",
+		"ext-exif":"*",
 		"ext-mbstring": "*",
 		"ext-xml": "*",
 		"ext-xmlreader": "*",
