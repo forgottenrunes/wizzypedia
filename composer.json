@@ -32,6 +32,7 @@
 		"ext-json": "*",
 		"ext-libxml": "*",
 		"ext-exif":"*",
+		"ext-gd": "*",
 		"ext-mbstring": "*",
 		"ext-xml": "*",
 		"ext-xmlreader": "*",
