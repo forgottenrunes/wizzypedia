@@ -201,3 +201,6 @@ $wgGroupPermissions['*']['createpage'] = false;
 $wgGroupPermissions['*']['edit'] = false;
 
 $wgArticlePath = "/$1";
+
+// https://phabricator.wikimedia.org/T310013
+$wgShowEXIF = function_exists( 'exif_read_data' );
