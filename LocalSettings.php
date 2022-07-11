@@ -129,6 +129,9 @@ $wgDiff3 = "/usr/bin/diff3";
 wfLoadSkin( 'Vector' );
 $wgDefaultSkin = 'vector';
 
+wfLoadSkin( 'MinervaNeue' );
+$wgDefaultMobileSkin = 'minerva';
+
 
 
 
