@@ -161,7 +161,7 @@ $wgAWSBucketName = getenv("S3_NAME");
 // $wgAWSBucketTopSubdirectory = "/$wgDBname"; # leading slash is required
 $wgAWSBucketTopSubdirectory = "/ttqfd9eooxmdfdav"; # leading slash is required
 
-//Extensions
+//Extensions (we should move this into one big array at some point)
 wfLoadExtension( 'VisualEditor' );
 wfLoadExtension( 'TemplateStyles' );
 wfLoadExtension( 'UploadWizard' );
@@ -177,6 +177,14 @@ wfLoadExtension( 'WikiEditor' );
 wfLoadExtension( 'CodeEditor' );
 $wgDefaultUserOptions['usebetatoolbar'] = 1;
 wfLoadExtension( 'ImageMap' );
+
+// Enable Popups extension
+wfLoadExtensions( [
+    'TextExtracts',
+    'PageImages',
+    'Popups'
+] );
+$wgPopupsHideOptInOnPreferencesPage = true;
 
 $wgScribuntoDefaultEngine = 'luastandalone';
 
