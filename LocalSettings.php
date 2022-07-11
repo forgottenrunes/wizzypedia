@@ -128,7 +128,7 @@ $wgDiff3 = "/usr/bin/diff3";
 
 wfLoadSkin( 'Vector' );
 $wgDefaultSkin = 'vector';
-$wgDefaultMobileSkin = 'vector';
+
 
 
 
@@ -178,7 +178,7 @@ wfLoadExtension( 'WikiEditor' );
 wfLoadExtension( 'CodeEditor' );
 $wgDefaultUserOptions['usebetatoolbar'] = 1;
 wfLoadExtension( 'ImageMap' );
-wfLoadExtension( 'MobileFrontend' );
+
 
 // Enable Popups extension
 wfLoadExtensions( [
