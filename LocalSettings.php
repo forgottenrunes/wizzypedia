@@ -177,6 +177,7 @@ wfLoadExtension( 'WikiEditor' );
 wfLoadExtension( 'CodeEditor' );
 $wgDefaultUserOptions['usebetatoolbar'] = 1;
 wfLoadExtension( 'ImageMap' );
+wfLoadExtension( 'MobileFrontend' );
 
 // Enable Popups extension
 wfLoadExtensions( [
