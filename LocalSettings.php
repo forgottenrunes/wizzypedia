@@ -40,7 +40,7 @@ $wgResourceBasePath = $wgScriptPath;
 ## The URL paths to the logo.  Make sure you change this from the default,
 ## or else you'll overwrite your logo when you upgrade!
 $wgLogos = [
-	'1x' => "$wgResourceBasePath/resources/assets/resize-logo.png",
+	'1x' => "$wgResourceBasePath/resources/assets/square-logo.png",
 	
 	
 	'icon' => "$wgResourceBasePath/resources/assets/change-your-logo-icon.svg",
