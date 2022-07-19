@@ -179,6 +179,7 @@ wfLoadExtension( 'CodeEditor' );
 $wgDefaultUserOptions['usebetatoolbar'] = 1;
 wfLoadExtension( 'ImageMap' );
 
+wfLoadExtension( 'TwitterTag' );
 
 // Enable Popups extension
 wfLoadExtensions( [
