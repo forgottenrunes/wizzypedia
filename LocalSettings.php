@@ -180,6 +180,7 @@ $wgDefaultUserOptions['usebetatoolbar'] = 1;
 wfLoadExtension( 'ImageMap' );
 
 wfLoadExtension( 'TwitterTag' );
+wfLoadExtension( 'AutoSitemap' );
 
 // Enable Popups extension
 wfLoadExtensions( [
