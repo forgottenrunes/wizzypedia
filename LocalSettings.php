@@ -182,6 +182,10 @@ wfLoadExtension( 'ImageMap' );
 wfLoadExtension( 'TwitterTag' );
 wfLoadExtension( 'AutoSitemap' );
 
+$wgAutoSitemap["notify"] = [
+    'https://www.google.com/webmasters/sitemaps/ping?sitemap=https://wizzypedia.forgottenrunes.com/sitemap.xml',
+];
+
 // Enable Popups extension
 wfLoadExtensions( [
     'TextExtracts',
