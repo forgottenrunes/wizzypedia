@@ -188,7 +188,7 @@ $wgAutoSitemap["notify"] = [
 
 $wgAutoSitemap["priority"] = 0.5;
 $wgAutoSitemap["priority"]['Main page'] = 1;
-$wgAutoSitemap["priority"][NS_FILE] = .1;
+$wgAutoSitemap["priority"][NS_FILE] = 0.1;
 // Enable Popups extension
 wfLoadExtensions( [
     'TextExtracts',
