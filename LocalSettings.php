@@ -222,3 +222,14 @@ $wgArticlePath = "/$1";
 
 // https://phabricator.wikimedia.org/T310013
 $wgShowEXIF = function_exists( 'exif_read_data' );
+
+
+// Custom page protection
+$wgGroupPermissions['barren-group'] = $wgGroupPermissions['autoconfirmed'];
+# add an additional protection level restricting edit/move/etc. to users with the "barren" permission
+$wgRestrictionLevels[] = 'barren'; 
+# give the "barren" permission to users in the "barren-group" group
+$wgGroupPermissions['barren-group']['barren'] = true;
+# give the "barren" permission to sysops (needed so sysops can apply this protection level to pages)
+$wgGroupPermissions['sysop']['barren'] = true;
+
