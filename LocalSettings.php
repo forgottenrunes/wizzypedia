@@ -178,7 +178,10 @@ wfLoadExtension( 'WikiEditor' );
 wfLoadExtension( 'CodeEditor' );
 $wgDefaultUserOptions['usebetatoolbar'] = 1;
 wfLoadExtension( 'ImageMap' );
-
+wfLoadExtension( 'ConfirmAccount' );
+$wgGroupPermissions['*']['createaccount'] = false;
+$wgGroupPermissions['bureaucrat']['createaccount'] = true;
+$wgGroupPermissions['sysop']['createaccount'] = true;
 wfLoadExtension( 'TwitterTag' );
 wfLoadExtension( 'AutoSitemap' );
 
