@@ -51,8 +51,8 @@ $wgLogos = [
 $wgEnableEmail = true;
 $wgEnableUserEmail = true; # UPO
 
-$wgEmergencyContact = "apache@🌻.invalid";
-$wgPasswordSender = "apache@🌻.invalid";
+$wgEmergencyContact = "maguswazir@gmail.com";
+$wgPasswordSender = "maguswazir@gmail.com";
 
 $wgEnotifUserTalk = false; # UPO
 $wgEnotifWatchlist = false; # UPO
