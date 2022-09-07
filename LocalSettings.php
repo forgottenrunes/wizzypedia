@@ -56,7 +56,7 @@ $wgPasswordSender = "maguswazir@gmail.com";
 
 $wgEnotifUserTalk = false; # UPO
 $wgEnotifWatchlist = false; # UPO
-$wgEmailAuthentication = true;
+$wgEmailAuthentication = false;
 
 ## Database settings
 $wgDBtype = "mysql";
