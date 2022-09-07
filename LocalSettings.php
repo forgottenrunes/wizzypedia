@@ -178,20 +178,20 @@ wfLoadExtension( 'WikiEditor' );
 wfLoadExtension( 'CodeEditor' );
 $wgDefaultUserOptions['usebetatoolbar'] = 1;
 wfLoadExtension( 'ImageMap' );
-wfLoadExtension( 'ConfirmAccount' );
-$wgGroupPermissions['*']['createaccount'] = false;
-$wgGroupPermissions['bureaucrat']['createaccount'] = true;
-$wgGroupPermissions['sysop']['createaccount'] = true;
-$wgConfirmAccountRequestFormItems = [
-	'UserName'        => [ 'enabled' => true ],
-	'RealName'        => [ 'enabled' => false ],
-	'Biography'       => [ 'enabled' => false, 'minWords' => 50 ],
-	'AreasOfInterest' => [ 'enabled' => false ],
-	'CV'              => [ 'enabled' => false ],
-	'Notes'           => [ 'enabled' => true ],
-	'Links'           => [ 'enabled' => false ],
-	'TermsOfService'  => [ 'enabled' => false ],
-];
+// wfLoadExtension( 'ConfirmAccount' );
+// $wgGroupPermissions['*']['createaccount'] = false;
+// $wgGroupPermissions['bureaucrat']['createaccount'] = true;
+// $wgGroupPermissions['sysop']['createaccount'] = true;
+// $wgConfirmAccountRequestFormItems = [
+// 	'UserName'        => [ 'enabled' => true ],
+// 	'RealName'        => [ 'enabled' => false ],
+// 	'Biography'       => [ 'enabled' => false, 'minWords' => 50 ],
+// 	'AreasOfInterest' => [ 'enabled' => false ],
+// 	'CV'              => [ 'enabled' => false ],
+// 	'Notes'           => [ 'enabled' => true ],
+// 	'Links'           => [ 'enabled' => false ],
+// 	'TermsOfService'  => [ 'enabled' => false ],
+// ];
 wfLoadExtension( 'TwitterTag' );
 wfLoadExtension( 'AutoSitemap' );
 
