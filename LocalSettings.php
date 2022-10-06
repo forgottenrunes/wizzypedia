@@ -246,3 +246,4 @@ $wgGroupPermissions['barren-group']['barren'] = true;
 # give the "barren" permission to sysops (needed so sysops can apply this protection level to pages)
 $wgGroupPermissions['sysop']['barren'] = true;
 
+$wgGroupPermissions['*']['createaccount'] = false;
