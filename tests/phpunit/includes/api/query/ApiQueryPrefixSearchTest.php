@@ -1,5 +1,7 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+
 /**
  * @group API
  * @group medium
@@ -12,9 +14,7 @@ class ApiQueryPrefixSearchTest extends ApiTestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->setMwGlobals( [
-			'wgSearchType' => MockCompletionSearchEngine::class,
-		] );
+		$this->overrideConfigValue( MainConfigNames::SearchType, MockCompletionSearchEngine::class );
 		MockCompletionSearchEngine::clearMockResults();
 		$results = [];
 		foreach ( range( 0, 10 ) as $i ) {
@@ -25,7 +25,7 @@ class ApiQueryPrefixSearchTest extends ApiTestCase {
 		MockCompletionSearchEngine::addMockResults( self::TEST_QUERY, $results );
 	}
 
-	public function offsetContinueProvider() {
+	public static function offsetContinueProvider() {
 		return [
 			'no offset' => [ 2, 2, 0, 2 ],
 			'with offset' => [ 7, 2, 5, 2 ],
@@ -38,6 +38,7 @@ class ApiQueryPrefixSearchTest extends ApiTestCase {
 	 * @dataProvider offsetContinueProvider
 	 */
 	public function testOffsetContinue( $expectedOffset, $expectedResults, $offset, $limit ) {
+		$this->overrideConfigValue( MainConfigNames::UsePigLatinVariant, false );
 		$response = $this->doApiRequest( [
 			'action' => 'query',
 			'list' => 'prefixsearch',

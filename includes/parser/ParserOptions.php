@@ -21,10 +21,16 @@
  * @ingroup Parser
  */
 
+use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\MutableRevisionRecord;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\StubObject\StubObject;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 use MediaWiki\User\UserIdentity;
+use MediaWiki\Utils\MWTimestamp;
 use Wikimedia\ScopedCallback;
 
 /**
@@ -82,6 +88,7 @@ class ParserOptions {
 		'thumbsize' => true,
 		'printable' => true,
 		'userlang' => true,
+		'useParsoid' => true,
 	];
 
 	/**
@@ -135,6 +142,12 @@ class ParserOptions {
 	 * Appended to the options hash
 	 */
 	private $mExtraKey = '';
+
+	/**
+	 * The reason for rendering the content.
+	 * @var string
+	 */
+	private $renderReason = 'unknown';
 
 	/**
 	 * Fetch an option and track that is was accessed
@@ -423,6 +436,7 @@ class ParserOptions {
 	/**
 	 * Maximum recursion depth for templates within templates
 	 * @return int
+	 * @internal Only used by Parser (T318826)
 	 */
 	public function getMaxTemplateDepth() {
 		return $this->getOption( 'maxTemplateDepth' );
@@ -432,6 +446,7 @@ class ParserOptions {
 	 * Maximum recursion depth for templates within templates
 	 * @param int|null $x New value (null is no change)
 	 * @return int Old value
+	 * @internal Only used by ParserTestRunner (T318826)
 	 */
 	public function setMaxTemplateDepth( $x ) {
 		return $this->setOptionLegacy( 'maxTemplateDepth', $x );
@@ -520,6 +535,7 @@ class ParserOptions {
 	/**
 	 * Target attribute for external links
 	 * @return string|false
+	 * @internal Only set by installer (T317647)
 	 */
 	public function getExternalLinkTarget() {
 		return $this->getOption( 'externalLinkTarget' );
@@ -529,6 +545,7 @@ class ParserOptions {
 	 * Target attribute for external links
 	 * @param string|false|null $x New value (null is no change)
 	 * @return string Old value
+	 * @internal Only used by installer (T317647)
 	 */
 	public function setExternalLinkTarget( $x ) {
 		return $this->setOptionLegacy( 'externalLinkTarget', $x );
@@ -583,27 +600,6 @@ class ParserOptions {
 	 */
 	public function setThumbSize( $x ) {
 		return $this->setOptionLegacy( 'thumbsize', $x );
-	}
-
-	/**
-	 * Thumb size preferred by the user.
-	 * @deprecated since 1.37. Stub threshold feature has been removed. See T284917.
-	 * @return int
-	 */
-	public function getStubThreshold() {
-		wfDeprecated( __METHOD__, '1.37' );
-		return 0;
-	}
-
-	/**
-	 * Thumb size preferred by the user.
-	 * @deprecated since 1.37. Stub threshold feature has been removed. See T284917.
-	 * @param int|null $x New value (null is no change)
-	 * @return int Old value
-	 */
-	public function setStubThreshold( $x ) {
-		wfDeprecated( __METHOD__, '1.37' );
-		return 0;
 	}
 
 	/**
@@ -675,6 +671,27 @@ class ParserOptions {
 	}
 
 	/**
+	 * Parsoid-format HTML output, or legacy wikitext parser HTML?
+	 * @see T300191
+	 * @unstable
+	 * @since 1.41
+	 * @return bool
+	 */
+	public function getUseParsoid(): bool {
+		return $this->getOption( 'useParsoid' );
+	}
+
+	/**
+	 * Request Parsoid-format HTML output.
+	 * @see T300191
+	 * @unstable
+	 * @since 1.41
+	 */
+	public function setUseParsoid() {
+		$this->setOption( 'useParsoid', true );
+	}
+
+	/**
 	 * Date format index
 	 * @return string
 	 */
@@ -706,7 +723,7 @@ class ParserOptions {
 	 *
 	 * @warning Calling this causes the parser cache to be fragmented by user language!
 	 * To avoid cache fragmentation, output should not depend on the user language.
-	 * Use Parser::getFunctionLang() or Parser::getTargetLanguage() instead!
+	 * Use Parser::getTargetLanguage() instead!
 	 *
 	 * @note This function will trigger a cache fragmentation by recording the
 	 * 'userlang' option, see optionUsed(). This is done to avoid cache pollution
@@ -727,7 +744,7 @@ class ParserOptions {
 	 *
 	 * @warning Calling this causes the parser cache to be fragmented by user language!
 	 * To avoid cache fragmentation, output should not depend on the user language.
-	 * Use Parser::getFunctionLang() or Parser::getTargetLanguage() instead!
+	 * Use Parser::getTargetLanguage() instead!
 	 *
 	 * @see getUserLangObj()
 	 *
@@ -779,6 +796,31 @@ class ParserOptions {
 	}
 
 	/**
+	 * Should the table of contents be suppressed?
+	 * Used when parsing "code" pages (like JavaScript) as wikitext
+	 * for backlink support and categories, but where we don't want
+	 * other metadata generated (like the table of contents).
+	 * @see T307691
+	 * @since 1.39
+	 * @return bool
+	 */
+	public function getSuppressTOC() {
+		return $this->getOption( 'suppressTOC' );
+	}
+
+	/**
+	 * Suppress generation of the table of contents.
+	 * Used when parsing "code" pages (like JavaScript) as wikitext
+	 * for backlink support and categories, but where we don't want
+	 * other metadata generated (like the table of contents).
+	 * @see T307691
+	 * @since 1.39
+	 */
+	public function setSuppressTOC() {
+		$this->setOption( 'suppressTOC', true );
+	}
+
+	/**
 	 * If the wiki is configured to allow raw html ($wgRawHtml = true)
 	 * is it allowed in the specific case of parsing this page.
 	 *
@@ -811,7 +853,7 @@ class ParserOptions {
 	/**
 	 * Class to use to wrap output from Parser::parse()
 	 * @since 1.30
-	 * @return string|bool
+	 * @return string|false
 	 */
 	public function getWrapOutputClass() {
 		return $this->getOption( 'wrapclass' );
@@ -822,7 +864,7 @@ class ParserOptions {
 	 * @since 1.30
 	 * @param string $className Class name to use for wrapping.
 	 *   Passing false to indicate "no wrapping" was deprecated in MediaWiki 1.31.
-	 * @return string|bool Current value
+	 * @return string|false Current value
 	 */
 	public function setWrapOutputClass( $className ) {
 		if ( $className === true ) { // DWIM, they probably want the default class name
@@ -1107,7 +1149,7 @@ class ParserOptions {
 	 */
 	public static function clearStaticCache() {
 		if ( !defined( 'MW_PHPUNIT_TEST' ) && !defined( 'MW_PARSER_TEST' ) ) {
-			throw new RuntimeException( __METHOD__ . ' is just for testing' );
+			throw new LogicException( __METHOD__ . ' is just for testing' );
 		}
 		self::$defaults = null;
 		self::$lazyOptions = null;
@@ -1125,19 +1167,19 @@ class ParserOptions {
 	private static function getDefaults() {
 		$services = MediaWikiServices::getInstance();
 		$mainConfig = $services->getMainConfig();
-		$interwikiMagic = $mainConfig->get( 'InterwikiMagic' );
-		$allowExternalImages = $mainConfig->get( 'AllowExternalImages' );
-		$allowExternalImagesFrom = $mainConfig->get( 'AllowExternalImagesFrom' );
-		$enableImageWhitelist = $mainConfig->get( 'EnableImageWhitelist' );
-		$allowSpecialInclusion = $mainConfig->get( 'AllowSpecialInclusion' );
-		$maxArticleSize = $mainConfig->get( 'MaxArticleSize' );
-		$maxPPNodeCount = $mainConfig->get( 'MaxPPNodeCount' );
-		$maxTemplateDepth = $mainConfig->get( 'MaxTemplateDepth' );
-		$maxPPExpandDepth = $mainConfig->get( 'MaxPPExpandDepth' );
-		$cleanSignatures = $mainConfig->get( 'CleanSignatures' );
-		$externalLinkTarget = $mainConfig->get( 'ExternalLinkTarget' );
-		$expensiveParserFunctionLimit = $mainConfig->get( 'ExpensiveParserFunctionLimit' );
-		$enableMagicLinks = $mainConfig->get( 'EnableMagicLinks' );
+		$interwikiMagic = $mainConfig->get( MainConfigNames::InterwikiMagic );
+		$allowExternalImages = $mainConfig->get( MainConfigNames::AllowExternalImages );
+		$allowExternalImagesFrom = $mainConfig->get( MainConfigNames::AllowExternalImagesFrom );
+		$enableImageWhitelist = $mainConfig->get( MainConfigNames::EnableImageWhitelist );
+		$allowSpecialInclusion = $mainConfig->get( MainConfigNames::AllowSpecialInclusion );
+		$maxArticleSize = $mainConfig->get( MainConfigNames::MaxArticleSize );
+		$maxPPNodeCount = $mainConfig->get( MainConfigNames::MaxPPNodeCount );
+		$maxTemplateDepth = $mainConfig->get( MainConfigNames::MaxTemplateDepth );
+		$maxPPExpandDepth = $mainConfig->get( MainConfigNames::MaxPPExpandDepth );
+		$cleanSignatures = $mainConfig->get( MainConfigNames::CleanSignatures );
+		$externalLinkTarget = $mainConfig->get( MainConfigNames::ExternalLinkTarget );
+		$expensiveParserFunctionLimit = $mainConfig->get( MainConfigNames::ExpensiveParserFunctionLimit );
+		$enableMagicLinks = $mainConfig->get( MainConfigNames::EnableMagicLinks );
 		$languageConverterFactory = $services->getLanguageConverterFactory();
 		$userOptionsLookup = $services->getUserOptionsLookup();
 		$contentLanguage = $services->getContentLanguage();
@@ -1149,6 +1191,7 @@ class ParserOptions {
 				'interfaceMessage' => false,
 				'targetLanguage' => null,
 				'removeComments' => true,
+				'suppressTOC' => false,
 				'enableLimitReport' => false,
 				'preSaveTransform' => true,
 				'isPreview' => false,
@@ -1162,12 +1205,13 @@ class ParserOptions {
 				'speculativeRevId' => null,
 				'speculativePageIdCallback' => null,
 				'speculativePageId' => null,
+				'useParsoid' => false,
 			];
 
 			self::$cacheVaryingOptionsHash = self::$initialCacheVaryingOptionsHash;
 			self::$lazyOptions = self::$initialLazyOptions;
 
-			Hooks::runner()->onParserOptionsRegister(
+			( new HookRunner( $services->getHookContainer() ) )->onParserOptionsRegister(
 				self::$defaults,
 				self::$cacheVaryingOptionsHash,
 				self::$lazyOptions
@@ -1192,9 +1236,16 @@ class ParserOptions {
 			'cleanSignatures' => $cleanSignatures,
 			'disableContentConversion' => $languageConverterFactory->isConversionDisabled(),
 			'disableTitleConversion' => $languageConverterFactory->isLinkConversionDisabled(),
-			'magicISBNLinks' => $enableMagicLinks['ISBN'],
-			'magicPMIDLinks' => $enableMagicLinks['PMID'],
-			'magicRFCLinks' => $enableMagicLinks['RFC'],
+			// FIXME: The fallback to false for enableMagicLinks is a band-aid to allow
+			// the phpunit entrypoint patch (I82045c207738d152d5b0006f353637cfaa40bb66)
+			// to be merged.
+			// It is possible that a test somewhere is globally resetting $wgEnableMagicLinks
+			// to null, or that ParserOptions is somehow similarly getting reset in such a way
+			// that $enableMagicLinks ends up as null rather than an array. This workaround
+			// seems harmless, but would be nice to eventually fix the underlying issue.
+			'magicISBNLinks' => $enableMagicLinks['ISBN'] ?? false,
+			'magicPMIDLinks' => $enableMagicLinks['PMID'] ?? false,
+			'magicRFCLinks' => $enableMagicLinks['RFC'] ?? false,
 			'thumbsize' => $userOptionsLookup->getDefaultOption( 'thumbsize' ),
 			'userlang' => $contentLanguage,
 		];
@@ -1303,7 +1354,7 @@ class ParserOptions {
 	 * Record that an option was internally accessed.
 	 *
 	 * This calls the watcher set by ParserOptions::registerWatcher().
-	 * Typically, the watcher callback is ParserOutput::registerOption().
+	 * Typically, the watcher callback is ParserOutput::recordOption().
 	 * The information registered this way is consumed by ParserCache::save().
 	 *
 	 * @param string $optionName Name of the option
@@ -1357,7 +1408,7 @@ class ParserOptions {
 	 * @return string Page rendering hash
 	 */
 	public function optionsHash( $forOptions, $title = null ) {
-		$renderHashAppend = MediaWikiServices::getInstance()->getMainConfig()->get( 'RenderHashAppend' );
+		$renderHashAppend = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::RenderHashAppend );
 
 		$inCacheKey = self::allCacheVaryingOptions();
 
@@ -1403,7 +1454,7 @@ class ParserOptions {
 		$user = $services->getUserFactory()->newFromUserIdentity( $this->getUserIdentity() );
 		// Give a chance for extensions to modify the hash, if they have
 		// extra options or other effects on the parser cache.
-		Hooks::runner()->onPageRenderingHash(
+		( new HookRunner( $services->getHookContainer() ) )->onPageRenderingHash(
 			$confstr,
 			$user,
 			$forOptions
@@ -1424,7 +1475,7 @@ class ParserOptions {
 	public function isSafeToCache( array $usedOptions = null ) {
 		$defaults = self::getDefaults();
 		$inCacheKey = self::getCacheVaryingOptionsHash();
-		$usedOptions = $usedOptions ?? array_keys( $this->options );
+		$usedOptions ??= array_keys( $this->options );
 		foreach ( $usedOptions as $option ) {
 			if ( empty( $inCacheKey[$option] ) && empty( self::$callbacks[$option] ) ) {
 				$v = $this->optionToString( $this->options[$option] ?? null );
@@ -1484,6 +1535,24 @@ class ParserOptions {
 			$linkCache->clearLink( $title );
 			$this->setCurrentRevisionRecordCallback( $oldCallback );
 		} );
+	}
+
+	/**
+	 * Returns reason for rendering the content. This human-readable, intended for logging and debugging only.
+	 * Expected values include "edit", "view", "purge", "LinksUpdate", etc.
+	 * @return string
+	 */
+	public function getRenderReason(): string {
+		return $this->renderReason;
+	}
+
+	/**
+	 * Sets reason for rendering the content. This human-readable, intended for logging and debugging only.
+	 * Expected values include "edit", "view", "purge", "LinksUpdate", etc.
+	 * @param string $renderReason
+	 */
+	public function setRenderReason( string $renderReason ): void {
+		$this->renderReason = $renderReason;
 	}
 }
 

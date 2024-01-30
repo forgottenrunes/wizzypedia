@@ -23,6 +23,9 @@
  * @since 1.22
  */
 
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
+
 /**
  * This class formats new user log entries.
  *

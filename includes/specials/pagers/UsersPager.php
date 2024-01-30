@@ -23,13 +23,29 @@
  * @ingroup Pager
  */
 
+namespace MediaWiki\Pager;
+
+use HTMLForm;
+use HTMLHiddenField;
+use HTMLInfoField;
+use HTMLSelectField;
+use HTMLSubmitField;
+use HTMLUserTextField;
+use IContextSource;
 use MediaWiki\Cache\LinkBatchFactory;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\Html\Html;
+use MediaWiki\Linker\Linker;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Title\Title;
 use MediaWiki\User\UserGroupManager;
+use MediaWiki\User\UserGroupMembership;
 use MediaWiki\User\UserIdentity;
+use MediaWiki\User\UserIdentityLookup;
 use MediaWiki\User\UserIdentityValue;
-use Wikimedia\Rdbms\ILoadBalancer;
+use stdClass;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * This class is used to get a list of user. The ones with specials
@@ -63,21 +79,18 @@ class UsersPager extends AlphabeticPager {
 	/** @var string */
 	protected $requestedUser;
 
-	/** @var HookRunner */
-	private $hookRunner;
-
-	/** @var LinkBatchFactory */
-	private $linkBatchFactory;
-
-	/** @var UserGroupManager */
-	private $userGroupManager;
+	private HookRunner $hookRunner;
+	private LinkBatchFactory $linkBatchFactory;
+	private UserGroupManager $userGroupManager;
+	private UserIdentityLookup $userIdentityLookup;
 
 	/**
 	 * @param IContextSource $context
 	 * @param HookContainer $hookContainer
 	 * @param LinkBatchFactory $linkBatchFactory
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param UserGroupManager $userGroupManager
+	 * @param UserIdentityLookup $userIdentityLookup
 	 * @param string|null $par
 	 * @param bool|null $including Whether this page is being transcluded in
 	 * another page
@@ -86,15 +99,16 @@ class UsersPager extends AlphabeticPager {
 		IContextSource $context,
 		HookContainer $hookContainer,
 		LinkBatchFactory $linkBatchFactory,
-		ILoadBalancer $loadBalancer,
+		IConnectionProvider $dbProvider,
 		UserGroupManager $userGroupManager,
+		UserIdentityLookup $userIdentityLookup,
 		$par,
 		$including
 	) {
 		$this->setContext( $context );
 
 		$request = $this->getRequest();
-		$par = $par ?? '';
+		$par ??= '';
 		$parms = explode( '/', $par );
 		$symsForAll = [ '*', 'user' ];
 
@@ -133,11 +147,12 @@ class UsersPager extends AlphabeticPager {
 		}
 
 		// Set database before parent constructor to avoid setting it there with wfGetDB
-		$this->mDb = $loadBalancer->getConnectionRef( ILoadBalancer::DB_REPLICA );
+		$this->mDb = $dbProvider->getReplicaDatabase();
 		parent::__construct();
 		$this->userGroupManager = $userGroupManager;
 		$this->hookRunner = new HookRunner( $hookContainer );
 		$this->linkBatchFactory = $linkBatchFactory;
+		$this->userIdentityLookup = $userIdentityLookup;
 	}
 
 	/**
@@ -156,7 +171,7 @@ class UsersPager extends AlphabeticPager {
 
 		// Don't show hidden names
 		if ( !$this->canSeeHideuser() ) {
-			$conds[] = 'ipb_deleted IS NULL OR ipb_deleted = 0';
+			$conds['ipb_deleted'] = [ null, 0 ];
 		}
 
 		$options = [];
@@ -173,7 +188,10 @@ class UsersPager extends AlphabeticPager {
 		if ( $this->requestedUser != '' ) {
 			# Sorted either by account creation or name
 			if ( $this->creationSort ) {
-				$conds[] = 'user_id >= ' . intval( User::idFromName( $this->requestedUser ) );
+				$userIdentity = $this->userIdentityLookup->getUserIdentityByName( $this->requestedUser );
+				if ( $userIdentity && $userIdentity->isRegistered() ) {
+					$conds[] = 'user_id >= ' . $userIdentity->getId();
+				}
 			} else {
 				$conds[] = 'user_name >= ' . $dbr->addQuotes( $this->requestedUser );
 			}
@@ -254,7 +272,7 @@ class UsersPager extends AlphabeticPager {
 		}
 
 		$edits = '';
-		if ( !$this->including && $this->getConfig()->get( 'Edititis' ) ) {
+		if ( !$this->including && $this->getConfig()->get( MainConfigNames::Edititis ) ) {
 			$count = $this->msg( 'usereditcount' )->numParams( $row->edits )->escaped();
 			$edits = $this->msg( 'word-separator' )->escaped() . $this->msg( 'brackets', $count )->escaped();
 		}
@@ -285,19 +303,14 @@ class UsersPager extends AlphabeticPager {
 		foreach ( $this->mResult as $row ) {
 			$batch->add( NS_USER, $row->user_name );
 			$batch->add( NS_USER_TALK, $row->user_name );
-			$userIds[] = $row->user_id;
+			$userIds[] = (int)$row->user_id;
 		}
 
 		// Lookup groups for all the users
-		$dbr = $this->getDatabase();
-		$groupsQueryInfo = $this->userGroupManager->getQueryInfo();
-		$groupRes = $dbr->select(
-			$groupsQueryInfo['tables'],
-			$groupsQueryInfo['fields'],
-			[ 'ug_user' => $userIds ],
-			__METHOD__,
-			$groupsQueryInfo['joins']
-		);
+		$queryBuilder = $this->userGroupManager->newQueryBuilder( $this->getDatabase() );
+		$groupRes = $queryBuilder->where( [ 'ug_user' => $userIds ] )
+			->caller( __METHOD__ )
+			->fetchResultSet();
 		$cache = [];
 		$groups = [];
 		foreach ( $groupRes as $row ) {
@@ -310,7 +323,7 @@ class UsersPager extends AlphabeticPager {
 
 		// Give extensions a chance to add things like global user group data
 		// into the cache array to ensure proper output later on
-		$this->hookRunner->onUsersPagerDoBatchLookups( $dbr, $userIds, $cache, $groups );
+		$this->hookRunner->onUsersPagerDoBatchLookups( $this->getDatabase(), $userIds, $cache, $groups );
 
 		$this->userGroupCache = $cache;
 
@@ -416,7 +429,7 @@ class UsersPager extends AlphabeticPager {
 		$htmlForm = HTMLForm::factory( 'ooui', $formDescriptor, $this->getContext() );
 		$htmlForm
 			->setMethod( 'get' )
-			->setAction( Title::newFromText( $self )->getLocalURL() )
+			->setTitle( Title::newFromText( $self ) )
 			->setId( 'mw-listusers-form' )
 			->setFormIdentifier( 'mw-listusers-form' )
 			->suppressDefaultSubmit()
@@ -434,8 +447,9 @@ class UsersPager extends AlphabeticPager {
 	 */
 	private function getAllGroups() {
 		$result = [];
+		$lang = $this->getLanguage();
 		foreach ( $this->userGroupManager->listAllGroups() as $group ) {
-			$result[$group] = UserGroupMembership::getGroupName( $group );
+			$result[$group] = $lang->getGroupName( $group );
 		}
 		asort( $result );
 
@@ -482,6 +496,12 @@ class UsersPager extends AlphabeticPager {
 	 * @return string
 	 */
 	protected function buildGroupLink( $group, $username ) {
-		return UserGroupMembership::getLink( $group, $this->getContext(), 'html', $username );
+		return UserGroupMembership::getLinkHTML( $group, $this->getContext(), $username );
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( UsersPager::class, 'UsersPager' );

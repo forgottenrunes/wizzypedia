@@ -6,7 +6,6 @@
 		]
 	},
 	"visualeditor": "VisualEditor",
-	"visualeditor-aliencontextitem-title": "Элемент",
 	"visualeditor-aliennode-tooltip": "Кешіріңіз, бұл элементті тек қайнар мәтінін ғана өңдеуге болады.",
 	"visualeditor-align-desc-center": "ортасына",
 	"visualeditor-align-desc-default": "әдепкі",
@@ -34,7 +33,6 @@
 	"visualeditor-clipboard-cut": "Қиып алу",
 	"visualeditor-clipboard-paste": "Қою",
 	"visualeditor-clipboard-paste-special": "Кәдімгі мәтін ретінде қою",
-	"visualeditor-commentinspector-edit": "Пікірді өңдеу",
 	"visualeditor-commentinspector-title": "Пікір",
 	"visualeditor-commentinspector-tooltip": "Пікір",
 	"visualeditor-content-select-all": "Барлығын таңдау",

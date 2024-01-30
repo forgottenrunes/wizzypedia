@@ -3,6 +3,7 @@
 namespace MediaWiki\ParamValidator\TypeDef;
 
 use ChangeTags;
+use MediaWiki\ChangeTags\ChangeTagsStore;
 use MediaWikiIntegrationTestCase;
 use Wikimedia\Message\DataMessageValue;
 use Wikimedia\ParamValidator\ParamValidator;
@@ -10,6 +11,7 @@ use Wikimedia\ParamValidator\SimpleCallbacks;
 use Wikimedia\ParamValidator\ValidationException;
 
 /**
+ * @group Database
  * @covers MediaWiki\ParamValidator\TypeDef\TagsDef
  */
 class TagsDefTest extends MediaWikiIntegrationTestCase {
@@ -48,7 +50,10 @@ class TagsDefTest extends MediaWikiIntegrationTestCase {
 		$value, $expect, array $settings = [], array $options = [], array $expectConds = []
 	) {
 		$callbacks = new SimpleCallbacks( [ 'test' => $value ] );
-		$typeDef = new TagsDef( $callbacks );
+		$typeDef = new TagsDef(
+			$callbacks,
+			$this->getServiceContainer()->getChangeTagsStore()
+		);
 		$settings = $typeDef->normalizeSettings( $settings );
 
 		if ( $expect instanceof ValidationException ) {
@@ -78,7 +83,7 @@ class TagsDefTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( $expectConds, $conditions );
 	}
 
-	public function provideValidate() {
+	public static function provideValidate() {
 		$settings = [
 			ParamValidator::PARAM_TYPE => 'tags',
 			ParamValidator::PARAM_ISMULTI => true,
@@ -114,9 +119,17 @@ class TagsDefTest extends MediaWikiIntegrationTestCase {
 	}
 
 	public function testGetEnumValues() {
-		$typeDef = new TagsDef( new SimpleCallbacks( [] ) );
+		$explicitlyDefinedTags = [ 'foo', 'bar', 'baz' ];
+		$changeTagsStore = $this->createNoOpMock(
+			ChangeTagsStore::class,
+			[ 'listExplicitlyDefinedTags' ]
+		);
+		$changeTagsStore->method( 'listExplicitlyDefinedTags' )
+			->willReturn( $explicitlyDefinedTags );
+
+		$typeDef = new TagsDef( new SimpleCallbacks( [] ), $changeTagsStore );
 		$this->assertSame(
-			ChangeTags::listExplicitlyDefinedTags(),
+			$explicitlyDefinedTags,
 			$typeDef->getEnumValues( 'test', [], [] )
 		);
 	}

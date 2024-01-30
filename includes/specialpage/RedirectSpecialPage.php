@@ -21,6 +21,11 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\SpecialPage;
+
+use LogicException;
+use MediaWiki\Title\Title;
+
 /**
  * Shortcut to construct a special page alias.
  *
@@ -71,14 +76,14 @@ abstract class RedirectSpecialPage extends UnlistedSpecialPage {
 	 *
 	 * @stable to override
 	 * @param string|null $subpage
-	 * @return array|bool
+	 * @return array|false
 	 */
 	public function getRedirectQuery( $subpage ) {
 		$params = [];
 		$request = $this->getRequest();
 
 		foreach ( array_merge( $this->mAllowedRedirectParams,
-				[ 'uselang', 'useskin', 'debug', 'safemode' ] // parameters which can be passed to all pages
+				[ 'uselang', 'useskin', 'variant', 'debug', 'safemode' ] // parameters which can be passed to all pages
 			) as $arg ) {
 			if ( $request->getVal( $arg, null ) !== null ) {
 				$params[$arg] = $request->getVal( $arg );
@@ -114,6 +119,12 @@ abstract class RedirectSpecialPage extends UnlistedSpecialPage {
 	 */
 	protected function showNoRedirectPage() {
 		$class = static::class;
-		throw new MWException( "RedirectSpecialPage $class doesn't redirect!" );
+		throw new LogicException( "RedirectSpecialPage $class doesn't redirect!" );
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( RedirectSpecialPage::class, 'RedirectSpecialPage' );

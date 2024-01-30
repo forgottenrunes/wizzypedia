@@ -21,12 +21,30 @@
  * @ingroup SpecialPage
  * @author DannyS712
  */
+
+namespace MediaWiki\Specials;
+
+use MediaWiki\SpecialPage\SpecialRedirectWithAction;
+use SearchEngineFactory;
+
 class SpecialPageInfo extends SpecialRedirectWithAction {
-	public function __construct() {
-		parent::__construct( 'PageInfo', 'info', 'pageinfo' );
+
+	/**
+	 * @param SearchEngineFactory $searchEngineFactory
+	 */
+	public function __construct(
+		SearchEngineFactory $searchEngineFactory
+	) {
+		parent::__construct( 'PageInfo', 'info', 'pageinfo', $searchEngineFactory );
 	}
 
 	// Messages, for grep:
 	// specialpageinfo-page
 	// specialpageinfo-submit
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialPageInfo::class, 'SpecialPageInfo' );

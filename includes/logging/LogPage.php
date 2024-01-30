@@ -23,7 +23,12 @@
  * @file
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\StubObject\StubUserLang;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 use MediaWiki\User\UserIdentity;
 
 /**
@@ -96,7 +101,7 @@ class LogPage {
 	 * @return int The log_id of the inserted log entry
 	 */
 	protected function saveContent() {
-		$logRestrictions = MediaWikiServices::getInstance()->getMainConfig()->get( 'LogRestrictions' );
+		$logRestrictions = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::LogRestrictions );
 
 		$dbw = wfGetDB( DB_PRIMARY );
 
@@ -204,7 +209,7 @@ class LogPage {
 	 * @return string[]
 	 */
 	public static function validTypes() {
-		$logTypes = MediaWikiServices::getInstance()->getMainConfig()->get( 'LogTypes' );
+		$logTypes = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::LogTypes );
 
 		return $logTypes;
 	}
@@ -236,10 +241,24 @@ class LogPage {
 		$params = [], $filterWikilinks = false
 	) {
 		global $wgLang;
-		$logActions = MediaWikiServices::getInstance()->getMainConfig()->get( 'LogActions' );
+		$config = MediaWikiServices::getInstance()->getMainConfig();
+		$logActionsHandlers = $config->get( MainConfigNames::LogActionsHandlers );
 		$key = "$type/$action";
 
-		if ( isset( $logActions[$key] ) ) {
+		if ( isset( $logActionsHandlers[$key] ) ) {
+			$args = func_get_args();
+			$rv = call_user_func_array( $logActionsHandlers[$key], $args );
+		} else {
+			$logActions = $config->get( MainConfigNames::LogActions );
+
+			if ( isset( $logActions[$key] ) ) {
+				$message = $logActions[$key];
+			} else {
+				wfDebug( "LogPage::actionText - unknown action $key" );
+				$message = "log-unknown-action";
+				$params = [ $key ];
+			}
+
 			if ( $skin === null ) {
 				$langObj = MediaWikiServices::getInstance()->getContentLanguage();
 				$langObjOrNull = null;
@@ -250,30 +269,19 @@ class LogPage {
 				$langObjOrNull = $wgLang;
 			}
 			if ( $title === null ) {
-				$rv = wfMessage( $logActions[$key] )->inLanguage( $langObj )->escaped();
+				$rv = wfMessage( $message )->inLanguage( $langObj )->escaped();
 			} else {
 				$titleLink = self::getTitleLink( $title, $langObjOrNull );
 
 				if ( count( $params ) == 0 ) {
-					// @phan-suppress-next-line SecurityCheck-XSS
-					$rv = wfMessage( $logActions[$key] )->rawParams( $titleLink )
+					$rv = wfMessage( $message )->rawParams( $titleLink )
 						->inLanguage( $langObj )->escaped();
 				} else {
 					array_unshift( $params, $titleLink );
 
-					$rv = wfMessage( $logActions[$key] )->rawParams( $params )
+					$rv = wfMessage( $message )->rawParams( $params )
 							->inLanguage( $langObj )->escaped();
 				}
-			}
-		} else {
-			$logActionsHandlers = MediaWikiServices::getInstance()->getMainConfig()->get( 'LogActionsHandlers' );
-
-			if ( isset( $logActionsHandlers[$key] ) ) {
-				$args = func_get_args();
-				$rv = call_user_func_array( $logActionsHandlers[$key], $args );
-			} else {
-				wfDebug( "LogPage::actionText - unknown action $key" );
-				$rv = "$action";
 			}
 		}
 
@@ -329,7 +337,7 @@ class LogPage {
 	 * @param string $action One of '', 'block', 'protect', 'rights', 'delete',
 	 *   'upload', 'move', 'move_redir'
 	 * @param Title $target
-	 * @param string $comment Description associated
+	 * @param string|null $comment Description associated
 	 * @param array $params Parameters passed later to wfMessage function
 	 * @param int|UserIdentity $performer The user doing the action, or their user id.
 	 *   Calling with user ID is deprecated since 1.36.
@@ -342,12 +350,8 @@ class LogPage {
 			$params = [ $params ];
 		}
 
-		if ( $comment === null ) {
-			$comment = '';
-		}
-
 		# Trim spaces on user supplied text
-		$comment = trim( $comment );
+		$comment = trim( $comment ?? '' );
 
 		$this->action = $action;
 		$this->target = $target;
@@ -388,7 +392,7 @@ class LogPage {
 	 * @return bool
 	 */
 	public function addRelations( $field, $values, $logid ) {
-		if ( !strlen( $field ) || empty( $values ) ) {
+		if ( !strlen( $field ) || !$values ) {
 			return false;
 		}
 
@@ -438,7 +442,7 @@ class LogPage {
 	 * @since 1.19
 	 */
 	public function getName() {
-		$logNames = MediaWikiServices::getInstance()->getMainConfig()->get( 'LogNames' );
+		$logNames = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::LogNames );
 
 		// BC
 		$key = $logNames[$this->type] ?? 'log-name-' . $this->type;
@@ -452,7 +456,7 @@ class LogPage {
 	 * @since 1.19
 	 */
 	public function getDescription() {
-		$logHeaders = MediaWikiServices::getInstance()->getMainConfig()->get( 'LogHeaders' );
+		$logHeaders = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::LogHeaders );
 		// BC
 		$key = $logHeaders[$this->type] ?? 'log-description-' . $this->type;
 
@@ -465,7 +469,7 @@ class LogPage {
 	 * @since 1.19
 	 */
 	public function getRestriction() {
-		$logRestrictions = MediaWikiServices::getInstance()->getMainConfig()->get( 'LogRestrictions' );
+		$logRestrictions = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::LogRestrictions );
 		// The empty string fallback will
 		// always return true in permission check
 		return $logRestrictions[$this->type] ?? '';

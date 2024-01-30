@@ -23,14 +23,14 @@
  */
 
 use MediaWiki\Revision\RevisionStore;
+use Wikimedia\ParamValidator\ParamValidator;
 
 /**
  * Allows user to patrol pages
  * @ingroup API
  */
 class ApiPatrol extends ApiBase {
-	/** @var RevisionStore */
-	private $revisionStore;
+	private RevisionStore $revisionStore;
 
 	/**
 	 * @param ApiMain $main
@@ -102,14 +102,14 @@ class ApiPatrol extends ApiBase {
 	public function getAllowedParams() {
 		return [
 			'rcid' => [
-				ApiBase::PARAM_TYPE => 'integer'
+				ParamValidator::PARAM_TYPE => 'integer'
 			],
 			'revid' => [
-				ApiBase::PARAM_TYPE => 'integer'
+				ParamValidator::PARAM_TYPE => 'integer'
 			],
 			'tags' => [
-				ApiBase::PARAM_TYPE => 'tags',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'tags',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 		];
 	}

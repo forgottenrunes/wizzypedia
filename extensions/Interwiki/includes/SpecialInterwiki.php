@@ -4,16 +4,15 @@ namespace MediaWiki\Extension\Interwiki;
 
 use Html;
 use HTMLForm;
-use Language;
 use LogPage;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
+use MediaWiki\WikiMap\WikiMap;
 use OutputPage;
 use PermissionsError;
 use ReadOnlyError;
 use SpecialPage;
 use Status;
-use Title;
-use WikiMap;
 
 /**
  * Implements Special:Interwiki
@@ -35,11 +34,10 @@ class SpecialInterwiki extends SpecialPage {
 	 * Different description will be shown on Special:SpecialPage depending on
 	 * whether the user can modify the data.
 	 *
-	 * @return string
+	 * @return \Message
 	 */
 	public function getDescription() {
-		return $this->msg( $this->canModify() ?
-			'interwiki' : 'interwiki-title-norights' )->plain();
+		return $this->msg( $this->canModify() ? 'interwiki' : 'interwiki-title-norights' );
 	}
 
 	public function getSubpagesForPrefixSearch() {
@@ -222,7 +220,7 @@ class SpecialInterwiki extends SpecialPage {
 			}
 
 			$htmlForm->setSubmitTextMsg( $action !== 'add' ? $action : 'interwiki_addbutton' )
-				->setIntro( $this->msg( $action !== 'delete' ? "interwiki_{$action}intro" :
+				->setPreHtml( $this->msg( $action !== 'delete' ? "interwiki_{$action}intro" :
 					'interwiki_deleting', $prefix )->escaped() )
 				->show();
 		} else {
@@ -252,7 +250,7 @@ class SpecialInterwiki extends SpecialPage {
 		// Disallow adding local interlanguage definitions if using global
 		$interwikiCentralInterlanguageDB = $config->get( 'InterwikiCentralInterlanguageDB' );
 		if (
-			$do === 'add' && Language::fetchLanguageName( $prefix )
+			$do === 'add' && MediaWikiServices::getInstance()->getLanguageNameUtils()->getLanguageName( $prefix )
 			&& $interwikiCentralInterlanguageDB !== WikiMap::getCurrentWikiId()
 			&& $interwikiCentralInterlanguageDB !== null
 		) {
@@ -296,6 +294,7 @@ class SpecialInterwiki extends SpecialPage {
 				'iw_prefix' => $prefix,
 				'iw_url' => $theurl,
 				'iw_api' => $api,
+				'iw_wikiid' => '',
 				'iw_local' => $local,
 				'iw_trans' => $trans
 			];
@@ -351,6 +350,7 @@ class SpecialInterwiki extends SpecialPage {
 		$iwGlobalLanguagePrefixes = [];
 		$config = $this->getConfig();
 		$interwikiCentralDB = $config->get( 'InterwikiCentralDB' );
+		$languageNameUtils = MediaWikiServices::getInstance()->getLanguageNameUtils();
 		if ( $interwikiCentralDB !== null && $interwikiCentralDB !== WikiMap::getCurrentWikiId() ) {
 			// Fetch list from global table
 			$dbrCentralDB = wfGetDB( DB_REPLICA, [], $interwikiCentralDB );
@@ -358,7 +358,7 @@ class SpecialInterwiki extends SpecialPage {
 			$retval = [];
 			foreach ( $res as $row ) {
 				$row = (array)$row;
-				if ( !Language::fetchLanguageName( $row['iw_prefix'] ) ) {
+				if ( !$languageNameUtils->getLanguageName( $row['iw_prefix'] ) ) {
 					$retval[] = $row;
 				}
 			}
@@ -380,7 +380,7 @@ class SpecialInterwiki extends SpecialPage {
 				$row = (array)$row;
 				// Note that the above DB query explicitly *excludes* interlang ones
 				// (which makes sense), whereas here we _only_ care about interlang ones!
-				if ( Language::fetchLanguageName( $row['iw_prefix'] ) ) {
+				if ( $languageNameUtils->getLanguageName( $row['iw_prefix'] ) ) {
 					$retval2[] = $row;
 				}
 			}
@@ -391,7 +391,7 @@ class SpecialInterwiki extends SpecialPage {
 		$iwLocalPrefixes = [];
 		$iwLanguagePrefixes = [];
 		foreach ( $iwPrefixes as $iwPrefix ) {
-			if ( Language::fetchLanguageName( $iwPrefix['iw_prefix'] ) ) {
+			if ( $languageNameUtils->getLanguageName( $iwPrefix['iw_prefix'] ) ) {
 				$iwLanguagePrefixes[] = $iwPrefix;
 			} else {
 				$iwLocalPrefixes[] = $iwPrefix;

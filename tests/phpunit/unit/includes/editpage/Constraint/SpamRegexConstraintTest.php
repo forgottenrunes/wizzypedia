@@ -21,6 +21,7 @@
 use MediaWiki\EditPage\Constraint\IEditConstraint;
 use MediaWiki\EditPage\Constraint\SpamRegexConstraint;
 use MediaWiki\EditPage\SpamChecker;
+use MediaWiki\Title\Title;
 use Psr\Log\LogLevel;
 use Psr\Log\NullLogger;
 
@@ -62,7 +63,6 @@ class SpamRegexConstraintTest extends MediaWikiUnitTestCase {
 			$logger,
 			$spamChecker,
 			$summary,
-			'new',
 			$sectionHeading,
 			$text,
 			'Request-IP',
@@ -95,7 +95,6 @@ class SpamRegexConstraintTest extends MediaWikiUnitTestCase {
 			$logger,
 			$spamChecker,
 			$summary,
-			'',
 			$sectionHeading,
 			$text,
 			'Request-IP',

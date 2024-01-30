@@ -29,22 +29,21 @@ use MediaWiki\Watchlist\WatchlistManager;
  */
 class UnwatchAction extends WatchAction {
 
-	/** @var WatchlistManager */
-	private $watchlistManager;
+	private WatchlistManager $watchlistManager;
 
 	/**
-	 * @param Page $page
+	 * @param Article $article
 	 * @param IContextSource $context
 	 * @param WatchlistManager $watchlistManager
 	 * @param WatchedItemStore $watchedItemStore
 	 */
 	public function __construct(
-		Page $page,
+		Article $article,
 		IContextSource $context,
 		WatchlistManager $watchlistManager,
 		WatchedItemStore $watchedItemStore
 	) {
-		parent::__construct( $page, $context, $watchlistManager, $watchedItemStore );
+		parent::__construct( $article, $context, $watchlistManager, $watchedItemStore );
 		$this->watchlistManager = $watchlistManager;
 	}
 
@@ -54,7 +53,7 @@ class UnwatchAction extends WatchAction {
 
 	public function onSubmit( $data ) {
 		$this->watchlistManager->removeWatch(
-			$this->getContext()->getAuthority(),
+			$this->getAuthority(),
 			$this->getTitle()
 		);
 

@@ -18,6 +18,8 @@
  * @file
  */
 
+use MediaWiki\Title\MalformedTitleException;
+
 /**
  * Show an error page on a badtitle.
  *
@@ -58,7 +60,17 @@ class BadTitleError extends ErrorPageError {
 	 */
 	public function report( $action = self::SEND_OUTPUT ) {
 		global $wgOut;
+
 		$wgOut->setStatusCode( 404 );
-		parent::report( $action );
+
+		parent::report( self::STAGE_OUTPUT );
+
+		// Unconditionally cache the error for an hour, see T316932
+		$wgOut->enableClientCache();
+		$wgOut->setCdnMaxage( 3600 );
+
+		if ( $action === self::SEND_OUTPUT ) {
+			$wgOut->output();
+		}
 	}
 }

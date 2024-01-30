@@ -34,7 +34,7 @@ class SyntaxChecker {
 	private $treeRoot;
 
 	/** @var KeywordsManager */
-	protected $keywordsManager;
+	private $keywordsManager;
 
 	public const MCONSERVATIVE = 'MODE_CONSERVATIVE';
 	public const MLIBERAL = 'MODE_LIBERAL';
@@ -144,6 +144,8 @@ class SyntaxChecker {
 				return $this->newNodeNamedBinop( $node, '**' );
 
 			case AFPTreeNode::UNARY:
+			case AFPTreeNode::INDEX_ASSIGNMENT:
+			case AFPTreeNode::ARRAY_APPEND:
 				return $this->newNodeMapExceptFirst( $node );
 
 			case AFPTreeNode::BOOL_INVERT:
@@ -178,7 +180,7 @@ class SyntaxChecker {
 					$node->children[2] = new AFPTreeNode(
 						AFPTreeNode::ATOM,
 						new AFPToken(
-							AFPTOKEN::TKEYWORD,
+							AFPToken::TKEYWORD,
 							"null",
 							$node->position
 						),
@@ -208,10 +210,6 @@ class SyntaxChecker {
 					$node->position
 				);
 
-			case AFPTreeNode::INDEX_ASSIGNMENT:
-			case AFPTreeNode::ARRAY_APPEND:
-				return $this->newNodeMapExceptFirst( $node );
-
 			default:
 				// @codeCoverageIgnoreStart
 				throw new InternalException( "Unknown node type passed: {$node->type}" );
@@ -235,7 +233,7 @@ class SyntaxChecker {
 		$trueNode = new AFPTreeNode(
 			AFPTreeNode::ATOM,
 			new AFPToken(
-				AFPTOKEN::TKEYWORD,
+				AFPToken::TKEYWORD,
 				"true",
 				$position
 			),
@@ -244,7 +242,7 @@ class SyntaxChecker {
 		$falseNode = new AFPTreeNode(
 			AFPTreeNode::ATOM,
 			new AFPToken(
-				AFPTOKEN::TKEYWORD,
+				AFPToken::TKEYWORD,
 				"false",
 				$position
 			),
@@ -642,7 +640,7 @@ class SyntaxChecker {
 	 * @param int $position
 	 * @throws UserVisibleException
 	 */
-	protected function checkArgCount( array $args, string $func, int $position ): void {
+	private function checkArgCount( array $args, string $func, int $position ): void {
 		if ( !array_key_exists( $func, FilterEvaluator::FUNC_ARG_COUNT ) ) {
 			// @codeCoverageIgnoreStart
 			throw new InvalidArgumentException( "$func is not a valid function." );
@@ -671,7 +669,7 @@ class SyntaxChecker {
 	 * @param string $name
 	 * @return bool
 	 */
-	protected function isReservedIdentifier( string $name ): bool {
+	private function isReservedIdentifier( string $name ): bool {
 		return $this->keywordsManager->varExists( $name ) ||
 			array_key_exists( $name, FilterEvaluator::FUNCTIONS ) ||
 			// We need to check for true, false, if/then/else etc. because, even if they have a different

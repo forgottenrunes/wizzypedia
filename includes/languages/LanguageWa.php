@@ -1,7 +1,5 @@
 <?php
 /**
- * Walloon (Walon) specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,7 +16,6 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
 
 /**
@@ -27,7 +24,7 @@
  * NOTE: cweri après "NOTE:" po des racsegnes so des ratournaedjes
  * k' i gn a.
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class LanguageWa extends Language {
 
@@ -36,34 +33,20 @@ class LanguageWa extends Language {
 	 * "<day> di <monthname>" for months starting by a consoun, and
 	 * "<day> d' <monthname>" for months starting with a vowel
 	 *
-	 * @param string $ts
-	 * @param bool $adj
-	 * @param bool $format
-	 * @param bool $tc
-	 * @return string
+	 * @inheritDoc
 	 */
-	public function date( $ts, $adj = false, $format = true, $tc = false ) {
+	public function date( $ts, $adj = false, $format = true, $timecorrection = false ) {
+		$datePreference = $this->dateFormat( $format );
+		if ( $datePreference == 'ISO 8601' || $datePreference == 'walloon short' ) {
+			return parent::date( $ts, $adj, $format, $timecorrection );
+		}
+
 		$ts = wfTimestamp( TS_MW, $ts );
 		if ( $adj ) {
-			$ts = $this->userAdjust( $ts, $tc );
-		}
-		$datePreference = $this->dateFormat( $format );
-
-		# ISO (YYYY-mm-dd) format
-		# we also output this format for YMD (eg: 2001 January 15)
-		if ( $datePreference == 'ISO 8601' ) {
-			$d = substr( $ts, 0, 4 ) . '-' . substr( $ts, 4, 2 ) . '-' . substr( $ts, 6, 2 );
-			return $d;
+			$ts = $this->userAdjust( $ts, $timecorrection );
 		}
 
-		# dd/mm/YYYY format
-		if ( $datePreference == 'walloon short' ) {
-			$d = substr( $ts, 6, 2 ) . '/' . substr( $ts, 4, 2 ) . '/' . substr( $ts, 0, 4 );
-			return $d;
-		}
-
-		# Walloon format
-		# we output this in all other cases
+		# Walloon 'dmy' format
 		$m = (int)substr( $ts, 4, 2 );
 		$n = (int)substr( $ts, 6, 2 );
 		if ( $n == 1 ) {
@@ -82,23 +65,14 @@ class LanguageWa extends Language {
 		return $d;
 	}
 
-	/**
-	 * @param string $ts
-	 * @param bool $adj
-	 * @param bool $format
-	 * @param bool $tc
-	 * @return string
-	 */
 	public function timeanddate( $ts, $adj = false, $format = true, $tc = false ) {
-		if ( $adj ) {
-			$ts = $this->userAdjust( $ts, $tc );
-		}
 		$datePreference = $this->dateFormat( $format );
-		if ( $datePreference == 'ISO 8601' ) {
+		if ( $datePreference == 'ISO 8601' || $datePreference == 'walloon short' ) {
 			return parent::timeanddate( $ts, $adj, $format, $tc );
-		} else {
-			return $this->date( $ts, $adj, $format, $tc ) . ' a ' .
-				$this->time( $ts, $adj, $format, $tc );
 		}
+
+		# Walloon 'dmy' format
+		return $this->date( $ts, $adj, $format, $tc ) . ' a ' .
+			$this->time( $ts, $adj, $format, $tc );
 	}
 }

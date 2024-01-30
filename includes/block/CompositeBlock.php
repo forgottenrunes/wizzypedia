@@ -22,8 +22,8 @@
 
 namespace MediaWiki\Block;
 
+use MediaWiki\Title\Title;
 use MediaWiki\User\UserIdentity;
-use Title;
 
 /**
  * Multiple Block class.
@@ -55,10 +55,10 @@ class CompositeBlock extends AbstractBlock {
 
 		$this->originalBlocks = $options[ 'originalBlocks' ];
 
-		$this->setHideName( $this->propHasValue( 'mHideName', true ) );
+		$this->setHideName( $this->propHasValue( 'hideName', true ) );
 		$this->isHardblock( $this->propHasValue( 'isHardblock', true ) );
 		$this->isSitewide( $this->propHasValue( 'isSitewide', true ) );
-		$this->isEmailBlocked( $this->propHasValue( 'mBlockEmail', true ) );
+		$this->isEmailBlocked( $this->propHasValue( 'blockEmail', true ) );
 		$this->isCreateAccountBlocked( $this->propHasValue( 'blockCreateAccount', true ) );
 		$this->isUsertalkEditAllowed( !$this->propHasValue( 'allowUsertalk', false ) );
 	}
@@ -106,6 +106,24 @@ class CompositeBlock extends AbstractBlock {
 	 */
 	public function getOriginalBlocks() {
 		return $this->originalBlocks;
+	}
+
+	public function toArray(): array {
+		return $this->originalBlocks;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function getTimestamp(): string {
+		$minStart = null;
+		foreach ( $this->originalBlocks as $block ) {
+			$startTime = $block->getTimestamp();
+			if ( $minStart === null || $startTime === '' || $startTime < $minStart ) {
+				$minStart = $startTime;
+			}
+		}
+		return $minStart ?? '';
 	}
 
 	/**
@@ -198,7 +216,7 @@ class CompositeBlock extends AbstractBlock {
 	 * @inheritDoc
 	 */
 	public function getBy( $wikiId = self::LOCAL ): int {
-		$this->deprecateInvalidCrossWiki( $wikiId, '1.38' );
+		$this->assertWiki( $wikiId );
 		return 0;
 	}
 

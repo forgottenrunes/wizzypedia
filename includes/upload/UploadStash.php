@@ -20,6 +20,7 @@
  * @file
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\User\UserIdentity;
 
@@ -138,7 +139,9 @@ class UploadStash {
 			$this->initFile( $key );
 
 			// fetch fileprops
-			if ( strlen( $this->fileMetadata[$key]['us_props'] ) ) {
+			if (
+				isset( $this->fileMetadata[$key]['us_props'] ) && strlen( $this->fileMetadata[$key]['us_props'] )
+			) {
 				$this->fileProps[$key] = unserialize( $this->fileMetadata[$key]['us_props'] );
 			} else { // b/c for rows with no us_props
 				wfDebug( __METHOD__ . " fetched props for $key from file" );
@@ -226,7 +229,7 @@ class UploadStash {
 		// random thing instead.  At least it's not guessable.
 		// Some things that when combined will make a suitably unique key.
 		// see: http://www.jwz.org/doc/mid.html
-		list( $usec, $sec ) = explode( ' ', microtime() );
+		[ $usec, $sec ] = explode( ' ', microtime() );
 		$usec = substr( $usec, 2 );
 		$key = Wikimedia\base_convert( $sec . $usec, 10, 36 ) . '.' .
 			Wikimedia\base_convert( (string)mt_rand(), 10, 36 ) . '.' .
@@ -309,11 +312,10 @@ class UploadStash {
 			'us_status' => 'finished'
 		];
 
-		$dbw->insert(
-			'uploadstash',
-			$insertRow,
-			__METHOD__
-		);
+		$dbw->newInsertQueryBuilder()
+			->insertInto( 'uploadstash' )
+			->row( $insertRow )
+			->caller( __METHOD__ )->execute();
 
 		// store the insertid in the class variable so immediate retrieval
 		// (possibly laggy) isn't necessary.
@@ -343,11 +345,10 @@ class UploadStash {
 
 		wfDebug( __METHOD__ . ' clearing all rows for user ' . $this->user->getId() );
 		$dbw = $this->repo->getPrimaryDB();
-		$dbw->delete(
-			'uploadstash',
-			[ 'us_user' => $this->user->getId() ],
-			__METHOD__
-		);
+		$dbw->newDeleteQueryBuilder()
+			->deleteFrom( 'uploadstash' )
+			->where( [ 'us_user' => $this->user->getId() ] )
+			->caller( __METHOD__ )->execute();
 
 		# destroy objects.
 		$this->files = [];
@@ -375,12 +376,11 @@ class UploadStash {
 
 		// this is a cheap query. it runs on the primary DB so that this function
 		// still works when there's lag. It won't be called all that often.
-		$row = $dbw->selectRow(
-			'uploadstash',
-			'us_user',
-			[ 'us_key' => $key ],
-			__METHOD__
-		);
+		$row = $dbw->newSelectQueryBuilder()
+			->select( 'us_user' )
+			->from( 'uploadstash' )
+			->where( [ 'us_key' => $key ] )
+			->caller( __METHOD__ )->fetchRow();
 
 		if ( !$row ) {
 			throw new UploadStashNoSuchKeyException(
@@ -411,11 +411,10 @@ class UploadStash {
 
 		$dbw = $this->repo->getPrimaryDB();
 
-		$dbw->delete(
-			'uploadstash',
-			[ 'us_key' => $key ],
-			__METHOD__
-		);
+		$dbw->newDeleteQueryBuilder()
+			->deleteFrom( 'uploadstash' )
+			->where( [ 'us_key' => $key ] )
+			->caller( __METHOD__ )->execute();
 
 		/** @todo Look into UnregisteredLocalFile and find out why the rv here is
 		 *  sometimes wrong (false when file was removed). For now, ignore.
@@ -441,13 +440,11 @@ class UploadStash {
 			);
 		}
 
-		$dbr = $this->repo->getReplicaDB();
-		$res = $dbr->select(
-			'uploadstash',
-			'us_key',
-			[ 'us_user' => $this->user->getId() ],
-			__METHOD__
-		);
+		$res = $this->repo->getReplicaDB()->newSelectQueryBuilder()
+			->select( 'us_key' )
+			->from( 'uploadstash' )
+			->where( [ 'us_user' => $this->user->getId() ] )
+			->caller( __METHOD__ )->fetchResultSet();
 
 		if ( !is_object( $res ) || $res->numRows() == 0 ) {
 			// nothing to do.
@@ -457,7 +454,7 @@ class UploadStash {
 		// finish the read before starting writes.
 		$keys = [];
 		foreach ( $res as $row ) {
-			array_push( $keys, $row->us_key );
+			$keys[] = $row->us_key;
 		}
 
 		return $keys;
@@ -474,7 +471,7 @@ class UploadStash {
 	 */
 	public static function getExtensionForPath( $path ) {
 		$prohibitedFileExtensions = MediaWikiServices::getInstance()
-			->getMainConfig()->get( 'ProhibitedFileExtensions' );
+			->getMainConfig()->get( MainConfigNames::ProhibitedFileExtensions );
 		// Does this have an extension?
 		$n = strrpos( $path, '.' );
 
@@ -508,7 +505,6 @@ class UploadStash {
 	 */
 	protected function fetchFileMetadata( $key, $readFromDB = DB_REPLICA ) {
 		// populate $fileMetadata[$key]
-		$dbr = null;
 		if ( $readFromDB === DB_PRIMARY ) {
 			// sometimes reading from the primary DB is necessary, if there's replication lag.
 			$dbr = $this->repo->getPrimaryDB();
@@ -516,17 +512,16 @@ class UploadStash {
 			$dbr = $this->repo->getReplicaDB();
 		}
 
-		$row = $dbr->selectRow(
-			'uploadstash',
-			[
+		$row = $dbr->newSelectQueryBuilder()
+			->select( [
 				'us_user', 'us_key', 'us_orig_path', 'us_path', 'us_props',
 				'us_size', 'us_sha1', 'us_mime', 'us_media_type',
 				'us_image_width', 'us_image_height', 'us_image_bits',
 				'us_source_type', 'us_timestamp', 'us_status',
-			],
-			[ 'us_key' => $key ],
-			__METHOD__
-		);
+			] )
+			->from( 'uploadstash' )
+			->where( [ 'us_key' => $key ] )
+			->caller( __METHOD__ )->fetchRow();
 
 		if ( !is_object( $row ) ) {
 			// key wasn't present in the database. this will happen sometimes.

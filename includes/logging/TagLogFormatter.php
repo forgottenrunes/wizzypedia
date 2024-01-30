@@ -16,6 +16,8 @@
  * http://www.gnu.org/copyleft/gpl.html
  */
 
+use MediaWiki\SpecialPage\SpecialPage;
+
 /**
  * This class formats tag log entries.
  *
@@ -61,8 +63,10 @@ class TagLogFormatter extends LogFormatter {
 		}
 
 		if ( $isRevLink ) {
+			// @phan-suppress-next-line SecurityCheck-XSS Unlikely positive, only if language format is bad
 			$params[3] = Message::rawParam( $link );
 		} else {
+			// @phan-suppress-next-line SecurityCheck-XSS Unlikely positive, only if language format is bad
 			$params[4] = Message::rawParam( $link );
 		}
 

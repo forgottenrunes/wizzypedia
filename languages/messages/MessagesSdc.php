@@ -1,10 +1,8 @@
 <?php
 /** Sassaresu (Sassaresu)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Antofa
  * @author Cornelia

@@ -6,11 +6,12 @@ use MediaWiki\Block\DatabaseBlock;
 use MediaWiki\Block\Restriction\NamespaceRestriction;
 use MediaWiki\Block\Restriction\PageRestriction;
 use MediaWiki\Block\SystemBlock;
+use MediaWiki\MainConfigNames;
 
 /**
  * @group Database
  * @group Blocking
- * @coversDefaultClass \MediaWiki\Block\CompositeBlock
+ * @covers \MediaWiki\Block\CompositeBlock
  */
 class CompositeBlockTest extends MediaWikiLangTestCase {
 	private function getPartialBlocks() {
@@ -45,13 +46,12 @@ class CompositeBlockTest extends MediaWikiLangTestCase {
 	}
 
 	/**
-	 * @covers ::__construct
 	 * @dataProvider provideTestStrictestParametersApplied
 	 */
 	public function testStrictestParametersApplied( $blocks, $expected ) {
-		$this->setMwGlobals( [
-			'wgBlockDisablesLogin' => false,
-			'wgBlockAllowsUTEdit' => true,
+		$this->overrideConfigValues( [
+			MainConfigNames::BlockDisablesLogin => false,
+			MainConfigNames::BlockAllowsUTEdit => true,
 		] );
 
 		$block = new CompositeBlock( [
@@ -146,13 +146,8 @@ class CompositeBlockTest extends MediaWikiLangTestCase {
 		];
 	}
 
-	/**
-	 * @covers ::appliesToTitle
-	 */
 	public function testBlockAppliesToTitle() {
-		$this->setMwGlobals( [
-			'wgBlockDisablesLogin' => false,
-		] );
+		$this->overrideConfigValue( MainConfigNames::BlockDisablesLogin, false );
 
 		$blocks = $this->getPartialBlocks();
 
@@ -174,15 +169,10 @@ class CompositeBlockTest extends MediaWikiLangTestCase {
 		$this->deleteBlocks( $blocks );
 	}
 
-	/**
-	 * @covers ::appliesToUsertalk
-	 * @covers ::appliesToPage
-	 * @covers ::appliesToNamespace
-	 */
 	public function testBlockAppliesToUsertalk() {
-		$this->setMwGlobals( [
-			'wgBlockAllowsUTEdit' => true,
-			'wgBlockDisablesLogin' => false,
+		$this->overrideConfigValues( [
+			MainConfigNames::BlockAllowsUTEdit => true,
+			MainConfigNames::BlockDisablesLogin => false,
 		] );
 
 		$blocks = $this->getPartialBlocks();
@@ -207,13 +197,10 @@ class CompositeBlockTest extends MediaWikiLangTestCase {
 	}
 
 	/**
-	 * @covers ::appliesToRight
 	 * @dataProvider provideTestBlockAppliesToRight
 	 */
 	public function testBlockAppliesToRight( $applies, $expected ) {
-		$this->setMwGlobals( [
-			'wgBlockDisablesLogin' => false,
-		] );
+		$this->overrideConfigValue( MainConfigNames::BlockDisablesLogin, false );
 
 		$block = new CompositeBlock( [
 			'originalBlocks' => [
@@ -234,7 +221,7 @@ class CompositeBlockTest extends MediaWikiLangTestCase {
 		return $mockBlock;
 	}
 
-	public function provideTestBlockAppliesToRight() {
+	public static function provideTestBlockAppliesToRight() {
 		return [
 			'Block does not apply if no original blocks apply' => [
 				[ false, false ],
@@ -259,57 +246,25 @@ class CompositeBlockTest extends MediaWikiLangTestCase {
 		];
 	}
 
-	/**
-	 * AbstractBlock::getPermissionsError is deprecated. Block errors are tested
-	 * properly in BlockErrorFormatterTest::testGetMessage.
-	 *
-	 * @covers ::getPermissionsError
-	 */
-	public function testGetPermissionsError() {
-		$timestamp = '20000101000000';
+	public function testTimestamp() {
+		$timestamp = 20000101000000;
 
-		$compositeBlock = new CompositeBlock( [
-			'timestamp' => $timestamp,
-			'originalBlocks' => [
-				new SystemBlock( [
-					'systemBlock' => 'test1',
-				] ),
-				new SystemBlock( [
-					'systemBlock' => 'test2',
-				] )
-			]
+		$firstBlock = $this->createMock( DatabaseBlock::class );
+		$firstBlock->method( 'getTimestamp' )
+			->willReturn( (string)$timestamp );
+
+		$secondBlock = $this->createMock( DatabaseBlock::class );
+		$secondBlock->method( 'getTimestamp' )
+			->willReturn( (string)( $timestamp + 10 ) );
+
+		$thirdBlock = $this->createMock( DatabaseBlock::class );
+		$thirdBlock->method( 'getTimestamp' )
+			->willReturn( (string)( $timestamp + 100 ) );
+
+		$block = new CompositeBlock( [
+			'originalBlocks' => [ $thirdBlock, $firstBlock, $secondBlock ],
 		] );
-
-		$context = new DerivativeContext( RequestContext::getMain() );
-		$request = $this->getMockBuilder( FauxRequest::class )
-			->onlyMethods( [ 'getIP' ] )
-			->getMock();
-		$request->method( 'getIP' )
-			->willReturn( '1.2.3.4' );
-		$context->setRequest( $request );
-
-		$formatter = $this->getServiceContainer()->getBlockErrorFormatter();
-		$message = $formatter->getMessage(
-			$compositeBlock,
-			$context->getUser(),
-			$context->getLanguage(),
-			$context->getRequest()->getIP()
-		);
-
-		$this->assertSame( 'blockedtext-composite', $message->getKey() );
-		$this->assertSame(
-			[
-				'',
-				'no reason given',
-				'1.2.3.4',
-				'',
-				'Your IP address appears in multiple blocklists',
-				'infinite',
-				'',
-				'00:00, 1 January 2000',
-			],
-			$message->getParams()
-		);
+		$this->assertSame( (string)$timestamp, $block->getTimestamp() );
 	}
 
 	/**

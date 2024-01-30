@@ -23,6 +23,8 @@
  * @since 1.36
  */
 
+use MediaWiki\Utils\GitInfo;
+
 require_once __DIR__ . '/Maintenance.php';
 
 /**
@@ -34,13 +36,17 @@ class Version extends Maintenance {
 		$this->addDescription( 'Prints the current version of MediaWiki' );
 	}
 
+	public function canExecuteWithoutLocalSettings(): bool {
+		return true;
+	}
+
 	public function execute() {
 		if ( !defined( 'MW_VERSION' ) ) {
 			$this->fatalError( "MediaWiki version not defined or unknown" );
 		}
 
 		global $IP;
-		$contentLang = \MediaWiki\MediaWikiServices::getInstance()->getContentLanguage();
+		$contentLang = $this->getServiceContainer()->getContentLanguage();
 
 		$version = MW_VERSION;
 		$strictVersion = substr( $version, 0, 4 );

@@ -14,7 +14,7 @@
 	"license-name": "GPL-2.0-or-later",
 	"type": "parserhook",
 	"requires": {
-		"MediaWiki": ">= 1.36",
+		"MediaWiki": ">= 1.41",
 		"platform": {
 			"ability-shell": true
 		}
@@ -26,12 +26,6 @@
 	},
 	"AutoloadNamespaces": {
 		"MediaWiki\\SyntaxHighlight\\": "includes/"
-	},
-	"AutoloadClasses": {
-		"SyntaxHighlight": "includes/SyntaxHighlight.php",
-		"SyntaxHighlightAce": "includes/SyntaxHighlightAce.php",
-		"SyntaxHighlightGeSHiCompat": "includes/SyntaxHighlightGeSHiCompat.php",
-		"ResourceLoaderSyntaxHighlightVisualEditorModule": "includes/ResourceLoaderSyntaxHighlightVisualEditorModule.php"
 	},
 	"ResourceFileModulePaths": {
 		"localBasePath": "modules",
@@ -55,10 +49,12 @@
 			],
 			"scripts": [
 				"pygments.linenumbers.js"
+			],
+			"dependencies": [
+				"mediawiki.util"
 			]
 		},
 		"ext.geshi.visualEditor": {
-			"class": "ResourceLoaderSyntaxHighlightVisualEditorModule",
 			"scripts": [
 				"ve-syntaxhighlight/ve.dm.MWSyntaxHighlightNode.js",
 				"ve-syntaxhighlight/ve.dm.MWBlockSyntaxHighlightNode.js",
@@ -70,7 +66,11 @@
 				"ve-syntaxhighlight/ve.ui.MWSyntaxHighlightDialog.js",
 				"ve-syntaxhighlight/ve.ui.MWSyntaxHighlightDialogTool.js",
 				"ve-syntaxhighlight/ve.ui.MWSyntaxHighlightInspector.js",
-				"ve-syntaxhighlight/ve.ui.MWSyntaxHighlightInspectorTool.js"
+				"ve-syntaxhighlight/ve.ui.MWSyntaxHighlightInspectorTool.js",
+				{
+					"name": "ve-syntaxhighlight/ve.MWSyntaxHighlightConfig.js",
+					"callback": "MediaWiki\\SyntaxHighlight\\VisualEditorConfig::makeScript"
+				}
 			],
 			"styles": [
 				"ve-syntaxhighlight/ve.ce.MWSyntaxHighlightNode.css",
@@ -89,21 +89,26 @@
 				"syntaxhighlight-visualeditor-mwsyntaxhighlightinspector-startingline",
 				"syntaxhighlight-visualeditor-mwsyntaxhighlightinspector-title"
 			],
-			"targets": [ "desktop", "mobile" ]
+			"targets": [
+				"desktop",
+				"mobile"
+			]
 		}
 	},
 	"Hooks": {
-		"ParserFirstCallInit": [
-			"SyntaxHighlight::onParserFirstCallInit"
-		],
-		"ContentGetParserOutput": [
-			"SyntaxHighlight::onContentGetParserOutput"
-		],
-		"ApiFormatHighlight": [
-			"SyntaxHighlight::onApiFormatHighlight"
-		],
-		"SoftwareInfo": "SyntaxHighlight::onSoftwareInfo"
+		"ParserFirstCallInit": "main",
+		"ContentGetParserOutput": "main",
+		"ApiFormatHighlight": "main",
+		"SoftwareInfo": "main"
 	},
+	"HookHandlers": {
+		"main": {
+			"class": "MediaWiki\\SyntaxHighlight\\SyntaxHighlight"
+		}
+	},
+	"ParsoidModules": [
+		"MediaWiki\\SyntaxHighlight\\ParsoidExt"
+	],
 	"attributes": {
 		"SyntaxHighlight": {
 			"Models": {}
@@ -117,6 +122,12 @@
 	"config": {
 		"PygmentizePath": {
 			"value": false
+		},
+		"SyntaxHighlightMaxLines": {
+			"value": 1000
+		},
+		"SyntaxHighlightMaxBytes": {
+			"value": 102400
 		}
 	},
 	"TrackingCategories": [

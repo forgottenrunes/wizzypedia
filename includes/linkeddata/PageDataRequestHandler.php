@@ -19,6 +19,11 @@
  */
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Output\OutputPage;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Title\MalformedTitleException;
+use MediaWiki\Title\Title;
 use Wikimedia\Http\HttpAcceptNegotiator;
 use Wikimedia\Http\HttpAcceptParser;
 
@@ -50,7 +55,7 @@ class PageDataRequestHandler {
 		$parts = explode( '/', $subPage, 2 );
 		$slot = $parts[0];
 		$title = $parts[1] ?? '';
-		return ( $slot === 'main' || $slot === '' ) && $title !== '';
+		return ( $slot === SlotRecord::MAIN || $slot === '' ) && $title !== '';
 	}
 
 	/**
@@ -94,7 +99,7 @@ class PageDataRequestHandler {
 		}
 
 		try {
-			$title = Title::newFromTextThrow( $title );
+			$title = MediaWikiServices::getInstance()->getTitleFactory()->newFromTextThrow( $title );
 		} catch ( MalformedTitleException $ex ) {
 			throw new HttpError( 400, wfMessage( 'pagedata-bad-title', $title ) );
 		}

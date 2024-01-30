@@ -1,10 +1,8 @@
 <?php
 /** Macedonian (македонски)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Bjankuloski06
  * @author Brainmachine
@@ -172,6 +170,7 @@ $specialPageAliases = [
 	'Recentchanges'             => [ 'СкорешниПромени' ],
 	'Recentchangeslinked'       => [ 'ПоврзаниПромени' ],
 	'Redirect'                  => [ 'Пренасочување' ],
+	'Renameuser'                => [ 'ПреименувајКорисник' ],
 	'ResetTokens'               => [ 'ВратиОдновоЗнаци' ],
 	'Revisiondelete'            => [ 'БришењеПреработка' ],
 	'RunJobs'                   => [ 'ПуштиЗадачи' ],

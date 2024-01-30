@@ -158,12 +158,15 @@ class ApiQueryGadgets extends ApiQueryBase {
 				'rights' => $g->getRequiredRights(),
 				'skins' => $g->getRequiredSkins(),
 				'actions' => $g->getRequiredActions(),
+				'namespaces' => $g->getRequiredNamespaces(),
+				'contentModels' => $g->getRequiredContentModels(),
 				'default' => $g->isOnByDefault(),
 				'hidden' => $g->isHidden(),
 				'package' => $g->isPackaged(),
 				'shared' => false,
 				'category' => $g->getCategory(),
 				'legacyscripts' => (bool)$g->getLegacyScripts(),
+				'requiresES6' => $g->requiresES6(),
 				'supportsUrlLoad' => $g->supportsUrlLoad(),
 			],
 			'module' => [
@@ -185,6 +188,8 @@ class ApiQueryGadgets extends ApiQueryBase {
 			'rights' => 'right',
 			'skins' => 'skin',
 			'actions' => 'action',
+			'namespaces' => 'namespace',
+			'contentModels' => 'contentModel',
 			'scripts' => 'script',
 			'styles' => 'style',
 			'datas' => 'data',
@@ -207,20 +212,21 @@ class ApiQueryGadgets extends ApiQueryBase {
 		return [
 			'prop' => [
 				ParamValidator::PARAM_DEFAULT => 'id|metadata',
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => [
 					'id',
 					'metadata',
 					'desc',
 				],
+				ApiBase::PARAM_HELP_MSG_PER_VALUE => [],
 			],
 			'categories' => [
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'string',
 			],
 			'ids' => [
-				ApiBase::PARAM_TYPE => 'string',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'allowedonly' => false,
 			'enabledonly' => false,
@@ -233,7 +239,7 @@ class ApiQueryGadgets extends ApiQueryBase {
 	 */
 	protected function getExamplesMessages() {
 		$params = $this->getAllowedParams();
-		$allProps = implode( '|', $params['prop'][ApiBase::PARAM_TYPE] );
+		$allProps = implode( '|', $params['prop'][ParamValidator::PARAM_TYPE] );
 		return [
 			'action=query&list=gadgets&gaprop=id|desc'
 				=> 'apihelp-query+gadgets-example-1',

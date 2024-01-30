@@ -21,6 +21,12 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use HTMLForm;
+use MediaWiki\SpecialPage\RedirectSpecialPage;
+use MediaWiki\Title\Title;
+
 /**
  * Redirect from Special:PermanentLink/### to index.php?oldid=###.
  *
@@ -81,3 +87,9 @@ class SpecialPermanentLink extends RedirectSpecialPage {
 		return 'redirects';
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialPermanentLink::class, 'SpecialPermanentLink' );

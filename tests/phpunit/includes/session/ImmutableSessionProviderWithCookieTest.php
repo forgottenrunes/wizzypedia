@@ -2,10 +2,11 @@
 
 namespace MediaWiki\Session;
 
+use MediaWiki\Config\HashConfig;
+use MediaWiki\MainConfigNames;
 use MediaWikiIntegrationTestCase;
 use Psr\Log\NullLogger;
 use TestLogger;
-use User;
 use Wikimedia\TestingAccessWrapper;
 
 /**
@@ -17,9 +18,9 @@ class ImmutableSessionProviderWithCookieTest extends MediaWikiIntegrationTestCas
 	use SessionProviderTestTrait;
 
 	private function getProvider( $name, $prefix = null, $forceHTTPS = false, $logger = null ) {
-		$config = new \HashConfig();
-		$config->set( 'CookiePrefix', 'wgCookiePrefix' );
-		$config->set( 'ForceHTTPS', $forceHTTPS );
+		$config = new HashConfig();
+		$config->set( MainConfigNames::CookiePrefix, 'wgCookiePrefix' );
+		$config->set( MainConfigNames::ForceHTTPS, $forceHTTPS );
 
 		$params = [
 			'sessionCookieName' => $name,
@@ -85,11 +86,11 @@ class ImmutableSessionProviderWithCookieTest extends MediaWikiIntegrationTestCas
 
 	public function testBasics() {
 		$provider = $this->getProvider( null );
-		$this->assertFalse( $provider->persistsSessionID() );
+		$this->assertFalse( $provider->persistsSessionId() );
 		$this->assertFalse( $provider->canChangeUser() );
 
 		$provider = $this->getProvider( 'Foo' );
-		$this->assertTrue( $provider->persistsSessionID() );
+		$this->assertTrue( $provider->persistsSessionId() );
 		$this->assertFalse( $provider->canChangeUser() );
 
 		$msg = $provider->whyNoSession();
@@ -112,8 +113,8 @@ class ImmutableSessionProviderWithCookieTest extends MediaWikiIntegrationTestCas
 	}
 
 	public function testGetSessionIdFromCookie() {
-		$this->setMwGlobals( 'wgCookiePrefix', 'wgCookiePrefix' );
-		$request = new \FauxRequest();
+		$this->overrideConfigValue( MainConfigNames::CookiePrefix, 'wgCookiePrefix' );
+		$request = new \MediaWiki\Request\FauxRequest();
 		$request->setCookies( [
 			'' => 'empty---------------------------',
 			'Foo' => 'foo-----------------------------',
@@ -160,7 +161,7 @@ class ImmutableSessionProviderWithCookieTest extends MediaWikiIntegrationTestCas
 	}
 
 	protected function getSentRequest() {
-		$sentResponse = $this->getMockBuilder( \FauxResponse::class )
+		$sentResponse = $this->getMockBuilder( \MediaWiki\Request\FauxResponse::class )
 			->onlyMethods( [ 'headersSent', 'setCookie', 'header' ] )
 			->getMock();
 		$sentResponse->method( 'headersSent' )
@@ -168,7 +169,7 @@ class ImmutableSessionProviderWithCookieTest extends MediaWikiIntegrationTestCas
 		$sentResponse->expects( $this->never() )->method( 'setCookie' );
 		$sentResponse->expects( $this->never() )->method( 'header' );
 
-		$sentRequest = $this->getMockBuilder( \FauxRequest::class )
+		$sentRequest = $this->getMockBuilder( \MediaWiki\Request\FauxRequest::class )
 			->onlyMethods( [ 'response' ] )->getMock();
 		$sentRequest->method( 'response' )
 			->willReturn( $sentResponse );
@@ -182,10 +183,10 @@ class ImmutableSessionProviderWithCookieTest extends MediaWikiIntegrationTestCas
 	 * @param bool $forceHTTPS
 	 */
 	public function testPersistSession( $secure, $remember, $forceHTTPS ) {
-		$this->setMwGlobals( [
-			'wgCookieExpiration' => 100,
-			'wgSecureLogin' => false,
-			'wgForceHTTPS' => $forceHTTPS,
+		$this->overrideConfigValues( [
+			MainConfigNames::CookieExpiration => 100,
+			MainConfigNames::SecureLogin => false,
+			MainConfigNames::ForceHTTPS => $forceHTTPS,
 		] );
 
 		$provider = $this->getProvider( 'session', null, $forceHTTPS, new NullLogger() );
@@ -199,7 +200,7 @@ class ImmutableSessionProviderWithCookieTest extends MediaWikiIntegrationTestCas
 		];
 
 		$sessionId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-		$user = User::newFromName( 'UTSysop' );
+		$user = $this->getTestSysop()->getUser();
 		$this->assertSame( $forceHTTPS, $user->requiresHTTPS() );
 
 		$backend = new SessionBackend(
@@ -222,13 +223,13 @@ class ImmutableSessionProviderWithCookieTest extends MediaWikiIntegrationTestCas
 
 		// No cookie
 		$priv->sessionCookieName = null;
-		$request = new \FauxRequest();
+		$request = new \MediaWiki\Request\FauxRequest();
 		$provider->persistSession( $backend, $request );
 		$this->assertSame( [], $request->response()->getCookies() );
 
 		// Cookie
 		$priv->sessionCookieName = 'session';
-		$request = new \FauxRequest();
+		$request = new \MediaWiki\Request\FauxRequest();
 		$time = time();
 		$provider->persistSession( $backend, $request );
 
@@ -288,13 +289,13 @@ class ImmutableSessionProviderWithCookieTest extends MediaWikiIntegrationTestCas
 
 		// No cookie
 		$priv->sessionCookieName = null;
-		$request = new \FauxRequest();
+		$request = new \MediaWiki\Request\FauxRequest();
 		$provider->unpersistSession( $request );
 		$this->assertSame( null, $request->response()->getCookie( 'session', '' ) );
 
 		// Cookie
 		$priv->sessionCookieName = 'session';
-		$request = new \FauxRequest();
+		$request = new \MediaWiki\Request\FauxRequest();
 		$provider->unpersistSession( $request );
 		$this->assertSame( '', $request->response()->getCookie( 'session', '' ) );
 

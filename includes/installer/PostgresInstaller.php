@@ -21,7 +21,11 @@
  * @ingroup Installer
  */
 
+use MediaWiki\Html\Html;
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Status\Status;
 use Wikimedia\Rdbms\Database;
+use Wikimedia\Rdbms\DatabaseFactory;
 use Wikimedia\Rdbms\DatabasePostgres;
 use Wikimedia\Rdbms\DBConnectionError;
 use Wikimedia\Rdbms\DBQueryError;
@@ -40,6 +44,7 @@ class PostgresInstaller extends DatabaseInstaller {
 		'wgDBname',
 		'wgDBuser',
 		'wgDBpassword',
+		'wgDBssl',
 		'wgDBmwschema',
 	];
 
@@ -47,7 +52,7 @@ class PostgresInstaller extends DatabaseInstaller {
 		'_InstallUser' => 'postgres',
 	];
 
-	public static $minimumVersion = '9.4';
+	public static $minimumVersion = '10';
 	protected static $notMinimumVersionMessage = 'config-postgres-old';
 	public $maxRoleSearchDepth = 5;
 
@@ -69,6 +74,7 @@ class PostgresInstaller extends DatabaseInstaller {
 			$this->parent->getHelpBox( 'config-db-host-help' )
 		) .
 			$this->getTextBox( 'wgDBport', 'config-db-port' ) .
+			$this->getCheckBox( 'wgDBssl', 'config-db-ssl' ) .
 			Html::openElement( 'fieldset' ) .
 			Html::element( 'legend', [], wfMessage( 'config-db-wiki-settings' )->text() ) .
 			$this->getTextBox(
@@ -92,6 +98,7 @@ class PostgresInstaller extends DatabaseInstaller {
 		$newValues = $this->setVarsFromRequest( [
 			'wgDBserver',
 			'wgDBport',
+			'wgDBssl',
 			'wgDBname',
 			'wgDBmwschema'
 		] );
@@ -125,8 +132,7 @@ class PostgresInstaller extends DatabaseInstaller {
 		$conn = $status->value;
 
 		// Check version
-		$version = $conn->getServerVersion();
-		$status = static::meetsMinimumRequirement( $version );
+		$status = static::meetsMinimumRequirement( $conn );
 		if ( !$status->isOK() ) {
 			return $status;
 		}
@@ -161,11 +167,12 @@ class PostgresInstaller extends DatabaseInstaller {
 	protected function openConnectionWithParams( $user, $password, $dbName, $schema ) {
 		$status = Status::newGood();
 		try {
-			$db = Database::factory( 'postgres', [
+			$db = MediaWikiServices::getInstance()->getDatabaseFactory()->create( 'postgres', [
 				'host' => $this->getVar( 'wgDBserver' ),
 				'port' => $this->getVar( 'wgDBport' ),
 				'user' => $user,
 				'password' => $password,
+				'ssl' => $this->getVar( 'wgDBssl' ),
 				'dbname' => $dbName,
 				'schema' => $schema,
 			] );
@@ -195,7 +202,6 @@ class PostgresInstaller extends DatabaseInstaller {
 			$conn = $status->value;
 			$conn->clearFlag( DBO_TRX );
 			$conn->commit( __METHOD__ );
-			// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 			$this->pgConns[$type] = $conn;
 		}
 
@@ -273,9 +279,10 @@ class PostgresInstaller extends DatabaseInstaller {
 					'port' => $this->getVar( 'wgDBport' ),
 					'user' => $user,
 					'password' => $password,
+					'ssl' => $this->getVar( 'wgDBssl' ),
 					'dbname' => $db
 				];
-				$conn = Database::factory( 'postgres', $p );
+				$conn = ( new DatabaseFactory() )->create( 'postgres', $p );
 			} catch ( DBConnectionError $error ) {
 				$conn = false;
 				$status->fatal( 'config-pg-test-error', $db,
@@ -311,20 +318,12 @@ class PostgresInstaller extends DatabaseInstaller {
 
 	protected function canCreateAccounts() {
 		$perms = $this->getInstallUserPermissions();
-		if ( !$perms ) {
-			return false;
-		}
-
-		return $perms->rolsuper === 't' || $perms->rolcreaterole === 't';
+		return $perms && ( $perms->rolsuper === 't' || $perms->rolcreaterole === 't' );
 	}
 
 	protected function isSuperUser() {
 		$perms = $this->getInstallUserPermissions();
-		if ( !$perms ) {
-			return false;
-		}
-
-		return $perms->rolsuper === 't';
+		return $perms && $perms->rolsuper === 't';
 	}
 
 	public function getSettingsForm() {
@@ -579,10 +578,12 @@ class PostgresInstaller extends DatabaseInstaller {
 
 	public function getLocalSettings() {
 		$port = $this->getVar( 'wgDBport' );
+		$useSsl = $this->getVar( 'wgDBssl' ) ? 'true' : 'false';
 		$schema = $this->getVar( 'wgDBmwschema' );
 
 		return "# Postgres specific settings
 \$wgDBport = \"{$port}\";
+\$wgDBssl = {$useSsl};
 \$wgDBmwschema = \"{$schema}\";";
 	}
 

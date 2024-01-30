@@ -7,7 +7,14 @@
  * @file
  */
 
+namespace MediaWiki\Extension\TitleBlacklist;
+
+use BadMethodCallException;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
+use ObjectCache;
+use TextContent;
+use User;
 use Wikimedia\AtEase\AtEase;
 
 /**
@@ -28,7 +35,7 @@ class TitleBlacklist {
 	protected static $instance = null;
 
 	/** Blacklist format */
-	public const VERSION = 3;
+	public const VERSION = 4;
 
 	/**
 	 * Get an instance of this class
@@ -50,7 +57,7 @@ class TitleBlacklist {
 	 */
 	public static function destroySingleton() {
 		if ( !defined( 'MW_PHPUNIT_TEST' ) ) {
-			throw new MWException(
+			throw new BadMethodCallException(
 				'Can not invoke ' . __METHOD__ . '() ' .
 				'out of tests (MW_PHPUNIT_TEST not set).'
 			);
@@ -118,7 +125,8 @@ class TitleBlacklist {
 	 */
 	private static function getBlacklistText( $source ) {
 		if ( !is_array( $source ) || count( $source ) <= 0 ) {
-			return '';	// Return empty string in error case
+			// Return empty string in error case
+			return '';
 		}
 
 		if ( $source['type'] == 'message' ) {
@@ -130,11 +138,7 @@ class TitleBlacklist {
 			}
 			if ( $title->getNamespace() == NS_MEDIAWIKI ) {
 				$msg = wfMessage( $title->getText() )->inContentLanguage();
-				if ( !$msg->isDisabled() ) {
-					return $msg->text();
-				} else {
-					return '';
-				}
+				return $msg->isDisabled() ? '' : $msg->text();
 			} else {
 				$page = MediaWikiServices::getInstance()->getWikiPageFactory()->newFromTitle( $title );
 				if ( $page->exists() ) {
@@ -145,11 +149,10 @@ class TitleBlacklist {
 		} elseif ( $source['type'] == 'url' && count( $source ) >= 2 ) {
 			return self::getHttp( $source['src'] );
 		} elseif ( $source['type'] == 'file' && count( $source ) >= 2 ) {
-			if ( file_exists( $source['src'] ) ) {
-				return file_get_contents( $source['src'] );
-			} else {
+			if ( !file_exists( $source['src'] ) ) {
 				return '';
 			}
+			return file_get_contents( $source['src'] );
 		}
 
 		return '';
@@ -353,7 +356,7 @@ class TitleBlacklist {
 	 * Indicates whether user can override blacklist on certain action.
 	 *
 	 * @param User $user
-	 * @param string $action Action
+	 * @param string $action
 	 *
 	 * @return bool
 	 */

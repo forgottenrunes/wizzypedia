@@ -1,6 +1,7 @@
 {
 	"@metadata": {
 		"authors": [
+			"Agam Riyandana",
 			"Arifin.wijaya",
 			"ArlandGa",
 			"Bennylin",
@@ -67,13 +68,9 @@
 	"config-env-good": "Kondisi telah diperiksa.\nAnda dapat menginstal MediaWiki.",
 	"config-env-bad": "Kondisi telah diperiksa.\nAnda tidak dapat menginstal MediaWiki.",
 	"config-env-php": "PHP $1 terpasang.",
-	"config-unicode-using-intl": "Menggunakan [https://php.net/manual/en/book.intl.php ekstensi internasional PHP] untuk normalisasi Unicode.",
-	"config-unicode-update-warning": "<strong>Peringatan:</strong> Versi terinstal dari pembungkus normalisasi Unicode menggunakan versi lama pustaka [http://site.icu-project.org/ proyek ICU].\nAnda harus [https://www.mediawiki.org/wiki/Special:MyLanguage/Unicode_normalization_considerations meningkatkan versinya] jika ingin menggunakan Unicode.",
 	"config-no-db": "Pengandar basis data yang sesuai tidak ditemukan! Anda perlu menginstal pengandar basis data untuk PHP.\n{{PLURAL:$2|Jenis|Jenis}} basis data yang didukung: $1.\n\nJika Anda mengompilasi PHP sendiri, ubahlah konfigurasinya dengan mengaktifkan klien basis data, misalnya menggunakan <code>./configure --with-mysqli</code>.\nJika Anda menginstal PHP dari paket Debian atau Ubuntu, maka Anda juga perlu menginstal seperti paket <code>php-mysql</code>.",
 	"config-outdated-sqlite": "<strong>Peringatan:</strong> Anda menggunakan SQLite $2, yang lebih rendah dari versi minimum yang diperlukan $1. SQLite akan tidak tersedia.",
 	"config-no-fts3": "'''Peringatan''': SQLite dikompilasi tanpa [//sqlite.org/fts3.html modul FTS3], fitur pencarian tidak akan tersedia pada konfigurasi ini.",
-	"config-pcre-old": "<strong>Fatal:</strong> PCRE $1 atau kemudian diperlukan.\nBiner PHP Anda dihubungkan dengan PCRE $2. [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:Errors_and_symptoms/PCRE Selengkapnya].",
-	"config-pcre-no-utf8": "'''Fatal''': Modul PCRE PHP tampaknya dikompilasi tanpa dukungan PCRE_UTF8.\nMediaWiki memerlukan dukungan UTF-8 untuk berfungsi dengan benar.",
 	"config-memory-raised": "<code>memory_limit</code> PHP adalah $1, dinaikkan ke $2.",
 	"config-memory-bad": "'''Peringatan:''' <code>memory_limit</code> PHP adalah $1.\nIni terlalu rendah.\nInstalasi terancam gagal!",
 	"config-apc": "[https://www.php.net/apc APC] telah dipasang",
@@ -93,7 +90,6 @@
 	"config-using-uri": "Menggunakan URL server \"<nowiki>$1$2</nowiki>\".",
 	"config-uploads-not-safe": "'''Peringatan:''' Direktori bawaan pengunggahan <code>$1</code> Anda rentan terhadap eksekusi skrip yang sewenang-wenang.\nMeskipun MediaWiki memeriksa semua berkas unggahan untuk ancaman keamanan, sangat dianjurkan untuk [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:Security#Upload_security menutup kerentanan keamanan ini] sebelum mengaktifkan pengunggahan.",
 	"config-no-cli-uploads-check": "<strong>Peringatan:</strong> Direktori default Anda untuk unggahan (<code>$1</code>) tidak diperiksa untuk kerentanan terhadap\neksekusi script sewenang-wenang selama instalasi CLI.",
-	"config-suhosin-max-value-length": "Suhosin terpasang dan membatasi parameter GET <code>length</code> sebesar $1 bita.\nMediaWiki mengharuskan nilai <code>suhosin.get.max_value_length</code> ditetapkan paling tidak $2. Matikan pengaturan ini, atau naikkan nilai ini menjadi $3 dalam <code>php.ini</code>.",
 	"config-using-32bit": "<strong>Peringatan:</strong> sistem Anda tampaknya dijalankan dengan integer 32-bit. Ini [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:32-bit tidak disarankan].",
 	"config-db-type": "Jenis basis data:",
 	"config-db-host": "Inang basis data:",
@@ -231,7 +227,8 @@
 	"config-upload-deleted-help": "Pilih direktori tempat mengarsipkan berkas yang dihapus.\nIdealnya, direktori ini tidak boleh dapat diakses dari web.",
 	"config-personalization-settings": "Personalisasi",
 	"config-logo-preview-main": "Halaman utama",
-	"config-logo-icon-help": "Ikon logo Anda harus berbentuk persegi dan berukuran lebih besar dari 50px atau merupakan SVG.",
+	"config-logo-icon": "Logo (ikon):",
+	"config-logo-icon-help": "Ikon logo Anda harus berbentuk persegi dan idealnya lebih dari 50 piksel atau SVG.",
 	"config-instantcommons": "Aktifkan Instant Commons",
 	"config-instantcommons-help": "[https://www.mediawiki.org/wiki/Special:MyLanguage/InstantCommons Instant Commons] adalah fitur yang memungkinkan wiki untuk menggunakan gambar, suara, dan media lain dari [https://commons.wikimedia.org/ Wikimedia Commons].\nUntuk melakukannya, MediaWiki memerlukan akses ke Internet.\n\nUntuk informasi lebih lanjut tentang fitur ini, termasuk petunjuk tentang cara untuk mengatur untuk wiki selain Wikimedia Commons, baca [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:$wgForeignFileRepos manual].",
 	"config-cc-error": "Pemilih lisensi Creative Commons tidak memberikan hasil.\nMasukkan nama lisensi secara manual.",
@@ -316,6 +313,7 @@
 	"config-screenshot": "tangkapan layar",
 	"config-extension-not-found": "Tidak dapat menemukan berkas registrasi untuk ekstensi \"$1\"",
 	"config-extension-dependency": "Galat dependensi terjadi ketika memasang ekstensi \"$1\": $2.",
+	"config-ext-skins-more-info": "informasi lebih lanjut",
 	"mainpagetext": "<strong>MediaWiki telah terpasang.</strong>",
 	"mainpagedocfooter": "Baca [https://www.mediawiki.org/wiki/Help:Contents Panduan Pengguna] untuk cara penggunaan perangkat lunak wiki ini.\n\n== Memulai ==\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:Configuration_settings Daftar pengaturan konfigurasi]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:FAQ Pertanyaan yang sering diajukan mengenai MediaWiki]\n* [https://lists.wikimedia.org/postorius/lists/mediawiki-announce.lists.wikimedia.org/ Milis rilis MediaWiki]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Localisation#Translation_resources Pelokalan MediaWiki untuk bahasa Anda]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:Combating_spam Belajar bagaimana menghadapi spam di wiki lokal]"
 }

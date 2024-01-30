@@ -2,10 +2,12 @@
 
 namespace MediaWiki\Tests\Rest\Handler;
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\Rest\Handler\MediaFileHandler;
 use MediaWiki\Rest\LocalizedHttpException;
 use MediaWiki\Rest\RequestData;
-use Title;
+use MediaWiki\Title\Title;
+use RequestContext;
 use Wikimedia\Message\MessageValue;
 
 /**
@@ -40,6 +42,13 @@ class MediaFileHandlerTest extends \MediaWikiLangTestCase {
 		$title = __CLASS__ . '.jpg';
 		$request = new RequestData( [ 'pathParams' => [ 'title' => $title ] ] );
 
+		$user = RequestContext::getMain()->getUser();
+		$userOptionsManager = $this->getServiceContainer()->getUserOptionsManager();
+		$this->overrideConfigValue( MainConfigNames::ImageLimits, [
+			$userOptionsManager->getIntOption( $user, 'imagesize' ) => [ 100, 100 ],
+			$userOptionsManager->getIntOption( $user, 'thumbsize' ) => [ 20, 20 ],
+		] );
+
 		$handler = $this->newHandler();
 		$data = $this->executeHandlerAndGetBodyData( $handler, $request );
 
@@ -58,8 +67,8 @@ class MediaFileHandlerTest extends \MediaWikiLangTestCase {
 				'preferred' => [
 					'mediatype' => 'test',
 					'size' => null,
-					'width' => 64,
-					'height' => 64,
+					'width' => 100,
+					'height' => 67,
 					'duration' => 678,
 					'url' => 'https://media.example.com/static/thumb/' . $title,
 				],
@@ -74,8 +83,8 @@ class MediaFileHandlerTest extends \MediaWikiLangTestCase {
 				'thumbnail' => [
 					'mediatype' => 'test',
 					'size' => null,
-					'width' => 64,
-					'height' => 64,
+					'width' => 20,
+					'height' => 13,
 					'duration' => 678,
 					'url' => 'https://media.example.com/static/thumb/' . $title,
 				],
@@ -119,7 +128,7 @@ class MediaFileHandlerTest extends \MediaWikiLangTestCase {
 
 	public function testExecute_wrongNamespace() {
 		$title = Title::newFromText( 'User:' . __CLASS__ . '.jpg' );
-		$this->editPage( $title->getPrefixedDBkey(), 'First' );
+		$this->editPage( $title, 'First' );
 		$request = new RequestData( [ 'pathParams' => [ 'title' => $title->getPrefixedDBkey() ] ] );
 
 		$handler = $this->newHandler();

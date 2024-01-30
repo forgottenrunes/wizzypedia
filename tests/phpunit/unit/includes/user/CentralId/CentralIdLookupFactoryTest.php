@@ -2,64 +2,63 @@
 
 namespace MediaWiki\Tests\User\CentralId;
 
-use CentralIdLookup;
-use HashConfig;
 use InvalidArgumentException;
-use LocalIdLookup;
+use MediaWiki\Config\HashConfig;
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Tests\Unit\DummyServicesTrait;
+use MediaWiki\User\CentralId\CentralIdLookup;
 use MediaWiki\User\CentralId\CentralIdLookupFactory;
+use MediaWiki\User\CentralId\LocalIdLookup;
 use MediaWiki\User\UserIdentityLookup;
 use MediaWikiUnitTestCase;
-use Wikimedia\ObjectFactory\ObjectFactory;
-use Wikimedia\Rdbms\ILoadBalancer;
-use Wikimedia\Services\ServiceContainer;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * @coversDefaultClass \MediaWiki\User\CentralId\CentralIdLookupFactory
  */
 class CentralIdLookupFactoryTest extends MediaWikiUnitTestCase {
+	use DummyServicesTrait;
+
 	/** @var CentralIdLookup */
 	private $centralLookupMock;
 
-	public function setUp(): void {
+	protected function setUp(): void {
 		parent::setUp();
 		$this->centralLookupMock = $this->getMockForAbstractClass( CentralIdLookup::class );
 	}
 
 	private function makeFactory(): CentralIdLookupFactory {
-		$services = $this->createNoOpMock( ServiceContainer::class, [ 'get' ] );
-		$services
-			->method( 'get' )
-			->willReturnMap( [
-				[ 'DBLoadBalancer', $this->createMock( ILoadBalancer::class ) ],
-				[ 'MainConfig', new HashConfig( [
-					'SharedDB' => null,
-					'SharedTables' => [],
-					'LocalDatabases' => [],
-				] ) ],
-			] );
+		$services = [
+			'DBLoadBalancerFactory' => $this->createMock( IConnectionProvider::class ),
+			'MainConfig' => new HashConfig( [
+				MainConfigNames::SharedDB => null,
+				MainConfigNames::SharedTables => [],
+				MainConfigNames::LocalDatabases => [],
+			] ),
+		];
 		$localIdLookupTest = [
 			'class' => LocalIdLookup::class,
 			'services' => [
 				'MainConfig',
-				'DBLoadBalancer',
+				'DBLoadBalancerFactory',
 			]
 		];
 		return new CentralIdLookupFactory(
 			new ServiceOptions(
 				CentralIdLookupFactory::CONSTRUCTOR_OPTIONS,
 				[
-					'CentralIdLookupProviders' => [
+					MainConfigNames::CentralIdLookupProviders => [
 						'local' => $localIdLookupTest,
 						'local2' => $localIdLookupTest,
 						'mock' => [ 'factory' => function () {
 							return $this->centralLookupMock;
 						} ]
 					],
-					'CentralIdLookupProvider' => 'mock',
+					MainConfigNames::CentralIdLookupProvider => 'mock',
 				]
 			),
-			new ObjectFactory( $services ),
+			$this->getDummyObjectFactory( $services ),
 			$this->createNoOpMock( UserIdentityLookup::class )
 		);
 	}

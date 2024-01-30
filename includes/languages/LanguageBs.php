@@ -1,8 +1,5 @@
 <?php
-
 /**
- * Bosnian (bosanski) specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -19,30 +16,25 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 
 /**
  * Bosnian (bosanski)
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class LanguageBs extends Language {
 	/**
-	 * Convert from the nominative form of a noun to some other case
-	 * Invoked with {{GRAMMAR:case|word}}
-	 *
 	 * Cases: genitiv, dativ, akuzativ, vokativ, instrumental, lokativ
 	 *
-	 * @param string $word
-	 * @param string $case
-	 *
-	 * @return string
+	 * @inheritDoc
 	 */
 	public function convertGrammar( $word, $case ) {
-		$grammarForms = MediaWikiServices::getInstance()->getMainConfig()->get( 'GrammarForms' );
+		$grammarForms =
+			MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::GrammarForms );
 		if ( isset( $grammarForms['bs'][$case][$word] ) ) {
 			return $grammarForms['bs'][$case][$word];
 		}

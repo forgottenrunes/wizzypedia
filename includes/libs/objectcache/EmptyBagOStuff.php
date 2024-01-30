@@ -51,27 +51,13 @@ class EmptyBagOStuff extends MediumSpecificBagOStuff {
 		return true;
 	}
 
-	public function incr( $key, $value = 1, $flags = 0 ) {
-		return false;
-	}
-
-	public function decr( $key, $value = 1, $flags = 0 ) {
-		return false;
-	}
-
 	protected function doIncrWithInit( $key, $exptime, $step, $init, $flags ) {
-		return $init; // faster
+		// faster
+		return $init;
 	}
 
 	public function merge( $key, callable $callback, $exptime = 0, $attempts = 10, $flags = 0 ) {
-		return true; // faster
-	}
-
-	public function makeKeyInternal( $keyspace, $components ) {
-		return $this->genericKeyFromComponents( $keyspace, ...$components );
-	}
-
-	protected function convertGenericKey( $key ) {
-		return $key; // short-circuit; already uses "generic" keys
+		// faster
+		return true;
 	}
 }

@@ -5,8 +5,6 @@ namespace MediaWiki\Extension\Math;
 use ExtensionRegistry;
 use MediaWiki\Extension\Math\Render\RendererFactory;
 use MediaWiki\Logger\LoggerFactory;
-use MWException;
-use PermissionsError;
 use Psr\Log\LoggerInterface;
 use SpecialPage;
 
@@ -41,9 +39,6 @@ class SpecialMathStatus extends SpecialPage {
 
 	/**
 	 * @param null|string $query
-	 *
-	 * @throws MWException
-	 * @throws PermissionsError
 	 */
 	public function execute( $query ) {
 		$this->setHeaders();
@@ -116,10 +111,10 @@ class SpecialMathStatus extends SpecialPage {
 		// phpcs:ignore Generic.Files.LineLength.TooLong
 		$inputSample = '<msub>  <mrow>  <mi> P</mi> </mrow>  <mrow>  <mi> i</mi>  <mi> j</mi> </mrow> </msub>  <mo> =</mo>  <mfrac>  <mrow>  <mn> 100</mn>  <msub>  <mrow>  <mi> d</mi> </mrow>  <mrow>  <mi> i</mi>  <mi> j</mi> </mrow> </msub> </mrow>  <mrow>  <mn> 6.75</mn>  <msub>  <mrow>  <mi> r</mi> </mrow>  <mrow>  <mi> j</mi> </mrow> </msub> </mrow> </mfrac>  <mo> ,</mo> </math>';
 		$attribs = [ 'type' => 'pmml' ];
-		$renderer = new MathMathML( $inputSample, $attribs );
+		$renderer = $this->rendererFactory->getRenderer( $inputSample, $attribs, MathConfig::MODE_MATHML );
 		$this->assertEquals( 'pmml', $renderer->getInputType(), 'Checking if MathML input is supported' );
 		$this->assertTrue( $renderer->render(), 'Rendering Presentation MathML sample' );
-		$real = MathRenderer::renderMath( $inputSample, $attribs, MathConfig::MODE_MATHML );
+		$real = $renderer->getHtmlOutput();
 		$expected = 'hash=5628b8248b79267ecac656102334d5e3&amp;mode=mathml';
 		$this->assertContains( $expected, $real, 'Checking if the link to SVG image is correct' );
 	}
@@ -153,7 +148,8 @@ class SpecialMathStatus extends SpecialPage {
 		}
 		$tex .= $testMax;
 		$renderer = new MathLaTeXML( $tex, [ 'display' => 'linebreak' ] );
-		$this->assertTrue( $renderer->render( true ), "Rendering of linebreak test in LaTeXML mode" );
+		$renderer->setPurge();
+		$this->assertTrue( $renderer->render(), "Rendering of linebreak test in LaTeXML mode" );
 		$expected = 'mtr';
 		$real = preg_replace( "/\n\\s*/", '', $renderer->getHtmlOutput() );
 		$this->assertContains( $expected, $real, "Checking for linebreak" .

@@ -8,10 +8,14 @@
  */
 
 use MediaWiki\Linker\LinkTarget;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Permissions\Authority;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
 use MediaWiki\User\UserIdentity;
+use MediaWiki\Utils\MWTimestamp;
 use Wikimedia\AtEase\AtEase;
 
 /**
@@ -109,7 +113,7 @@ class FileRepo {
 	/** @var string|false Public zone URL. */
 	protected $url;
 
-	/** @var string The base thumbnail URL. Defaults to "<url>/thumb". */
+	/** @var string|false The base thumbnail URL. Defaults to "<url>/thumb". */
 	protected $thumbUrl;
 
 	/** @var int The number of directory levels for hash-based division of files */
@@ -215,11 +219,8 @@ class FileRepo {
 		}
 
 		$this->url = $info['url'] ?? false; // a subclass may set the URL (e.g. ForeignAPIRepo)
-		if ( isset( $info['thumbUrl'] ) ) {
-			$this->thumbUrl = $info['thumbUrl'];
-		} else {
-			$this->thumbUrl = $this->url ? "{$this->url}/thumb" : false;
-		}
+		$defaultThumbUrl = $this->url ? $this->url . '/thumb' : false;
+		$this->thumbUrl = $info['thumbUrl'] ?? $defaultThumbUrl;
 		$this->hashLevels = $info['hashLevels'] ?? 2;
 		$this->deletedHashLevels = $info['deletedHashLevels'] ?? $this->hashLevels;
 		$this->transformVia404 = !empty( $info['transformVia404'] );
@@ -285,7 +286,7 @@ class FileRepo {
 	 * @return bool
 	 */
 	public static function isVirtualUrl( $url ) {
-		return substr( $url, 0, 9 ) == 'mwrepo://';
+		return str_starts_with( $url, 'mwrepo://' );
 	}
 
 	/**
@@ -355,14 +356,14 @@ class FileRepo {
 	 * @return string
 	 */
 	public function resolveVirtualUrl( $url ) {
-		if ( substr( $url, 0, 9 ) != 'mwrepo://' ) {
+		if ( !str_starts_with( $url, 'mwrepo://' ) ) {
 			throw new MWException( __METHOD__ . ': unknown protocol' );
 		}
 		$bits = explode( '/', substr( $url, 9 ), 3 );
 		if ( count( $bits ) != 3 ) {
 			throw new MWException( __METHOD__ . ": invalid mwrepo URL: $url" );
 		}
-		list( $repo, $zone, $rel ) = $bits;
+		[ $repo, $zone, $rel ] = $bits;
 		if ( $repo !== $this->name ) {
 			throw new MWException( __METHOD__ . ": fetching from a foreign repo is not supported" );
 		}
@@ -395,7 +396,7 @@ class FileRepo {
 	 * @return string|null Returns null if the zone is not defined
 	 */
 	public function getZonePath( $zone ) {
-		list( $container, $base ) = $this->getZoneLocation( $zone );
+		[ $container, $base ] = $this->getZoneLocation( $zone );
 		if ( $container === null || $base === null ) {
 			return null;
 		}
@@ -948,8 +949,7 @@ class FileRepo {
 
 		$operations = [];
 		// Validate each triplet and get the store operation...
-		foreach ( $triplets as $triplet ) {
-			list( $src, $dstZone, $dstRel ) = $triplet;
+		foreach ( $triplets as [ $src, $dstZone, $dstRel ] ) {
 			$srcPath = ( $src instanceof FSFile ) ? $src->getPath() : $src;
 			wfDebug( __METHOD__
 				. "( \$src='$srcPath', \$dstZone='$dstZone', \$dstRel='$dstRel' )"
@@ -981,8 +981,8 @@ class FileRepo {
 				'op' => $op,
 				'src' => $src, // storage path (copy) or local file path (store)
 				'dst' => $dstPath,
-				'overwrite' => ( $flags & self::OVERWRITE ) ? true : false,
-				'overwriteSame' => ( $flags & self::OVERWRITE_SAME ) ? true : false,
+				'overwrite' => (bool)( $flags & self::OVERWRITE ),
+				'overwriteSame' => (bool)( $flags & self::OVERWRITE_SAME ),
 			];
 		}
 
@@ -1014,7 +1014,7 @@ class FileRepo {
 		foreach ( $files as $path ) {
 			if ( is_array( $path ) ) {
 				// This is a pair, extract it
-				list( $zone, $rel ) = $path;
+				[ $zone, $rel ] = $path;
 				$path = $this->getZonePath( $zone ) . "/$rel";
 			} else {
 				// Resolve source to a storage path if virtual
@@ -1070,7 +1070,7 @@ class FileRepo {
 		$status = $this->newGood();
 		$operations = [];
 		foreach ( $triples as $triple ) {
-			list( $src, $dst ) = $triple;
+			[ $src, $dst ] = $triple;
 			if ( $src instanceof FSFile ) {
 				$op = 'store';
 			} else {
@@ -1186,7 +1186,7 @@ class FileRepo {
 		$this->assertWritableRepo(); // fail out if read-only
 
 		$temp = $this->getVirtualUrl( 'temp' );
-		if ( substr( $virtualUrl, 0, strlen( $temp ) ) != $temp ) {
+		if ( !str_starts_with( $virtualUrl, $temp ) ) {
 			wfDebug( __METHOD__ . ": Invalid temp virtual URL" );
 
 			return false;
@@ -1297,7 +1297,7 @@ class FileRepo {
 		$sourceFSFilesToDelete = []; // cleanup for disk source files
 		// Validate each triplet and get the store operation...
 		foreach ( $ntuples as $ntuple ) {
-			list( $src, $dstRel, $archiveRel ) = $ntuple;
+			[ $src, $dstRel, $archiveRel ] = $ntuple;
 			$srcPath = ( $src instanceof FSFile ) ? $src->getPath() : $src;
 
 			$options = $ntuple[3] ?? [];
@@ -1367,7 +1367,7 @@ class FileRepo {
 		$status->merge( $backend->doOperations( $operations ) );
 		// Find out which files were archived...
 		foreach ( $ntuples as $i => $ntuple ) {
-			list( , , $archiveRel ) = $ntuple;
+			[ , , $archiveRel ] = $ntuple;
 			$archivePath = $this->getZonePath( 'public' ) . "/$archiveRel";
 			if ( $this->fileExists( $archivePath ) ) {
 				$status->value[$i] = 'archived';
@@ -1394,7 +1394,7 @@ class FileRepo {
 	 */
 	protected function initDirectory( $dir ) {
 		$path = $this->resolveToStoragePathIfVirtual( $dir );
-		list( , $container, ) = FileBackend::splitStoragePath( $path );
+		[ , $container, ] = FileBackend::splitStoragePath( $path );
 
 		$params = [ 'dir' => $path ];
 		if ( $this->isPrivate
@@ -1449,8 +1449,7 @@ class FileRepo {
 		$this->backend->preloadFileStat( [ 'srcs' => $paths ] );
 
 		$result = [];
-		foreach ( $files as $key => $file ) {
-			$path = $this->resolveToStoragePathIfVirtual( $file );
+		foreach ( $paths as $key => $path ) {
 			$result[$key] = $this->backend->fileExists( [ 'src' => $path ] );
 		}
 
@@ -1588,7 +1587,7 @@ class FileRepo {
 	 * Temporary files may be purged when the file object falls out of scope.
 	 *
 	 * @param string $virtualUrl
-	 * @return TempFSFile|null Returns null on failure
+	 * @return TempFSFile|null|false Returns false for missing file, null on failure
 	 */
 	public function getLocalCopy( $virtualUrl ) {
 		$path = $this->resolveToStoragePathIfVirtual( $virtualUrl );
@@ -1602,7 +1601,7 @@ class FileRepo {
 	 * Temporary files may be purged when the file object falls out of scope.
 	 *
 	 * @param string $virtualUrl
-	 * @return FSFile|null Returns null on failure.
+	 * @return FSFile|null|false Returns false for missing file, null on failure.
 	 */
 	public function getLocalReference( $virtualUrl ) {
 		$path = $this->resolveToStoragePathIfVirtual( $virtualUrl );
@@ -1735,7 +1734,7 @@ class FileRepo {
 	}
 
 	/**
-	 * Determine if a relative path is valid, i.e. not blank or involving directory traveral
+	 * Determine if a relative path is valid, i.e. not blank or involving directory traversal
 	 *
 	 * @param string $filename
 	 * @return bool
@@ -1840,7 +1839,7 @@ class FileRepo {
 	 * @return string
 	 */
 	public function getDisplayName() {
-		$sitename = MediaWikiServices::getInstance()->getMainConfig()->get( 'Sitename' );
+		$sitename = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::Sitename );
 
 		if ( $this->isLocal() ) {
 			return $sitename;
@@ -1960,7 +1959,6 @@ class FileRepo {
 	 * Throw an exception if this repo is read-only by design.
 	 * This does not and should not check getReadOnlyReason().
 	 *
-	 * @return void|never
 	 * @throws MWException
 	 */
 	protected function assertWritableRepo() {
@@ -1997,7 +1995,8 @@ class FileRepo {
 		}
 		if ( isset( $this->favicon ) ) {
 			// Expand any local path to full URL to improve API usability (T77093).
-			$ret['favicon'] = wfExpandUrl( $this->favicon );
+			$ret['favicon'] = MediaWikiServices::getInstance()->getUrlUtils()
+				->expand( $this->favicon );
 		}
 
 		return $ret;

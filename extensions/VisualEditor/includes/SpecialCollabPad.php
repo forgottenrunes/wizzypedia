@@ -8,6 +8,19 @@
  * @license MIT
  */
 
+namespace MediaWiki\Extension\VisualEditor;
+
+use MediaWiki\Title\Title;
+use MediaWiki\Widget\TitleInputWidget;
+use OOUI\ActionFieldLayout;
+use OOUI\ButtonWidget;
+use OOUI\FieldsetLayout;
+use OOUI\FormLayout;
+use OOUI\ProgressBarWidget;
+use OOUI\TextInputWidget;
+use SpecialPage;
+use User;
+
 class SpecialCollabPad extends SpecialPage {
 
 	public function __construct() {
@@ -54,18 +67,18 @@ class SpecialCollabPad extends SpecialPage {
 
 		$output->enableOOUI();
 
-		$documentNameFieldset = new OOUI\FieldsetLayout( [
+		$documentNameFieldset = new FieldsetLayout( [
 			'label' => $this->msg( 'visualeditor-rebase-client-document-create-edit' )->text(),
 			'icon' => 'edit',
 			'items' => [
-				new OOUI\ActionFieldLayout(
-					new OOUI\TextInputWidget( [
+				new ActionFieldLayout(
+					new TextInputWidget( [
 						'classes' => [ 've-init-mw-collabTarget-nameInput' ],
 						'placeholder' => $this->msg( 'visualeditor-rebase-client-document-name' )->text(),
 						'autofocus' => true,
 						'infusable' => true
 					] ),
-					new OOUI\ButtonWidget( [
+					new ButtonWidget( [
 						'classes' => [ 've-init-mw-collabTarget-nameButton' ],
 						'label' => $this->msg( 'visualeditor-rebase-client-document-create-edit' )->text(),
 						'flags' => [ 'primary', 'progressive' ],
@@ -81,17 +94,17 @@ class SpecialCollabPad extends SpecialPage {
 				)
 			]
 		] );
-		$importFieldset = new OOUI\FieldsetLayout( [
+		$importFieldset = new FieldsetLayout( [
 			'label' => $this->msg( 'visualeditor-rebase-client-import' )->text(),
 			'icon' => 'download',
 			'items' => [
-				new OOUI\ActionFieldLayout(
-					new MediaWiki\Widget\TitleInputWidget( [
+				new ActionFieldLayout(
+					new TitleInputWidget( [
 						'classes' => [ 've-init-mw-collabTarget-importInput' ],
 						'placeholder' => $this->msg( 'visualeditor-rebase-client-import-name' )->text(),
 						'infusable' => true,
 					] ),
-					new OOUI\ButtonWidget( [
+					new ButtonWidget( [
 						'classes' => [ 've-init-mw-collabTarget-importButton' ],
 						'label' => $this->msg( 'visualeditor-rebase-client-import' )->text(),
 						'flags' => [ 'progressive' ],
@@ -108,7 +121,7 @@ class SpecialCollabPad extends SpecialPage {
 			]
 		] );
 
-		$form = new OOUI\FormLayout( [
+		$form = new FormLayout( [
 			'classes' => [ 've-init-mw-collabTarget-form' ],
 			'items' => [
 				$documentNameFieldset,
@@ -117,7 +130,7 @@ class SpecialCollabPad extends SpecialPage {
 			'infusable' => true
 		] );
 
-		$progressBar = new OOUI\ProgressBarWidget( [
+		$progressBar = new ProgressBarWidget( [
 			'classes' => [ 've-init-mw-collabTarget-loading' ],
 			'infusable' => true
 		] );
@@ -132,39 +145,5 @@ class SpecialCollabPad extends SpecialPage {
 			$progressBar->addClasses( [ 'oo-ui-element-hidden' ] );
 		}
 		$output->addHTML( $progressBar . $form );
-	}
-
-	/**
-	 * Get the sub page from the current title
-	 *
-	 * @param Title $title Full title
-	 * @return null|Title Sub page title
-	 */
-	public static function getSubPage( Title $title ) {
-		preg_match( '`^[^/]+/(.*)`', $title->getPrefixedText(), $matches );
-		return count( $matches ) ? Title::newFromText( $matches[ 1 ] ) : null;
-	}
-
-	/**
-	 * @param SkinTemplate &$skin The skin template on which the UI is built.
-	 * @param array &$links Navigation links.
-	 * @return bool Always true.
-	 */
-	public static function onSkinTemplateNavigationSpecialPage( SkinTemplate &$skin, array &$links ) {
-		$title = $skin->getTitle();
-		if ( $title && $title->isSpecial( 'CollabPad' ) ) {
-			$subPage = self::getSubPage( $title );
-			$links['namespaces']['special']['text'] = $skin->msg( 'collabpad' )->text();
-			if ( $subPage ) {
-				$links['namespaces']['special']['href'] =
-					Title::newFromText( 'Special:CollabPad' )->getLocalURL();
-				$links['namespaces']['special']['class'] = '';
-
-				$links['namespaces']['pad']['text'] = $subPage->getPrefixedText();
-				$links['namespaces']['pad']['href'] = '';
-				$links['namespaces']['pad']['class'] = 'selected';
-			}
-		}
-		return true;
 	}
 }

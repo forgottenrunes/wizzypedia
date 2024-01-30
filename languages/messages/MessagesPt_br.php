@@ -1,10 +1,8 @@
 <?php
 /** Brazilian Portuguese (português do Brasil)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Alcali
  * @author Alchimista
@@ -99,10 +97,18 @@ $namespaceNames = [
 ];
 
 $namespaceAliases = [
-	'Imagem' => NS_FILE,
-	'Imagem_Discussão' => NS_FILE_TALK,
-	'Ficheiro' => NS_FILE,
-	'Ficheiro_Discussão' => NS_FILE_TALK,
+	'Usuário(a)'              => NS_USER, // T33986
+	'Usuário(a)_Discussão'    => NS_USER_TALK, // T33986
+	'Utilizador'              => NS_USER, // T33986
+	'Utilizador_Discussão'    => NS_USER_TALK, // T33986
+	'Utilizadora'             => NS_USER, // T33986
+	'Utilizadora_Discussão'   => NS_USER_TALK, // T33986
+	'Utilizador(a)'           => NS_USER, // T33986
+	'Utilizador(a)_Discussão' => NS_USER_TALK, // T33986
+	'Imagem'                  => NS_FILE,
+	'Imagem_Discussão'        => NS_FILE_TALK,
+	'Ficheiro'                => NS_FILE,
+	'Ficheiro_Discussão'      => NS_FILE_TALK,
 ];
 
 $namespaceGenderAliases = [
@@ -186,6 +192,7 @@ $specialPageAliases = [
 	'Randomredirect'            => [ 'Redirecionamento_aleatório' ],
 	'Recentchanges'             => [ 'Mudanças_recentes', 'Recentes' ],
 	'Recentchangeslinked'       => [ 'Mudanças_relacionadas', 'Novidades_relacionadas' ],
+	'Renameuser'                => [ 'Renomear_utilizador', 'Renomear_usuário' ],
 	'Revisiondelete'            => [ 'Eliminar_edição', 'Eliminar_revisão', 'Apagar_edição', 'Apagar_revisão' ],
 	'Search'                    => [ 'Busca', 'Buscar', 'Procurar', 'Pesquisar', 'Pesquisa' ],
 	'Shortpages'                => [ 'Páginas_curtas', 'Artigos_curtos' ],

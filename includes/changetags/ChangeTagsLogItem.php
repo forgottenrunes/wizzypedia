@@ -20,7 +20,8 @@
  */
 
 use MediaWiki\MediaWikiServices;
-use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
 
 /**
  * Item class for a logging table row with its associated change tags.
@@ -51,7 +52,7 @@ class ChangeTagsLogItem extends RevisionItemBase {
 
 	public function canView() {
 		return LogEventsList::userCan(
-			$this->row, RevisionRecord::SUPPRESSED_ALL, $this->list->getUser()
+			$this->row, LogPage::DELETED_RESTRICTED, $this->list->getAuthority()
 		);
 	}
 
@@ -92,15 +93,11 @@ class ChangeTagsLogItem extends RevisionItemBase {
 		$comment = $this->list->getLanguage()->getDirMark() .
 			$formatter->getComment();
 
-		if ( LogEventsList::isDeleted( $this->row, LogPage::DELETED_COMMENT ) ) {
-			$comment = '<span class="history-deleted">' . $comment . '</span>';
-		}
-
 		$content = "$loglink $date $action $comment";
 		$attribs = [];
 		$tags = $this->getTags();
 		if ( $tags ) {
-			list( $tagSummary, $classes ) = ChangeTags::formatSummaryRow(
+			[ $tagSummary, $classes ] = ChangeTags::formatSummaryRow(
 				$tags,
 				'edittags',
 				$this->list->getContext()

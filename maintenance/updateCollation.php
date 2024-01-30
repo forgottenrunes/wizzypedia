@@ -26,7 +26,9 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Title\NamespaceInfo;
+use MediaWiki\Title\Title;
 use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Rdbms\IMaintainableDatabase;
 use Wikimedia\Rdbms\IResultWrapper;
@@ -111,14 +113,14 @@ TEXT
 	 * Get services and initialise member variables
 	 */
 	private function init() {
-		$services = MediaWikiServices::getInstance();
+		$services = $this->getServiceContainer();
 		$this->namespaceInfo = $services->getNamespaceInfo();
 		$this->lbFactory = $services->getDBLoadBalancerFactory();
 
 		if ( $this->hasOption( 'target-collation' ) ) {
 			$this->collationName = $this->getOption( 'target-collation' );
 		} else {
-			$this->collationName = $this->getConfig()->get( 'CategoryCollation' );
+			$this->collationName = $this->getConfig()->get( MainConfigNames::CategoryCollation );
 		}
 		if ( $this->hasOption( 'remote' ) ) {
 			$realCollationName = 'remote-' . $this->collationName;
@@ -163,11 +165,6 @@ TEXT
 		} else {
 			$orderBy = 'cl_collation, cl_to, cl_type, cl_from';
 		}
-		$options = [
-			'LIMIT' => $batchSize,
-			'ORDER BY' => $orderBy,
-			'STRAIGHT_JOIN' // per T58041
-		];
 
 		$collationConds = [];
 		if ( !$this->force && !$this->targetTable ) {
@@ -187,12 +184,11 @@ TEXT
 			);
 			// Improve estimate if feasible
 			if ( $count < 1000000 ) {
-				$count = $this->dbr->selectField(
-					'categorylinks',
-					'COUNT(*)',
-					$collationConds,
-					__METHOD__
-				);
+				$count = $this->dbr->newSelectQueryBuilder()
+					->select( 'COUNT(*)' )
+					->from( 'categorylinks' )
+					->where( $collationConds )
+					->caller( __METHOD__ )->fetchField();
 			}
 			if ( $count == 0 ) {
 				$this->output( "Collations up-to-date.\n" );
@@ -216,17 +212,20 @@ TEXT
 			} else {
 				$clType = 'cl_type';
 			}
-			$res = $this->dbw->select(
-				[ 'categorylinks', 'page' ],
-				[
+			$res = $this->dbw->newSelectQueryBuilder()
+				->select( [
 					'cl_from', 'cl_to', 'cl_sortkey_prefix', 'cl_collation',
 					'cl_sortkey', $clType, 'cl_timestamp',
 					'page_namespace', 'page_title'
-				],
-				array_merge( $collationConds, $batchConds, [ 'cl_from = page_id' ] ),
-				__METHOD__,
-				$options
-			);
+				] )
+				->from( 'categorylinks' )
+				// per T58041
+				->straightJoin( 'page', null, 'cl_from = page_id' )
+				->where( $collationConds )
+				->andWhere( $batchConds )
+				->limit( $batchSize )
+				->orderBy( $orderBy )
+				->caller( __METHOD__ )->fetchResultSet();
 			$this->output( " processing..." );
 
 			if ( $res->numRows() ) {
@@ -270,30 +269,19 @@ TEXT
 		} else {
 			$fields = [ 'cl_collation', 'cl_to', 'cl_type', 'cl_from' ];
 		}
-		$first = true;
-		$cond = false;
-		$prefix = false;
+		$conds = [];
 		foreach ( $fields as $field ) {
 			if ( $dbw->getType() === 'mysql' && $field === 'cl_type' ) {
 				// Range conditions with enums are weird in mysql
 				// This must be a numeric literal, or it won't work.
-				$encValue = intval( $row->cl_type_numeric );
+				$value = intval( $row->cl_type_numeric );
 			} else {
-				$encValue = $dbw->addQuotes( $row->$field );
+				$value = $row->$field;
 			}
-			$inequality = "$field > $encValue";
-			$equality = "$field = $encValue";
-			if ( $first ) {
-				$cond = $inequality;
-				$prefix = $equality;
-				$first = false;
-			} else {
-				$cond .= " OR ($prefix AND $inequality)";
-				$prefix .= " AND $equality";
-			}
+			$conds[ $field ] = $value;
 		}
 
-		return $cond;
+		return $dbw->buildComparison( '>', $conds );
 	}
 
 	/**
@@ -370,7 +358,7 @@ TEXT
 		$rowsToInsert = [];
 		foreach ( $res as $i => $row ) {
 			if ( !isset( $sortKeys[$i] ) ) {
-				throw new MWException( 'Unable to get sort key' );
+				throw new RuntimeException( 'Unable to get sort key' );
 			}
 			$newSortKey = $sortKeys[$i];
 			$this->updateSortKeySizeHistogram( $newSortKey );
@@ -440,6 +428,7 @@ TEXT
 			}
 			$val = $this->sizeHistogram[$i] ?? 0;
 			for ( $coarseIndex = 0; $coarseIndex < $numBins - 1; $coarseIndex++ ) {
+				// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
 				if ( $coarseBoundaries[$coarseIndex] > $i ) {
 					$coarseHistogram[$coarseIndex] += $val;
 					break;
@@ -458,6 +447,7 @@ TEXT
 		$prevBoundary = 0;
 		for ( $coarseIndex = 0; $coarseIndex < $numBins; $coarseIndex++ ) {
 			$val = $coarseHistogram[$coarseIndex] ?? 0;
+			// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
 			$boundary = $coarseBoundaries[$coarseIndex];
 			$this->output( sprintf( "%-10s %-10d |%s\n",
 				$prevBoundary . '-' . ( $boundary - 1 ) . ': ',

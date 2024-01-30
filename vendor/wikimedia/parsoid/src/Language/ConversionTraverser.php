@@ -3,8 +3,8 @@ declare( strict_types = 1 );
 
 namespace Wikimedia\Parsoid\Language;
 
-use stdClass;
 use Wikimedia\Assert\Assert;
+use Wikimedia\Bcp47Code\Bcp47Code;
 use Wikimedia\LangConv\ReplacementMachine;
 use Wikimedia\Parsoid\Config\Env;
 use Wikimedia\Parsoid\DOM\DocumentFragment;
@@ -19,25 +19,26 @@ use Wikimedia\Parsoid\Utils\Utils;
 
 class ConversionTraverser extends DOMTraverser {
 
-	/** @var string */
+	/** @var Bcp47Code a language code */
 	private $toLang;
 
-	/** @var string */
+	/** @var Bcp47Code a language code */
 	private $fromLang;
 
 	/** @var LanguageGuesser */
 	private $guesser;
 
-	/** @var ReplacementMachine */
+	/** @var ReplacementMachine (uses MW-internal codes) */
 	private $machine;
 
 	/**
-	 * @param string $toLang target language for conversion
+	 * @param Env $env
+	 * @param Bcp47Code $toLang target language for conversion
 	 * @param LanguageGuesser $guesser oracle to determine "original language" for round-tripping
 	 * @param ReplacementMachine $machine machine to do actual conversion
 	 */
 	public function __construct(
-		string $toLang, LanguageGuesser $guesser, ReplacementMachine $machine
+		Env $env, Bcp47Code $toLang, LanguageGuesser $guesser, ReplacementMachine $machine
 	) {
 		parent::__construct();
 		$this->toLang = $toLang;
@@ -49,66 +50,52 @@ class ConversionTraverser extends DOMTraverser {
 		// XXX: <cite> ought to probably be handled more generically
 		// as extension output, not special-cased as a HTML tag.
 		foreach ( [ 'code', 'script', 'pre', 'cite' ] as $el ) {
-			$this->addHandler( $el, function ( ...$args ) {
-				return $this->noConvertHandler( ...$args );
+			$this->addHandler( $el, function ( Element $el ) {
+				return $this->noConvertHandler( $el );
 			} );
 		}
 		// Setting/saving the language context
-		$this->addHandler( null, function ( ...$args ) {
-			return $this->anyHandler( ...$args );
+		$this->addHandler( null, function ( Node $node ) {
+			return $this->anyHandler( $node );
 		} );
-		$this->addHandler( 'p', function ( ...$args ) {
-			return $this->langContextHandler( ...$args );
+		$this->addHandler( 'p', function ( Element $el ) {
+			return $this->langContextHandler( $el );
 		} );
-		$this->addHandler( 'body', function ( ...$args ) {
-			return $this->langContextHandler( ...$args );
+		$this->addHandler( 'body', function ( Element $el ) {
+			return $this->langContextHandler( $el );
 		} );
 		// Converting #text, <a> nodes, and title/alt attributes
-		$this->addHandler( '#text', function ( ...$args ) {
-			return $this->textHandler( ...$args );
+		$this->addHandler( '#text', function ( Node $node ) {
+			return $this->textHandler( $node );
 		} );
-		$this->addHandler( 'a', function ( ...$args ) {
-			return $this->aHandler( ...$args );
+		$this->addHandler( 'a', function ( Element $el ) use ( $env ){
+			return $this->aHandler( $el, $env );
 		} );
-		$this->addHandler( null, function ( ...$args ) {
-			return $this->attrHandler( ...$args );
+		$this->addHandler( null, function ( Node $node ) {
+			return $this->attrHandler( $node );
 		} );
 		// LanguageConverter markup
 		foreach ( [ 'meta', 'div', 'span' ] as $el ) {
-			$this->addHandler( $el, function ( ...$args ) {
-				return $this->lcHandler( ...$args );
+			$this->addHandler( $el, function ( Element $el ) {
+				return $this->lcHandler( $el );
 			} );
 		}
 	}
 
 	/**
 	 * @param Element $el
-	 * @param Env $env
-	 * @param array $options
-	 * @param bool $atTopLevel
-	 * @param ?stdClass $tplInfo
 	 * @return ?Node|bool
 	 */
-	private function noConvertHandler(
-		Element $el, Env $env, array $options, bool $atTopLevel,
-		?stdClass $tplInfo
-	) {
+	private function noConvertHandler( Element $el ) {
 		// Don't touch the inside of this node!
 		return $el->nextSibling;
 	}
 
 	/**
 	 * @param Node $node
-	 * @param Env $env
-	 * @param array $options
-	 * @param bool $atTopLevel
-	 * @param ?stdClass $tplInfo
 	 * @return ?Node|bool
 	 */
-	private function anyHandler(
-		Node $node, Env $env, array $options, bool $atTopLevel,
-		?stdClass $tplInfo
-	) {
+	private function anyHandler( Node $node ) {
 		/* Look for `lang` attributes */
 		if ( $node instanceof Element ) {
 			if ( $node->hasAttribute( 'lang' ) ) {
@@ -122,57 +109,42 @@ class ConversionTraverser extends DOMTraverser {
 
 	/**
 	 * @param Element $el
-	 * @param Env $env
-	 * @param array $options
-	 * @param bool $atTopLevel
-	 * @param ?stdClass $tplInfo
 	 * @return ?Node|bool
 	 */
-	private function langContextHandler(
-		Element $el, Env $env, array $options, bool $atTopLevel,
-		?stdClass $tplInfo
-	) {
+	private function langContextHandler( Element $el ) {
 		$this->fromLang = $this->guesser->guessLang( $el );
-		$el->setAttribute( 'data-mw-variant-lang', $this->fromLang );
+		// T320662: use internal MW language names for now :(
+		$fromLangMw = Utils::bcp47ToMwCode( $this->fromLang );
+		$el->setAttribute( 'data-mw-variant-lang', $fromLangMw );
 		return true; // Continue with other handlers
 	}
 
 	/**
 	 * @param Node $node
-	 * @param Env $env
-	 * @param array $options
-	 * @param bool $atTopLevel
-	 * @param ?stdClass $tplInfo
 	 * @return ?Node|bool
 	 */
-	private function textHandler(
-		Node $node, Env $env, array $options, bool $atTopLevel,
-		?stdClass $tplInfo
-	) {
+	private function textHandler( Node $node ) {
 		Assert::invariant( $this->fromLang !== null, 'Text w/o a context' );
+		$toLangMw = Utils::bcp47ToMwCode( $this->toLang );
+		$fromLangMw = Utils::bcp47ToMwCode( $this->fromLang );
 		// @phan-suppress-next-line PhanTypeMismatchArgument,PhanTypeMismatchReturn both declared as DOMNode
-		return $this->machine->replace( $node, $this->toLang, $this->fromLang );
+		return $this->machine->replace( $node, $toLangMw, $fromLangMw );
 	}
 
 	/**
 	 * @param Element $el
 	 * @param Env $env
-	 * @param array $options
-	 * @param bool $atTopLevel
-	 * @param ?stdClass $tplInfo
 	 * @return ?Node|bool
 	 */
-	private function aHandler(
-		Element $el, Env $env, array $options, bool $atTopLevel,
-		?stdClass $tplInfo
-	) {
+	private function aHandler( Element $el, Env $env ) {
 		// Is this a wikilink?  If so, extract title & convert it
-		$rel = $el->getAttribute( 'rel' ) ?? '';
-		if ( $rel === 'mw:WikiLink' ) {
+		if ( DOMUtils::hasRel( $el, 'mw:WikiLink' ) ) {
 			$href = preg_replace( '#^(\.\.?/)+#', '', $el->getAttribute( 'href' ) ?? '', 1 );
 			$fromPage = Utils::decodeURI( $href );
 			$toPageFrag = $this->machine->convert(
-				$el->ownerDocument, $fromPage, $this->toLang, $this->fromLang
+				$el->ownerDocument, $fromPage,
+				Utils::bcp47ToMwCode( $this->toLang ),
+				Utils::bcp47ToMwCode( $this->fromLang )
 			);
 			'@phan-var DocumentFragment $toPageFrag'; // @var DocumentFragment $toPageFrag
 			$toPage = $this->docFragToString( $toPageFrag );
@@ -185,10 +157,10 @@ class ConversionTraverser extends DOMTraverser {
 				$el->setAttribute( 'title', str_replace( '_', ' ', $toPage ) );
 			}
 			$el->setAttribute( 'href', "./{$toPage}" );
-		} elseif ( $rel === 'mw:WikiLink/Interwiki' ) {
+		} elseif ( DOMUtils::hasRel( $el, 'mw:WikiLink/Interwiki' ) ) {
 			// Don't convert title or children of interwiki links
 			return $el->nextSibling;
-		} elseif ( $rel === 'mw:ExtLink' ) {
+		} elseif ( DOMUtils::hasRel( $el, 'mw:ExtLink' ) ) {
 			// WTUtils.usesURLLinkSyntax uses data-parsoid, so don't use it,
 			// but syntactic free links should also have class="external free"
 			if ( DOMCompat::getClassList( $el )->contains( 'free' ) ) {
@@ -214,16 +186,9 @@ class ConversionTraverser extends DOMTraverser {
 
 	/**
 	 * @param Node $node
-	 * @param Env $env
-	 * @param array $options
-	 * @param bool $atTopLevel
-	 * @param ?stdClass $tplInfo
 	 * @return ?Node|bool
 	 */
-	private function attrHandler(
-		Node $node, Env $env, array $options, bool $atTopLevel,
-		?stdClass $tplInfo
-	) {
+	private function attrHandler( Node $node ) {
 		// Convert `alt` and `title` attributes on elements
 		// (Called before aHandler, so the `title` might get overwritten there)
 		if ( !( $node instanceof Element ) ) {
@@ -234,7 +199,7 @@ class ConversionTraverser extends DOMTraverser {
 			if ( !$node->hasAttribute( $attr ) ) {
 				continue;
 			}
-			if ( $attr === 'title' && $node->getAttribute( 'rel' ) === 'mw:WikiLink' ) {
+			if ( $attr === 'title' && DOMUtils::hasRel( $node, 'mw:WikiLink' ) ) {
 				// We've already converted the title in aHandler above.
 				continue;
 			}
@@ -243,7 +208,9 @@ class ConversionTraverser extends DOMTraverser {
 				continue; /* Don't convert URLs */
 			}
 			$toFrag = $this->machine->convert(
-				$node->ownerDocument, $orig, $this->toLang, $this->fromLang
+				$node->ownerDocument, $orig,
+				Utils::bcp47ToMwCode( $this->toLang ),
+				Utils::bcp47ToMwCode( $this->fromLang )
 			);
 			'@phan-var DocumentFragment $toFrag'; // @var DocumentFragment $toFrag
 			$to = $this->docFragToString( $toFrag );
@@ -261,16 +228,9 @@ class ConversionTraverser extends DOMTraverser {
 	 * Handler for LanguageConverter markup
 	 *
 	 * @param Element $el
-	 * @param Env $env
-	 * @param array $options
-	 * @param bool $atTopLevel
-	 * @param ?stdClass $tplInfo
 	 * @return ?Node|bool
 	 */
-	private function lcHandler(
-		Element $el, Env $env, array $options, bool $atTopLevel,
-		?stdClass $tplInfo
-	) {
+	private function lcHandler( Element $el ) {
 		if ( !DOMUtils::hasTypeOf( $el, 'mw:LanguageVariant' ) ) {
 			return true; /* not language converter markup */
 		}

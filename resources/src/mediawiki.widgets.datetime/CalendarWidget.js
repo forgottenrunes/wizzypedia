@@ -409,10 +409,11 @@
 						.setData( day.date )
 						.setDisabled( day.date < this.min || day.date > this.max );
 					$cell = this.buttons[ k ].$element;
-					$cell.toggleClass( 'mw-widgets-datetime-calendarWidget-focused',
-						this.formatter.datePartIsEqual( focusedDate, day.date ) );
-					$cell.toggleClass( 'mw-widgets-datetime-calendarWidget-selected',
-						selected.some( isSelected, day.date ) );
+					$cell
+						.toggleClass( 'mw-widgets-datetime-calendarWidget-focused',
+							this.formatter.datePartIsEqual( focusedDate, day.date ) )
+						.toggleClass( 'mw-widgets-datetime-calendarWidget-selected',
+							selected.some( isSelected, day.date ) );
 				}
 				this.rows[ r ].append( $cell );
 			}
@@ -470,11 +471,12 @@
 	 * Handles day button click
 	 *
 	 * @protected
-	 * @param {OO.ui.ButtonWidget} $button
+	 * @param {OO.ui.ButtonWidget} button
 	 */
-	mw.widgets.datetime.CalendarWidget.prototype.onDayClick = function ( $button ) {
-		this.setFocusedDate( $button.getData() );
-		this.setSelected( [ $button.getData() ] );
+	mw.widgets.datetime.CalendarWidget.prototype.onDayClick = function ( button ) {
+		var data = button.getData();
+		this.setFocusedDate( data );
+		this.setSelected( [ data ] );
 		if ( !this.$widget || OO.ui.contains( this.$element[ 0 ], document.activeElement, true ) ) {
 			this.$element.trigger( 'focus' );
 		}

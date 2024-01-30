@@ -1,10 +1,19 @@
 <?php
 
+namespace MediaWiki\Specials;
+
+use LogicException;
 use MediaWiki\Auth\AuthenticationRequest;
 use MediaWiki\Auth\AuthenticationResponse;
 use MediaWiki\Auth\AuthManager;
 use MediaWiki\Auth\PasswordAuthenticationRequest;
+use MediaWiki\Html\Html;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Session\SessionManager;
+use MediaWiki\SpecialPage\AuthManagerSpecialPage;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
+use Message;
 
 /**
  * Special change to change credentials (such as the password).
@@ -28,7 +37,7 @@ class SpecialChangeCredentials extends AuthManagerSpecialPage {
 	}
 
 	protected function getGroupName() {
-		return 'users';
+		return 'login';
 	}
 
 	public function isListed() {
@@ -71,8 +80,9 @@ class SpecialChangeCredentials extends AuthManagerSpecialPage {
 			return;
 		}
 
-		$this->getOutput()->addBacklinkSubtitle( $this->getPageTitle() );
-
+		$out = $this->getOutput();
+		$out->addModules( 'mediawiki.special.changecredentials' );
+		$out->addBacklinkSubtitle( $this->getPageTitle() );
 		$status = $this->trySubmit();
 
 		if ( $status === false || !$status->isOK() ) {
@@ -176,7 +186,7 @@ class SpecialChangeCredentials extends AuthManagerSpecialPage {
 		$req = reset( $requests );
 		$info = $req->describeCredentials();
 
-		$form->addPreText(
+		$form->addPreHtml(
 			Html::openElement( 'dl' )
 			. Html::element( 'dt', [], $this->msg( 'credentialsform-provider' )->text() )
 			. Html::element( 'dd', [], $info['provider']->text() )
@@ -188,7 +198,7 @@ class SpecialChangeCredentials extends AuthManagerSpecialPage {
 		// messages used: changecredentials-submit removecredentials-submit
 		$form->setSubmitTextMsg( static::$messagePrefix . '-submit' );
 		$form->showCancel()->setCancelTarget( $this->getReturnUrl() ?: Title::newMainPage() );
-
+		$form->setSubmitID( 'change_credentials_submit' );
 		return $form;
 	}
 
@@ -260,8 +270,11 @@ class SpecialChangeCredentials extends AuthManagerSpecialPage {
 			$out->redirect( $returnUrl );
 		} else {
 			// messages used: changecredentials-success removecredentials-success
-			$out->wrapWikiMsg( "<div class=\"successbox\">\n$1\n</div>", static::$messagePrefix
-				. '-success' );
+			$out->addHTML(
+				Html::successBox(
+					$out->msg( static::$messagePrefix . '-success' )->parse()
+				)
+			);
 			$out->returnToMain();
 		}
 	}
@@ -283,6 +296,11 @@ class SpecialChangeCredentials extends AuthManagerSpecialPage {
 	}
 
 	protected function getRequestBlacklist() {
-		return $this->getConfig()->get( 'ChangeCredentialsBlacklist' );
+		return $this->getConfig()->get( MainConfigNames::ChangeCredentialsBlacklist );
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialChangeCredentials::class, 'SpecialChangeCredentials' );

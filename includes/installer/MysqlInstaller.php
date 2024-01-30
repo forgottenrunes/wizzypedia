@@ -21,9 +21,14 @@
  * @ingroup Installer
  */
 
+use MediaWiki\Html\Html;
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Status\Status;
 use Wikimedia\Rdbms\Database;
+use Wikimedia\Rdbms\DatabaseFactory;
 use Wikimedia\Rdbms\DBConnectionError;
 use Wikimedia\Rdbms\DBQueryError;
+use Wikimedia\Rdbms\IDatabase;
 
 /**
  * Class for setting up the MediaWiki database using MySQL.
@@ -38,6 +43,7 @@ class MysqlInstaller extends DatabaseInstaller {
 		'wgDBname',
 		'wgDBuser',
 		'wgDBpassword',
+		'wgDBssl',
 		'wgDBprefix',
 		'wgDBTableOptions',
 	];
@@ -50,8 +56,12 @@ class MysqlInstaller extends DatabaseInstaller {
 
 	public $supportedEngines = [ 'InnoDB' ];
 
-	public static $minimumVersion = '5.5.8';
-	protected static $notMinimumVersionMessage = 'config-mysql-old';
+	private const MIN_VERSIONS = [
+		'MySQL' => '5.7.0',
+		'MariaDB' => '10.3',
+	];
+	public static $minimumVersion;
+	protected static $notMinimumVersionMessage;
 
 	public $webUserPrivs = [
 		'DELETE',
@@ -85,6 +95,7 @@ class MysqlInstaller extends DatabaseInstaller {
 			[],
 			$this->parent->getHelpBox( 'config-db-host-help' )
 		) .
+			$this->getCheckBox( 'wgDBssl', 'config-db-ssl' ) .
 			Html::openElement( 'fieldset' ) .
 			Html::element( 'legend', [], wfMessage( 'config-db-wiki-settings' )->text() ) .
 			$this->getTextBox( 'wgDBname', 'config-db-name', [ 'dir' => 'ltr' ],
@@ -97,7 +108,7 @@ class MysqlInstaller extends DatabaseInstaller {
 
 	public function submitConnectForm() {
 		// Get variables from the request.
-		$newValues = $this->setVarsFromRequest( [ 'wgDBserver', 'wgDBname', 'wgDBprefix' ] );
+		$newValues = $this->setVarsFromRequest( [ 'wgDBserver', 'wgDBname', 'wgDBprefix', 'wgDBssl' ] );
 
 		// Validate them.
 		$status = Status::newGood();
@@ -134,7 +145,15 @@ class MysqlInstaller extends DatabaseInstaller {
 		'@phan-var Database $conn';
 
 		// Check version
-		return static::meetsMinimumRequirement( $conn->getServerVersion() );
+		return static::meetsMinimumRequirement( $conn );
+	}
+
+	public static function meetsMinimumRequirement( IDatabase $conn ) {
+		$type = str_contains( $conn->getSoftwareLink(), 'MariaDB' ) ? 'MariaDB' : 'MySQL';
+		self::$minimumVersion = self::MIN_VERSIONS[$type];
+		// Used messages: config-mysql-old, config-mariadb-old
+		self::$notMinimumVersionMessage = 'config-' . strtolower( $type ) . '-old';
+		return parent::meetsMinimumRequirement( $conn );
 	}
 
 	/**
@@ -144,10 +163,11 @@ class MysqlInstaller extends DatabaseInstaller {
 		$status = Status::newGood();
 		try {
 			/** @var DatabaseMysqlBase $db */
-			$db = Database::factory( 'mysql', [
+			$db = ( new DatabaseFactory() )->create( 'mysql', [
 				'host' => $this->getVar( 'wgDBserver' ),
 				'user' => $this->getVar( '_InstallUser' ),
 				'password' => $this->getVar( '_InstallPassword' ),
+				'ssl' => $this->getVar( 'wgDBssl' ),
 				'dbname' => false,
 				'flags' => 0,
 				'tablePrefix' => $this->getVar( 'wgDBprefix' ) ] );
@@ -172,8 +192,7 @@ class MysqlInstaller extends DatabaseInstaller {
 		 * @var Database $conn
 		 */
 		$conn = $status->value;
-		$conn->selectDB( $this->getVar( 'wgDBname' ) );
-
+		$this->selectDatabase( $conn, $this->getVar( 'wgDBname' ) );
 		# Determine existing default character set
 		if ( $conn->tableExists( "revision", __METHOD__ ) ) {
 			$revision = $this->escapeLikeInternal( $this->getVar( 'wgDBprefix' ) . 'revision', '\\' );
@@ -397,10 +416,11 @@ class MysqlInstaller extends DatabaseInstaller {
 		if ( !$create ) {
 			// Test the web account
 			try {
-				Database::factory( 'mysql', [
+				MediaWikiServices::getInstance()->getDatabaseFactory()->create( 'mysql', [
 					'host' => $this->getVar( 'wgDBserver' ),
 					'user' => $this->getVar( 'wgDBuser' ),
 					'password' => $this->getVar( 'wgDBpassword' ),
+					'ssl' => $this->getVar( 'wgDBssl' ),
 					'dbname' => false,
 					'flags' => 0,
 					'tablePrefix' => $this->getVar( 'wgDBprefix' )
@@ -450,7 +470,7 @@ class MysqlInstaller extends DatabaseInstaller {
 				__METHOD__
 			);
 		}
-		$conn->selectDB( $dbName );
+		$this->selectDatabase( $conn, $dbName );
 		$this->setupSchemaVars();
 
 		return $status;
@@ -485,7 +505,7 @@ class MysqlInstaller extends DatabaseInstaller {
 
 		$this->setupSchemaVars();
 		$dbName = $this->getVar( 'wgDBname' );
-		$this->db->selectDB( $dbName );
+		$this->selectDatabase( $this->db, $dbName );
 		$server = $this->getVar( 'wgDBserver' );
 		$password = $this->getVar( 'wgDBpassword' );
 		$grantableNames = [];
@@ -493,10 +513,11 @@ class MysqlInstaller extends DatabaseInstaller {
 		if ( $this->getVar( '_CreateDBAccount' ) ) {
 			// Before we blindly try to create a user that already has access,
 			try { // first attempt to connect to the database
-				Database::factory( 'mysql', [
+				( new DatabaseFactory() )->create( 'mysql', [
 					'host' => $server,
 					'user' => $dbUser,
 					'password' => $password,
+					'ssl' => $this->getVar( 'wgDBssl' ),
 					'dbname' => false,
 					'flags' => 0,
 					'tablePrefix' => $this->getVar( 'wgDBprefix' )
@@ -587,8 +608,11 @@ class MysqlInstaller extends DatabaseInstaller {
 	 */
 	private function userDefinitelyExists( $host, $user ) {
 		try {
-			$res = $this->db->selectRow( 'mysql.user', [ 'Host', 'User' ],
-				[ 'Host' => $host, 'User' => $user ], __METHOD__ );
+			$res = $this->db->newSelectQueryBuilder()
+				->select( [ 'Host', 'User' ] )
+				->from( 'mysql.user' )
+				->where( [ 'Host' => $host, 'User' => $user ] )
+				->caller( __METHOD__ )->fetchRow();
 
 			return (bool)$res;
 		} catch ( DBQueryError $dqe ) {
@@ -630,10 +654,12 @@ class MysqlInstaller extends DatabaseInstaller {
 
 	public function getLocalSettings() {
 		$prefix = LocalSettingsGenerator::escapePhpString( $this->getVar( 'wgDBprefix' ) );
+		$useSsl = $this->getVar( 'wgDBssl' ) ? 'true' : 'false';
 		$tblOpts = LocalSettingsGenerator::escapePhpString( $this->getTableOptions() );
 
 		return "# MySQL specific settings
 \$wgDBprefix = \"{$prefix}\";
+\$wgDBssl = {$useSsl};
 
 # MySQL table options to use during installation or update
 \$wgDBTableOptions = \"{$tblOpts}\";";

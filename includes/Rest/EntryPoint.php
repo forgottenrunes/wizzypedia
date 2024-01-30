@@ -5,15 +5,18 @@ namespace MediaWiki\Rest;
 use ExtensionRegistry;
 use IContextSource;
 use MediaWiki;
+use MediaWiki\Config\Config;
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Request\WebResponse;
 use MediaWiki\Rest\BasicAccess\CompoundAuthorizer;
 use MediaWiki\Rest\BasicAccess\MWBasicAuthorizer;
 use MediaWiki\Rest\Reporter\MWErrorReporter;
 use MediaWiki\Rest\Validator\Validator;
+use MediaWiki\Title\Title;
+use MWExceptionRenderer;
 use RequestContext;
-use Title;
-use WebResponse;
 use Wikimedia\Message\ITextFormatter;
 
 class EntryPoint {
@@ -31,16 +34,21 @@ class EntryPoint {
 	private static $mainRequest;
 
 	/**
+	 * @param MediaWikiServices $services
 	 * @param IContextSource $context
 	 * @param RequestInterface $request
 	 * @param ResponseFactory $responseFactory
 	 * @param CorsUtils $cors
+	 *
 	 * @return Router
 	 */
 	private static function createRouter(
-		IContextSource $context, RequestInterface $request, ResponseFactory $responseFactory, CorsUtils $cors
+		MediaWikiServices $services,
+		IContextSource $context,
+		RequestInterface $request,
+		ResponseFactory $responseFactory,
+		CorsUtils $cors
 	): Router {
-		$services = MediaWikiServices::getInstance();
 		$conf = $services->getMainConfig();
 
 		$authority = $context->getAuthority();
@@ -55,21 +63,12 @@ class EntryPoint {
 			$authority
 		);
 
-		// Always include the "official" routes. Include additional routes if specified.
-		$routeFiles = array_merge(
-			[ 'includes/Rest/coreRoutes.json' ],
-			$conf->get( 'RestAPIAdditionalRouteFiles' )
-		);
-		array_walk( $routeFiles, static function ( &$val, $key ) {
-			global $IP;
-			$val = "$IP/$val";
-		} );
+		$stats = $services->getStatsdDataFactory();
 
 		return ( new Router(
-			$routeFiles,
+			self::getRouteFiles( $conf ),
 			ExtensionRegistry::getInstance()->getAttribute( 'RestRoutes' ),
-			$conf->get( 'CanonicalServer' ),
-			$conf->get( 'RestPath' ),
+			new ServiceOptions( Router::CONSTRUCTOR_OPTIONS, $conf ),
 			$services->getLocalServerObjectCache(),
 			$responseFactory,
 			$authorizer,
@@ -77,8 +76,11 @@ class EntryPoint {
 			$objectFactory,
 			$restValidator,
 			new MWErrorReporter(),
-			$services->getHookContainer()
-		) )->setCors( $cors );
+			$services->getHookContainer(),
+			$context->getRequest()->getSession()
+		) )
+			->setCors( $cors )
+			->setStats( $stats );
 	}
 
 	/**
@@ -88,7 +90,7 @@ class EntryPoint {
 		if ( self::$mainRequest === null ) {
 			$conf = MediaWikiServices::getInstance()->getMainConfig();
 			self::$mainRequest = new RequestFromGlobals( [
-				'cookiePrefix' => $conf->get( 'CookiePrefix' )
+				'cookiePrefix' => $conf->get( MainConfigNames::CookiePrefix )
 			] );
 		}
 		return self::$mainRequest;
@@ -109,7 +111,7 @@ class EntryPoint {
 		$conf = $services->getMainConfig();
 
 		$responseFactory = new ResponseFactory( self::getTextFormatters( $services ) );
-		$responseFactory->setSendExceptionBacktrace( $conf->get( 'ShowExceptionDetails' ) );
+		$responseFactory->setShowExceptionDetails( MWExceptionRenderer::shouldShowExceptionDetails() );
 
 		$cors = new CorsUtils(
 			new ServiceOptions(
@@ -121,7 +123,7 @@ class EntryPoint {
 
 		$request = self::getMainRequest();
 
-		$router = self::createRouter( $context, $request, $responseFactory, $cors );
+		$router = self::createRouter( $services, $context, $request, $responseFactory, $cors );
 
 		$entryPoint = new self(
 			$context,
@@ -149,6 +151,31 @@ class EntryPoint {
 			$textFormatters[] = $factory->getTextFormatter( $lang );
 		}
 		return $textFormatters;
+	}
+
+	/**
+	 * @param Config $conf
+	 * @return string[]
+	 */
+	private static function getRouteFiles( $conf ) {
+		global $IP;
+		$extensionsDir = $conf->get( MainConfigNames::ExtensionDirectory );
+		// Always include the "official" routes. Include additional routes if specified.
+		$routeFiles = array_merge(
+			[ 'includes/Rest/coreRoutes.json' ],
+			$conf->get( MainConfigNames::RestAPIAdditionalRouteFiles )
+		);
+		foreach ( $routeFiles as &$file ) {
+			if ( str_starts_with( $file, '/' ) ) {
+				// Allow absolute paths on non-Windows
+			} elseif ( str_starts_with( $file, 'extensions/' ) ) {
+				// Support hacks like Wikibase.ci.php
+				$file = substr_replace( $file, $extensionsDir, 0, strlen( 'extensions' ) );
+			} else {
+				$file = "$IP/$file";
+			}
+		}
+		return $routeFiles;
 	}
 
 	public function __construct( RequestContext $context, RequestInterface $request,

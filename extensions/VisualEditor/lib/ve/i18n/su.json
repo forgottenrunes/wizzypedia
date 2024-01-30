@@ -6,7 +6,6 @@
 		]
 	},
 	"visualeditor": "VisualEditor",
-	"visualeditor-aliencontextitem-title": "Item",
 	"visualeditor-aliennode-tooltip": "Hampura, keur saayeunaeun mah ieu unsur ukur bisa diédit dina mode sumber.",
 	"visualeditor-align-widget-center": "Tengah",
 	"visualeditor-align-widget-default": "Bawaan",
@@ -33,7 +32,6 @@
 	"visualeditor-clipboard-cut": "Potong",
 	"visualeditor-clipboard-paste": "Tapel",
 	"visualeditor-clipboard-paste-special": "Tapelkeun salaku téks polos",
-	"visualeditor-commentinspector-edit": "Édit koméntar",
 	"visualeditor-commentinspector-title": "Kamandang",
 	"visualeditor-commentinspector-tooltip": "Kamandang",
 	"visualeditor-content-select-all": "Pilih kabéh",

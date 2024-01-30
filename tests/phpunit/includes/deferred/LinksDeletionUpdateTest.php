@@ -2,10 +2,11 @@
 
 use MediaWiki\Deferred\LinksUpdate\LinksDeletionUpdate;
 use MediaWiki\Deferred\LinksUpdate\LinksUpdate;
+use MediaWiki\Title\TitleValue;
 
 /**
- * @covers LinksDeletionUpdate
- * @covers LinksUpdate
+ * @covers \MediaWiki\Deferred\LinksUpdate\LinksDeletionUpdate
+ * @covers \MediaWiki\Deferred\LinksUpdate\LinksUpdate
  * @covers \MediaWiki\Deferred\LinksUpdate\CategoryLinksTable
  * @covers \MediaWiki\Deferred\LinksUpdate\ExternalLinksTable
  * @covers \MediaWiki\Deferred\LinksUpdate\GenericPageLinksTable
@@ -43,7 +44,7 @@ class LinksDeletionUpdateTest extends MediaWikiLangTestCase {
 		$res = $this->insertPage( 'Source' );
 		$id = $res['id'];
 		$title = $res['title'];
-		$wikiPage = new WikiPage( $title );
+		$wikiPage = $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( $title );
 
 		$po = new ParserOutput();
 		$po->addCategory( 'Cat', 'cat' );
@@ -56,6 +57,9 @@ class LinksDeletionUpdateTest extends MediaWikiLangTestCase {
 		$po->addTemplate( new TitleValue( NS_TEMPLATE, '!' ), 1, 1 );
 
 		$linksUpdate = new LinksUpdate( $title, $po, false );
+		$linksUpdate->setTransactionTicket(
+			$this->getServiceContainer()->getDBLoadBalancerFactory()->getEmptyTransactionTicket( __METHOD__ )
+		);
 		$linksUpdate->doUpdate();
 
 		$tables = [
@@ -69,15 +73,26 @@ class LinksDeletionUpdateTest extends MediaWikiLangTestCase {
 			'templatelinks' => 'tl_from',
 		];
 		foreach ( $tables as $table => $fromField ) {
-			$res = $this->db->select( $table, [ 1 ], [ $fromField => $id ], __METHOD__ );
+			$res = $this->db->newSelectQueryBuilder()
+				->select( [ 1 ] )
+				->from( $table )
+				->where( [ $fromField => $id ] )
+				->caller( __METHOD__ )->fetchResultSet();
 			$this->assertSame( 1, $res->numRows(), "Number of rows in table $table" );
 		}
 
 		$linksDeletionUpdate = new LinksDeletionUpdate( $wikiPage, $id );
+		$linksDeletionUpdate->setTransactionTicket(
+			$this->getServiceContainer()->getDBLoadBalancerFactory()->getEmptyTransactionTicket( __METHOD__ )
+		);
 		$linksDeletionUpdate->doUpdate();
 
 		foreach ( $tables as $table => $fromField ) {
-			$res = $this->db->select( $table, [ 1 ], [ $fromField => $id ], __METHOD__ );
+			$res = $this->db->newSelectQueryBuilder()
+				->select( [ 1 ] )
+				->from( $table )
+				->where( [ $fromField => $id ] )
+				->caller( __METHOD__ )->fetchResultSet();
 			$this->assertSame( 0, $res->numRows(), "Number of rows in table $table" );
 		}
 	}

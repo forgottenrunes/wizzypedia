@@ -1,10 +1,8 @@
 <?php
 /** Romanian (română)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author AdiJapan
  * @author Cin
@@ -253,6 +251,7 @@ $specialPageAliases = [
 	'Randomredirect'            => [ 'Redirectare_aleatorie' ],
 	'Recentchanges'             => [ 'Schimbări_recente' ],
 	'Recentchangeslinked'       => [ 'Modificări_corelate' ],
+	'Renameuser'                => [ 'Redenumire_utilizator' ],
 	'Revisiondelete'            => [ 'Şterge_revizie' ],
 	'Search'                    => [ 'Căutare' ],
 	'Shortpages'                => [ 'Pagini_scurte' ],

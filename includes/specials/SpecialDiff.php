@@ -22,6 +22,12 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use HTMLForm;
+use MediaWiki\SpecialPage\RedirectSpecialPage;
+use MediaWiki\Title\Title;
+
 /**
  * Redirect from Special:Diff/### to index.php?diff=### and
  * from Special:Diff/###/### to index.php?oldid=###&diff=###.
@@ -47,7 +53,7 @@ class SpecialDiff extends RedirectSpecialPage {
 	 * @return Title|bool
 	 */
 	public function getRedirect( $subpage ) {
-		$parts = explode( '/', $subpage );
+		$parts = $subpage !== null ? explode( '/', $subpage ) : [];
 
 		// Try to parse the values given, generating somewhat pretty URLs if possible
 		if ( count( $parts ) === 1 && $parts[0] !== '' ) {
@@ -89,7 +95,7 @@ class SpecialDiff extends RedirectSpecialPage {
 				'label-message' => 'diff-form-revid',
 				// Remove validation callback when using int type - T256425
 				'validation-callback' => function ( $value ) {
-					$value = trim( $value );
+					$value = trim( $value ?? '' );
 					if ( preg_match( '/^\d*$/', $value )
 						|| in_array( $value, [ 'prev', 'cur', 'next' ], true )
 					) {
@@ -120,7 +126,7 @@ class SpecialDiff extends RedirectSpecialPage {
 
 	public function getDescription() {
 		// 'diff' message is in lowercase, using own message
-		return $this->msg( 'diff-form' )->text();
+		return $this->msg( 'diff-form' );
 	}
 
 	public function getName() {
@@ -135,3 +141,8 @@ class SpecialDiff extends RedirectSpecialPage {
 		return 'redirects';
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialDiff::class, 'SpecialDiff' );

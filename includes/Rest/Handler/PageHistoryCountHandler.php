@@ -2,11 +2,12 @@
 
 namespace MediaWiki\Rest\Handler;
 
-use ActorMigration;
 use ChangeTags;
 use MediaWiki\Page\ExistingPageRecord;
 use MediaWiki\Page\PageLookup;
 use MediaWiki\Permissions\GroupPermissionsLookup;
+use MediaWiki\Rest\Handler\Helper\PageRedirectHelper;
+use MediaWiki\Rest\Handler\Helper\PageRestHelperFactory;
 use MediaWiki\Rest\LocalizedHttpException;
 use MediaWiki\Rest\Response;
 use MediaWiki\Rest\SimpleHandler;
@@ -15,17 +16,19 @@ use MediaWiki\Revision\RevisionStore;
 use MediaWiki\Storage\NameTableAccessException;
 use MediaWiki\Storage\NameTableStore;
 use MediaWiki\Storage\NameTableStoreFactory;
+use MediaWiki\User\ActorMigration;
 use WANObjectCache;
 use Wikimedia\Message\MessageValue;
 use Wikimedia\Message\ParamType;
 use Wikimedia\Message\ScalarParam;
 use Wikimedia\ParamValidator\ParamValidator;
-use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * Handler class for Core REST API endpoints that perform operations on revisions
  */
 class PageHistoryCountHandler extends SimpleHandler {
+
 	/** The maximum number of counts to return per type of revision */
 	private const COUNT_LIMITS = [
 		'anonymous' => 10000,
@@ -44,26 +47,14 @@ class PageHistoryCountHandler extends SimpleHandler {
 
 	private const MAX_AGE_200 = 60;
 
-	/** @var RevisionStore */
-	private $revisionStore;
-
-	/** @var NameTableStore */
-	private $changeTagDefStore;
-
-	/** @var GroupPermissionsLookup */
-	private $groupPermissionsLookup;
-
-	/** @var ILoadBalancer */
-	private $loadBalancer;
-
-	/** @var PageLookup */
-	private $pageLookup;
-
-	/** @var WANObjectCache */
-	private $cache;
-
-	/** @var ActorMigration */
-	private $actorMigration;
+	private RevisionStore $revisionStore;
+	private NameTableStore $changeTagDefStore;
+	private GroupPermissionsLookup $groupPermissionsLookup;
+	private IConnectionProvider $dbProvider;
+	private PageLookup $pageLookup;
+	private WANObjectCache $cache;
+	private ActorMigration $actorMigration;
+	private PageRestHelperFactory $helperFactory;
 
 	/** @var RevisionRecord|false|null */
 	private $revision = false;
@@ -78,27 +69,39 @@ class PageHistoryCountHandler extends SimpleHandler {
 	 * @param RevisionStore $revisionStore
 	 * @param NameTableStoreFactory $nameTableStoreFactory
 	 * @param GroupPermissionsLookup $groupPermissionsLookup
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param WANObjectCache $cache
 	 * @param PageLookup $pageLookup
 	 * @param ActorMigration $actorMigration
+	 * @param PageRestHelperFactory $helperFactory
 	 */
 	public function __construct(
 		RevisionStore $revisionStore,
 		NameTableStoreFactory $nameTableStoreFactory,
 		GroupPermissionsLookup $groupPermissionsLookup,
-		ILoadBalancer $loadBalancer,
+		IConnectionProvider $dbProvider,
 		WANObjectCache $cache,
 		PageLookup $pageLookup,
-		ActorMigration $actorMigration
+		ActorMigration $actorMigration,
+		PageRestHelperFactory $helperFactory
 	) {
 		$this->revisionStore = $revisionStore;
 		$this->changeTagDefStore = $nameTableStoreFactory->getChangeTagDef();
 		$this->groupPermissionsLookup = $groupPermissionsLookup;
-		$this->loadBalancer = $loadBalancer;
+		$this->dbProvider = $dbProvider;
 		$this->cache = $cache;
 		$this->pageLookup = $pageLookup;
 		$this->actorMigration = $actorMigration;
+		$this->helperFactory = $helperFactory;
+	}
+
+	private function getRedirectHelper(): PageRedirectHelper {
+		return $this->helperFactory->newPageRedirectHelper(
+			$this->getResponseFactory(),
+			$this->getRouter(),
+			$this->getPath(),
+			$this->getRequest()
+		);
 	}
 
 	private function normalizeType( $type ) {
@@ -143,7 +146,9 @@ class PageHistoryCountHandler extends SimpleHandler {
 	public function run( $title, $type ) {
 		$normalizedType = $this->normalizeType( $type );
 		$this->validateParameterCombination( $normalizedType );
+		$params = $this->getValidatedParams();
 		$page = $this->getPage();
+
 		if ( !$page ) {
 			throw new LocalizedHttpException(
 				new MessageValue( 'rest-nonexistent-title',
@@ -160,6 +165,16 @@ class PageHistoryCountHandler extends SimpleHandler {
 				),
 				403
 			);
+		}
+
+		'@phan-var \MediaWiki\Page\ExistingPageRecord $page';
+		$redirectResponse = $this->getRedirectHelper()->createNormalizationRedirectResponseIfNeeded(
+			$page,
+			$params['title'] ?? null
+		);
+
+		if ( $redirectResponse !== null ) {
+			return $redirectResponse;
 		}
 
 		$count = $this->getCount( $normalizedType );
@@ -342,12 +357,11 @@ class PageHistoryCountHandler extends SimpleHandler {
 	 * @return int|null
 	 */
 	private function loggingTableTime( $pageId ) {
-		$res = $this->loadBalancer->getConnectionRef( DB_REPLICA )->selectField(
-			'logging',
-			'MAX(log_timestamp)',
-			[ 'log_page' => $pageId ],
-			__METHOD__
-		);
+		$res = $this->dbProvider->getReplicaDatabase()->newSelectQueryBuilder()
+			->select( 'MAX(log_timestamp)' )
+			->from( 'logging' )
+			->where( [ 'log_page' => $pageId ] )
+			->caller( __METHOD__ )->fetchField();
 		return $res ? (int)wfTimestamp( TS_UNIX, $res ) : null;
 	}
 
@@ -356,7 +370,7 @@ class PageHistoryCountHandler extends SimpleHandler {
 	 * Generating an etag when getting revision counts must account for things like visibility settings
 	 * (e.g. rev_deleted bit) which requires hitting the database anyway. The response for these
 	 * requests are so small that we wouldn't be gaining much efficiency.
-	 * Etags are strong validators and if provided would take precendence over
+	 * Etags are strong validators and if provided would take precedence over
 	 * last modified time, a weak validator. We want to ensure only last modified time is used
 	 * since it is more efficient than using etags for this particular case.
 	 * @return null
@@ -423,41 +437,27 @@ class PageHistoryCountHandler extends SimpleHandler {
 	 * @return int the count
 	 */
 	protected function getAnonCount( $pageId, RevisionRecord $fromRev = null ) {
-		$dbr = $this->loadBalancer->getConnectionRef( DB_REPLICA );
-
-		$revQuery = $this->actorMigration->getJoin( 'rev_user' );
-
-		$cond = [
-			'rev_page' => $pageId,
-			'actor_user IS NULL',
-			$dbr->bitAnd( 'rev_deleted',
-				RevisionRecord::DELETED_TEXT | RevisionRecord::DELETED_USER ) . " = 0"
-		];
+		$dbr = $this->dbProvider->getReplicaDatabase();
+		$queryBuilder = $dbr->newSelectQueryBuilder()
+			->select( '1' )
+			->from( 'revision' )
+			->join( 'actor', null, 'rev_actor = actor_id' )
+			->where( [
+				'rev_page' => $pageId,
+				'actor_user' => null,
+				$dbr->bitAnd( 'rev_deleted',
+					RevisionRecord::DELETED_TEXT | RevisionRecord::DELETED_USER ) => 0,
+			] )
+			->limit( self::COUNT_LIMITS['anonymous'] + 1 ); // extra to detect truncation
 
 		if ( $fromRev ) {
-			$oldTs = $dbr->addQuotes( $dbr->timestamp( $fromRev->getTimestamp() ) );
-			$cond[] = "(rev_timestamp = {$oldTs} AND rev_id > {$fromRev->getId()}) " .
-				"OR rev_timestamp > {$oldTs}";
+			$queryBuilder->andWhere( $dbr->buildComparison( '>', [
+				'rev_timestamp' => $dbr->timestamp( $fromRev->getTimestamp() ),
+				'rev_id' => $fromRev->getId(),
+			] ) );
 		}
 
-		// This redundant join condition tells MySQL that rev_page and revactor_page are the
-		// same, so it can propagate the condition
-		if ( isset( $revQuery['tables']['temp_rev_user'] ) /* SCHEMA_COMPAT_READ_TEMP */ ) {
-			$revQuery['joins']['temp_rev_user'][1] =
-				"temp_rev_user.revactor_rev = rev_id AND revactor_page = rev_page";
-		}
-
-		$edits = $dbr->selectRowCount(
-			[
-				'revision',
-			] + $revQuery['tables'],
-			'1',
-			$cond,
-			__METHOD__,
-			[ 'LIMIT' => self::COUNT_LIMITS['anonymous'] + 1 ], // extra to detect truncation
-			$revQuery['joins']
-		);
-		return $edits;
+		return $queryBuilder->caller( __METHOD__ )->fetchRowCount();
 	}
 
 	/**
@@ -466,21 +466,14 @@ class PageHistoryCountHandler extends SimpleHandler {
 	 * @return int the count
 	 */
 	protected function getBotCount( $pageId, RevisionRecord $fromRev = null ) {
-		$dbr = $this->loadBalancer->getConnectionRef( DB_REPLICA );
+		$dbr = $this->dbProvider->getReplicaDatabase();
 
 		$revQuery = $this->actorMigration->getJoin( 'rev_user' );
 
-		// This redundant join condition tells MySQL that rev_page and revactor_page are the
-		// same, so it can propagate the condition
-		if ( isset( $revQuery['tables']['temp_rev_user'] ) /* SCHEMA_COMPAT_READ_TEMP */ ) {
-			$revQuery['joins']['temp_rev_user'][1] =
-				"temp_rev_user.revactor_rev = rev_id AND revactor_page = rev_page";
-		}
-
 		$cond = [
-			'rev_page=' . intval( $pageId ),
+			'rev_page' => intval( $pageId ),
 			$dbr->bitAnd( 'rev_deleted',
-				RevisionRecord::DELETED_TEXT | RevisionRecord::DELETED_USER ) . " = 0",
+				RevisionRecord::DELETED_TEXT | RevisionRecord::DELETED_USER ) => 0,
 			'EXISTS(' .
 				$dbr->selectSQLText(
 					'user_groups',
@@ -495,9 +488,10 @@ class PageHistoryCountHandler extends SimpleHandler {
 			')'
 		];
 		if ( $fromRev ) {
-			$oldTs = $dbr->addQuotes( $dbr->timestamp( $fromRev->getTimestamp() ) );
-			$cond[] = "(rev_timestamp = {$oldTs} AND rev_id > {$fromRev->getId()}) " .
-				"OR rev_timestamp > {$oldTs}";
+			$cond[] = $dbr->buildComparison( '>', [
+				'rev_timestamp' => $dbr->timestamp( $fromRev->getTimestamp() ),
+				'rev_id' => $fromRev->getId(),
+			] );
 		}
 
 		$edits = $dbr->selectRowCount(
@@ -523,7 +517,7 @@ class PageHistoryCountHandler extends SimpleHandler {
 		RevisionRecord $fromRev = null,
 		RevisionRecord $toRev = null
 	) {
-		list( $fromRev, $toRev ) = $this->orderRevisions( $fromRev, $toRev );
+		[ $fromRev, $toRev ] = $this->orderRevisions( $fromRev, $toRev );
 		return $this->revisionStore->countAuthorsBetween( $pageId, $fromRev,
 			$toRev, $this->getAuthority(), self::COUNT_LIMITS['editors'] );
 	}
@@ -547,40 +541,27 @@ class PageHistoryCountHandler extends SimpleHandler {
 			return 0;
 		}
 
-		$dbr = $this->loadBalancer->getConnectionRef( DB_REPLICA );
+		$dbr = $this->dbProvider->getReplicaDatabase();
+		$queryBuilder = $dbr->newSelectQueryBuilder()
+			->select( '1' )
+			->from( 'revision' )
+			->join( 'change_tag', null, 'ct_rev_id = rev_id' )
+			->where( [
+				'rev_page' => $pageId,
+				'ct_tag_id' => $tagIds,
+				$dbr->bitAnd( 'rev_deleted', RevisionRecord::DELETED_TEXT ) . " = 0"
+			] )
+			->groupBy( 'rev_id' )
+			->limit( self::COUNT_LIMITS['reverted'] + 1 ); // extra to detect truncation
 
-		$cond = [
-			'rev_page' => $pageId,
-			$dbr->bitAnd( 'rev_deleted', RevisionRecord::DELETED_TEXT ) . " = 0"
-		];
 		if ( $fromRev ) {
-			$oldTs = $dbr->addQuotes( $dbr->timestamp( $fromRev->getTimestamp() ) );
-			$cond[] = "(rev_timestamp = {$oldTs} AND rev_id > {$fromRev->getId()}) " .
-				"OR rev_timestamp > {$oldTs}";
+			$queryBuilder->andWhere( $dbr->buildComparison( '>', [
+				'rev_timestamp' => $dbr->timestamp( $fromRev->getTimestamp() ),
+				'rev_id' => $fromRev->getId(),
+			] ) );
 		}
-		$edits = $dbr->selectRowCount(
-			[
-				'revision',
-				'change_tag'
-			],
-			'1',
-			[ 'rev_page' => $pageId ],
-			__METHOD__,
-			[
-				'LIMIT' => self::COUNT_LIMITS['reverted'] + 1, // extra to detect truncation
-				'GROUP BY' => 'rev_id'
-			],
-			[
-				'change_tag' => [
-					'JOIN',
-					[
-						'ct_rev_id = rev_id',
-						'ct_tag_id' => $tagIds,
-					]
-				],
-			]
-		);
-		return $edits;
+
+		return $queryBuilder->caller( __METHOD__ )->fetchRowCount();
 	}
 
 	/**
@@ -589,24 +570,25 @@ class PageHistoryCountHandler extends SimpleHandler {
 	 * @return int the count
 	 */
 	protected function getMinorCount( $pageId, RevisionRecord $fromRev = null ) {
-		$dbr = $this->loadBalancer->getConnectionRef( DB_REPLICA );
-		$cond = [
-			'rev_page' => $pageId,
-			'rev_minor_edit != 0',
-			$dbr->bitAnd( 'rev_deleted', RevisionRecord::DELETED_TEXT ) . " = 0"
-		];
-		if ( $fromRev ) {
-			$oldTs = $dbr->addQuotes( $dbr->timestamp( $fromRev->getTimestamp() ) );
-			$cond[] = "(rev_timestamp = {$oldTs} AND rev_id > {$fromRev->getId()}) " .
-				"OR rev_timestamp > {$oldTs}";
-		}
-		$edits = $dbr->selectRowCount( 'revision', '1',
-			$cond,
-			__METHOD__,
-			[ 'LIMIT' => self::COUNT_LIMITS['minor'] + 1 ] // extra to detect truncation
-		);
+		$dbr = $this->dbProvider->getReplicaDatabase();
+		$queryBuilder = $dbr->newSelectQueryBuilder()
+			->select( '1' )
+			->from( 'revision' )
+			->where( [
+				'rev_page' => $pageId,
+				'rev_minor_edit != 0',
+				$dbr->bitAnd( 'rev_deleted', RevisionRecord::DELETED_TEXT ) . " = 0"
+			] )
+			->limit( self::COUNT_LIMITS['minor'] + 1 ); // extra to detect truncation
 
-		return $edits;
+		if ( $fromRev ) {
+			$queryBuilder->andWhere( $dbr->buildComparison( '>', [
+				'rev_timestamp' => $dbr->timestamp( $fromRev->getTimestamp() ),
+				'rev_id' => $fromRev->getId(),
+			] ) );
+		}
+
+		return $queryBuilder->caller( __METHOD__ )->fetchRowCount();
 	}
 
 	/**
@@ -620,7 +602,7 @@ class PageHistoryCountHandler extends SimpleHandler {
 		RevisionRecord $fromRev = null,
 		RevisionRecord $toRev = null
 	) {
-		list( $fromRev, $toRev ) = $this->orderRevisions( $fromRev, $toRev );
+		[ $fromRev, $toRev ] = $this->orderRevisions( $fromRev, $toRev );
 		return $this->revisionStore->countRevisionsBetween(
 			$pageId,
 			$fromRev,

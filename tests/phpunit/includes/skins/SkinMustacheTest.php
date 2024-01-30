@@ -1,11 +1,15 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\Output\OutputPage;
+use MediaWiki\Request\ContentSecurityPolicy;
+use MediaWiki\Title\Title;
 use PHPUnit\Framework\MockObject\MockObject;
 
 /**
  * @covers SkinMustache
- *
- * @group Output
+ * @group Skin
+ * @group Database
  */
 class SkinMustacheTest extends MediaWikiIntegrationTestCase {
 
@@ -15,12 +19,7 @@ class SkinMustacheTest extends MediaWikiIntegrationTestCase {
 	 * @return MockObject|OutputPage
 	 */
 	private function getMockOutputPage( $html, $title ) {
-		$mockContentSecurityPolicy = $this->getMockBuilder( ContentSecurityPolicy::class )
-			->disableOriginalConstructor()
-			->getMock();
-
-		$mockContentSecurityPolicy->method( 'getNonce' )
-			->willReturn( 'secret' );
+		$mockContentSecurityPolicy = $this->createMock( ContentSecurityPolicy::class );
 
 		$mock = $this->createMock( OutputPage::class );
 		$mock->method( 'getHTML' )
@@ -34,15 +33,13 @@ class SkinMustacheTest extends MediaWikiIntegrationTestCase {
 		$mock->method( 'getTitle' )
 			->willReturn( $title );
 		$mock->method( 'getIndicators' )
-			->willReturn( '' );
+			->willReturn( [ '' ] );
 		$mock->method( 'getLanguageLinks' )
 			->willReturn( [] );
-		$mock->method( 'getCSP' )
-			->willReturn( $mockContentSecurityPolicy );
 		$mock->method( 'isTOCEnabled' )
 			->willReturn( true );
-		$mock->method( 'getSections' )
-			->willReturn( [] );
+		$mock->method( 'getTOCData' )
+			->willReturn( null );
 		return $mock;
 	}
 
@@ -95,21 +92,21 @@ class SkinMustacheTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * @covers Skin::getTemplateData
-	 * @covers MediaWiki\Skin\SkinComponentLogo::getTemplateData
-	 * @covers MediaWiki\Skin\SkinComponentTableOfContents::getTemplateData
+	 * @covers Skin
+	 * @covers MediaWiki\Skin\SkinComponentLogo
+	 * @covers MediaWiki\Skin\SkinComponentSearch
+	 * @covers MediaWiki\Skin\SkinComponentTableOfContents
+	 * @covers MediaWiki\Skin\SkinComponentFooter
 	 */
 	public function testGetTemplateData() {
 		$config = $this->getServiceContainer()->getMainConfig();
 		$bodytext = '<p>hello</p>';
 		$context = new RequestContext();
-		$title = Title::newFromText( 'Mustache skin' );
+		$title = Title::makeTitle( NS_MAIN, 'Mustache skin' );
 		$context->setTitle( $title );
 		$out = $this->getMockOutputPage( $bodytext, $title );
 		$context->setOutput( $out );
-		$this->setMwGlobals( [
-			'wgLogos' => [],
-		] );
+		$this->overrideConfigValue( MainConfigNames::Logos, [] );
 		$skin = new SkinMustache( [
 			'name' => 'test',
 			'templateDirectory' => __DIR__,
@@ -119,13 +116,13 @@ class SkinMustacheTest extends MediaWikiIntegrationTestCase {
 		$data = $skin->getTemplateData();
 
 		// Validate the default template data respects the naming rules
-		foreach ( array_keys( $data ) as $key ) {
+		foreach ( $data as $key => $_ ) {
 			$this->validateTemplateData( $data, $key );
 		}
 
 		// Validate search data
 		$searchData = $data['data-search-box'];
-		foreach ( array_keys( $searchData ) as $key ) {
+		foreach ( $searchData as $key => $_ ) {
 			$this->validateTemplateData( $searchData, $key );
 		}
 	}

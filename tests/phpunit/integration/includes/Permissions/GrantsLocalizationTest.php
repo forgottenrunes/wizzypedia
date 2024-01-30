@@ -3,9 +3,9 @@
 namespace MediaWiki\Tests\Integration\Permissions;
 
 use MediaWiki\Permissions\GrantsLocalization;
+use MediaWiki\SpecialPage\SpecialPage;
 use MediaWikiIntegrationTestCase;
 use Message;
-use SpecialPage;
 
 /**
  * @author Zabe
@@ -96,7 +96,7 @@ class GrantsLocalizationTest extends MediaWikiIntegrationTestCase {
 	 */
 	public function testGetGrantsWikiText() {
 		$this->assertSame(
-			"*<span class=\"mw-grantgroup\">Perform high volume activity</span>\n:High-volume editing\n\n",
+			"*<span class=\"mw-grantgroup\">Perform high volume activity</span>\n:High-volume (bot) access\n\n",
 			$this->grantsLocalization->getGrantsWikiText( [ 'highvolume' ] )
 		);
 	}

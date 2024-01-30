@@ -23,9 +23,19 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use HTMLForm;
+use HTMLTextAreaField;
 use MediaWiki\Export\WikiExporterFactory;
+use MediaWiki\Linker\LinksMigration;
 use MediaWiki\Logger\LoggerFactory;
-use Wikimedia\Rdbms\ILoadBalancer;
+use MediaWiki\MainConfigNames;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleFormatter;
+use WikiExporter;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * A special page that allows users to export pages in a XML file
@@ -35,29 +45,28 @@ use Wikimedia\Rdbms\ILoadBalancer;
 class SpecialExport extends SpecialPage {
 	protected $curonly, $doExport, $pageLinkDepth, $templates;
 
-	/** @var ILoadBalancer */
-	private $loadBalancer;
-
-	/** @var WikiExporterFactory */
-	private $wikiExporterFactory;
-
-	/** @var TitleFormatter */
-	private $titleFormatter;
+	private IConnectionProvider $dbProvider;
+	private WikiExporterFactory $wikiExporterFactory;
+	private TitleFormatter $titleFormatter;
+	private LinksMigration $linksMigration;
 
 	/**
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param WikiExporterFactory $wikiExporterFactory
 	 * @param TitleFormatter $titleFormatter
+	 * @param LinksMigration $linksMigration
 	 */
 	public function __construct(
-		ILoadBalancer $loadBalancer,
+		IConnectionProvider $dbProvider,
 		WikiExporterFactory $wikiExporterFactory,
-		TitleFormatter $titleFormatter
+		TitleFormatter $titleFormatter,
+		LinksMigration $linksMigration
 	) {
 		parent::__construct( 'Export' );
-		$this->loadBalancer = $loadBalancer;
+		$this->dbProvider = $dbProvider;
 		$this->wikiExporterFactory = $wikiExporterFactory;
 		$this->titleFormatter = $titleFormatter;
+		$this->linksMigration = $linksMigration;
 	}
 
 	public function execute( $par ) {
@@ -65,7 +74,6 @@ class SpecialExport extends SpecialPage {
 		$this->outputHeader();
 		$config = $this->getConfig();
 
-		// Set some variables
 		$this->curonly = true;
 		$this->doExport = false;
 		$request = $this->getRequest();
@@ -97,7 +105,8 @@ class SpecialExport extends SpecialPage {
 					}
 				}
 			}
-		} elseif ( $request->getCheck( 'addns' ) && $config->get( 'ExportFromNamespaces' ) ) {
+		} elseif ( $request->getCheck( 'addns' ) &&
+		$config->get( MainConfigNames::ExportFromNamespaces ) ) {
 			$page = $request->getText( 'pages' );
 			$nsindex = $request->getText( 'nsindex', '' );
 
@@ -110,7 +119,8 @@ class SpecialExport extends SpecialPage {
 					$page .= "\n" . implode( "\n", $nspages );
 				}
 			}
-		} elseif ( $request->getCheck( 'exportall' ) && $config->get( 'ExportAllowAll' ) ) {
+		} elseif ( $request->getCheck( 'exportall' ) &&
+		$config->get( MainConfigNames::ExportAllowAll ) ) {
 			$this->doExport = true;
 			$exportall = true;
 
@@ -140,7 +150,7 @@ class SpecialExport extends SpecialPage {
 				$offset = null;
 			}
 
-			$maxHistory = $config->get( 'ExportMaxHistory' );
+			$maxHistory = $config->get( MainConfigNames::ExportMaxHistory );
 			$limit = $request->getInt( 'limit' );
 			$dir = $request->getVal( 'dir' );
 			$history = [
@@ -185,13 +195,13 @@ class SpecialExport extends SpecialPage {
 			}
 		}
 
-		if ( !$config->get( 'ExportAllowHistory' ) ) {
+		if ( !$config->get( MainConfigNames::ExportAllowHistory ) ) {
 			// Override
 			$history = WikiExporter::CURRENT;
 		}
 
 		$list_authors = $request->getCheck( 'listauthors' );
-		if ( !$this->curonly || !$config->get( 'ExportAllowListContributors' ) ) {
+		if ( !$this->curonly || !$config->get( MainConfigNames::ExportAllowListContributors ) ) {
 			$list_authors = false;
 		}
 
@@ -206,10 +216,13 @@ class SpecialExport extends SpecialPage {
 
 			if ( $request->getCheck( 'wpDownload' ) ) {
 				// Provide a sensible filename suggestion
-				$filename = urlencode( $config->get( 'Sitename' ) . '-' . wfTimestampNow() . '.xml' );
+				$filename = urlencode( $config->get( MainConfigNames::Sitename ) . '-' .
+					wfTimestampNow() . '.xml' );
 				$request->response()->header( "Content-disposition: attachment;filename={$filename}" );
 			}
 
+			// @phan-suppress-next-next-line PhanPossiblyUndeclaredVariable
+			// @phan-suppress-next-line PhanTypeMismatchArgumentNullable history is set when used
 			$this->doExport( $page, $history, $list_authors, $exportall );
 
 			return;
@@ -223,7 +236,7 @@ class SpecialExport extends SpecialPage {
 		} else {
 			$categoryName = '';
 		}
-		$canExportAll = $config->get( 'ExportAllowAll' );
+		$canExportAll = $config->get( MainConfigNames::ExportAllowAll );
 		$hideIf = $canExportAll ? [ 'hide-if' => [ '===', 'exportall', '1' ] ] : [];
 
 		$formDescriptor = [
@@ -239,7 +252,7 @@ class SpecialExport extends SpecialPage {
 				'buttondefault' => $this->msg( 'export-addcat' )->text(),
 			] + $hideIf,
 		];
-		if ( $config->get( 'ExportFromNamespaces' ) ) {
+		if ( $config->get( MainConfigNames::ExportFromNamespaces ) ) {
 			$formDescriptor += [
 				'nsindex' => [
 					'type' => 'namespaceselectwithbutton',
@@ -263,7 +276,7 @@ class SpecialExport extends SpecialPage {
 					'label-message' => 'exportall',
 					'name' => 'exportall',
 					'id' => 'exportall',
-					'default' => $request->wasPosted() ? $request->getCheck( 'exportall' ) : false,
+					'default' => $request->wasPosted() && $request->getCheck( 'exportall' ),
 				],
 			];
 		}
@@ -279,14 +292,14 @@ class SpecialExport extends SpecialPage {
 			] + $hideIf,
 		];
 
-		if ( $config->get( 'ExportAllowHistory' ) ) {
+		if ( $config->get( MainConfigNames::ExportAllowHistory ) ) {
 			$formDescriptor += [
 				'curonly' => [
 					'type' => 'check',
 					'label-message' => 'exportcuronly',
 					'name' => 'curonly',
 					'id' => 'curonly',
-					'default' => $request->wasPosted() ? $request->getCheck( 'curonly' ) : true,
+					'default' => !$request->wasPosted() || $request->getCheck( 'curonly' ),
 				],
 			];
 		} else {
@@ -299,11 +312,12 @@ class SpecialExport extends SpecialPage {
 				'label-message' => 'export-templates',
 				'name' => 'templates',
 				'id' => 'wpExportTemplates',
-				'default' => $request->wasPosted() ? $request->getCheck( 'templates' ) : false,
+				'default' => $request->wasPosted() && $request->getCheck( 'templates' ),
 			],
 		];
 
-		if ( $config->get( 'ExportMaxLinkDepth' ) || $this->userCanOverrideExportDepth() ) {
+		if ( $config->get( MainConfigNames::ExportMaxLinkDepth ) ||
+		$this->userCanOverrideExportDepth() ) {
 			$formDescriptor += [
 				'pagelink-depth' => [
 					'type' => 'text',
@@ -321,17 +335,17 @@ class SpecialExport extends SpecialPage {
 				'type' => 'check',
 				'name' => 'wpDownload',
 				'id' => 'wpDownload',
-				'default' => $request->wasPosted() ? $request->getCheck( 'wpDownload' ) : true,
+				'default' => !$request->wasPosted() || $request->getCheck( 'wpDownload' ),
 				'label-message' => 'export-download',
 			],
 		];
 
-		if ( $config->get( 'ExportAllowListContributors' ) ) {
+		if ( $config->get( MainConfigNames::ExportAllowListContributors ) ) {
 			$formDescriptor += [
 				'listauthors' => [
 					'type' => 'check',
 					'label-message' => 'exportlistauthors',
-					'default' => $request->wasPosted() ? $request->getCheck( 'listauthors' ) : false,
+					'default' => $request->wasPosted() && $request->getCheck( 'listauthors' ),
 					'name' => 'listauthors',
 					'id' => 'listauthors',
 				],
@@ -401,7 +415,7 @@ class SpecialExport extends SpecialPage {
 		}
 
 		/* Ok, let's get to it... */
-		$db = $this->loadBalancer->getConnectionRef( ILoadBalancer::DB_REPLICA );
+		$db = $this->dbProvider->getReplicaDatabase();
 
 		$exporter = $this->wikiExporterFactory->getWikiExporter( $db, $history );
 		$exporter->list_authors = $list_authors;
@@ -410,6 +424,7 @@ class SpecialExport extends SpecialPage {
 		if ( $exportall ) {
 			$exporter->allPages();
 		} else {
+			// @phan-suppress-next-line PhanPossiblyUndeclaredVariable
 			foreach ( $pages as $page ) {
 				# T10824: Only export pages the user can read
 				$title = Title::newFromText( $page );
@@ -435,18 +450,18 @@ class SpecialExport extends SpecialPage {
 	 * @return string[]
 	 */
 	protected function getPagesFromCategory( $title ) {
-		$maxPages = $this->getConfig()->get( 'ExportPagelistLimit' );
+		$maxPages = $this->getConfig()->get( MainConfigNames::ExportPagelistLimit );
 
 		$name = $title->getDBkey();
 
-		$dbr = $this->loadBalancer->getConnectionRef( ILoadBalancer::DB_REPLICA );
-		$res = $dbr->select(
-			[ 'page', 'categorylinks' ],
-			[ 'page_namespace', 'page_title' ],
-			[ 'cl_from=page_id', 'cl_to' => $name ],
-			__METHOD__,
-			[ 'LIMIT' => $maxPages ]
-		);
+		$dbr = $this->dbProvider->getReplicaDatabase();
+		$res = $dbr->newSelectQueryBuilder()
+			->select( [ 'page_namespace', 'page_title' ] )
+			->from( 'page' )
+			->join( 'categorylinks', null, 'cl_from=page_id' )
+			->where( [ 'cl_to' => $name ] )
+			->limit( $maxPages )
+			->caller( __METHOD__ )->fetchResultSet();
 
 		$pages = [];
 
@@ -462,16 +477,15 @@ class SpecialExport extends SpecialPage {
 	 * @return string[]
 	 */
 	protected function getPagesFromNamespace( $nsindex ) {
-		$maxPages = $this->getConfig()->get( 'ExportPagelistLimit' );
+		$maxPages = $this->getConfig()->get( MainConfigNames::ExportPagelistLimit );
 
-		$dbr = $this->loadBalancer->getConnectionRef( ILoadBalancer::DB_REPLICA );
-		$res = $dbr->select(
-			'page',
-			[ 'page_namespace', 'page_title' ],
-			[ 'page_namespace' => $nsindex ],
-			__METHOD__,
-			[ 'LIMIT' => $maxPages ]
-		);
+		$dbr = $this->dbProvider->getReplicaDatabase();
+		$res = $dbr->newSelectQueryBuilder()
+			->select( [ 'page_namespace', 'page_title' ] )
+			->from( 'page' )
+			->where( [ 'page_namespace' => $nsindex ] )
+			->limit( $maxPages )
+			->caller( __METHOD__ )->fetchResultSet();
 
 		$pages = [];
 
@@ -489,10 +503,15 @@ class SpecialExport extends SpecialPage {
 	 * @return array Associative array index by titles
 	 */
 	protected function getTemplates( $inputPages, $pageSet ) {
+		[ $nsField, $titleField ] = $this->linksMigration->getTitleFields( 'templatelinks' );
+		$queryInfo = $this->linksMigration->getQueryInfo( 'templatelinks' );
 		return $this->getLinks( $inputPages, $pageSet,
-			'templatelinks',
-			[ 'namespace' => 'tl_namespace', 'title' => 'tl_title' ],
-			[ 'page_id=tl_from' ]
+			$queryInfo['tables'],
+			[ 'namespace' => $nsField, 'title' => $titleField ],
+			array_merge(
+				[ 'templatelinks' => [ 'JOIN', [ 'page_id=tl_from' ] ] ],
+				$queryInfo['joins']
+			)
 		);
 	}
 
@@ -513,16 +532,16 @@ class SpecialExport extends SpecialPage {
 
 	/**
 	 * Validate link depth setting, if available.
-	 * @param int $depth
+	 * @param int|null $depth
 	 * @return int
 	 */
 	protected function validateLinkDepth( $depth ) {
-		if ( $depth < 0 ) {
+		if ( $depth === null || $depth < 0 ) {
 			return 0;
 		}
 
 		if ( !$this->userCanOverrideExportDepth() ) {
-			$maxLinkDepth = $this->getConfig()->get( 'ExportMaxLinkDepth' );
+			$maxLinkDepth = $this->getConfig()->get( MainConfigNames::ExportMaxLinkDepth );
 			if ( $depth > $maxLinkDepth ) {
 				return $maxLinkDepth;
 			}
@@ -546,10 +565,12 @@ class SpecialExport extends SpecialPage {
 	 */
 	protected function getPageLinks( $inputPages, $pageSet, $depth ) {
 		for ( ; $depth > 0; --$depth ) {
+			[ $nsField, $titleField ] = $this->linksMigration->getTitleFields( 'pagelinks' );
+			$queryInfo = $this->linksMigration->getQueryInfo( 'pagelinks' );
 			$pageSet = $this->getLinks(
-				$inputPages, $pageSet, 'pagelinks',
-				[ 'namespace' => 'pl_namespace', 'title' => 'pl_title' ],
-				[ 'page_id=pl_from' ]
+				$inputPages, $pageSet, $queryInfo['tables'],
+				[ 'namespace' => $nsField, 'title' => $titleField ],
+				array_merge( [ 'pagelinks' => [ 'JOIN', [ 'page_id=pl_from' ] ] ], $queryInfo['joins'] )
 			);
 			$inputPages = array_keys( $pageSet );
 		}
@@ -561,32 +582,31 @@ class SpecialExport extends SpecialPage {
 	 * Expand a list of pages to include items used in those pages.
 	 * @param array $inputPages Array of page titles
 	 * @param array $pageSet
-	 * @param string $table
+	 * @param string[] $table
 	 * @param array $fields Array of field names
 	 * @param array $join
 	 * @return array
 	 */
 	protected function getLinks( $inputPages, $pageSet, $table, $fields, $join ) {
-		$dbr = $this->loadBalancer->getConnectionRef( ILoadBalancer::DB_REPLICA );
+		$dbr = $this->dbProvider->getReplicaDatabase();
+		$table[] = 'page';
 
 		foreach ( $inputPages as $page ) {
 			$title = Title::newFromText( $page );
-
 			if ( $title ) {
 				$pageSet[$title->getPrefixedText()] = true;
 				/// @todo FIXME: May or may not be more efficient to batch these
 				///        by namespace when given multiple input pages.
 				$result = $dbr->select(
-					[ 'page', $table ],
+					$table,
 					$fields,
-					array_merge(
-						$join,
-						[
-							'page_namespace' => $title->getNamespace(),
-							'page_title' => $title->getDBkey()
-						]
-					),
-					__METHOD__
+					[
+						'page_namespace' => $title->getNamespace(),
+						'page_title' => $title->getDBkey()
+					],
+					__METHOD__,
+					[],
+					$join
 				);
 
 				foreach ( $result as $row ) {
@@ -603,3 +623,8 @@ class SpecialExport extends SpecialPage {
 		return 'pagetools';
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialExport::class, 'SpecialExport' );

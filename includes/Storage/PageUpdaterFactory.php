@@ -1,7 +1,5 @@
 <?php
 /**
- * A factory for DerivedPageDataUpdater instances.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -28,12 +26,14 @@ use MediaWiki\Config\ServiceOptions;
 use MediaWiki\Content\IContentHandlerFactory;
 use MediaWiki\Content\Transform\ContentTransformer;
 use MediaWiki\HookContainer\HookContainer;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Page\WikiPageFactory;
 use MediaWiki\Permissions\PermissionManager;
 use MediaWiki\Revision\RevisionRenderer;
 use MediaWiki\Revision\RevisionStore;
 use MediaWiki\Revision\SlotRoleRegistry;
+use MediaWiki\Title\TitleFormatter;
 use MediaWiki\User\TalkPageNotificationManager;
 use MediaWiki\User\UserEditTracker;
 use MediaWiki\User\UserGroupManager;
@@ -42,13 +42,12 @@ use MediaWiki\User\UserNameUtils;
 use MessageCache;
 use ParserCache;
 use Psr\Log\LoggerInterface;
-use TitleFormatter;
 use WANObjectCache;
 use Wikimedia\Rdbms\ILBFactory;
 use WikiPage;
 
 /**
- * A factory for PageUpdater instances.
+ * A factory for PageUpdater and DerivedPageDataUpdater instances.
  *
  * @since 1.37
  * @ingroup Page
@@ -61,12 +60,13 @@ class PageUpdaterFactory {
 	 * @internal
 	 */
 	public const CONSTRUCTOR_OPTIONS = [
-		'ArticleCountMethod',
-		'RCWatchCategoryMembership',
-		'PageCreationLog',
-		'UseAutomaticEditSummaries',
-		'ManualRevertSearchRadius',
-		'UseRCPatrol',
+		MainConfigNames::ArticleCountMethod,
+		MainConfigNames::RCWatchCategoryMembership,
+		MainConfigNames::PageCreationLog,
+		MainConfigNames::UseAutomaticEditSummaries,
+		MainConfigNames::ManualRevertSearchRadius,
+		MainConfigNames::UseRCPatrol,
+		MainConfigNames::ParsoidCacheConfig,
 	];
 
 	/** @var RevisionStore */
@@ -270,7 +270,7 @@ class PageUpdaterFactory {
 			$user,
 			$page, // NOTE: eventually, PageUpdater should not know about WikiPage
 			$derivedPageDataUpdater,
-			$this->loadbalancerFactory->getMainLB(),
+			$this->loadbalancerFactory,
 			$this->revisionStore,
 			$this->slotRoleRegistry,
 			$this->contentHandlerFactory,
@@ -282,12 +282,14 @@ class PageUpdaterFactory {
 				PageUpdater::CONSTRUCTOR_OPTIONS,
 				$this->options
 			),
-			$this->softwareTags
+			$this->softwareTags,
+			$this->logger
 		);
 
-		$pageUpdater->setUsePageCreationLog( $this->options->get( 'PageCreationLog' ) );
+		$pageUpdater->setUsePageCreationLog(
+			$this->options->get( MainConfigNames::PageCreationLog ) );
 		$pageUpdater->setUseAutomaticEditSummaries(
-			$this->options->get( 'UseAutomaticEditSummaries' )
+			$this->options->get( MainConfigNames::UseAutomaticEditSummaries )
 		);
 
 		return $pageUpdater;
@@ -303,6 +305,7 @@ class PageUpdaterFactory {
 	 */
 	public function newDerivedPageDataUpdater( WikiPage $page ): DerivedPageDataUpdater {
 		$derivedDataUpdater = new DerivedPageDataUpdater(
+			$this->options,
 			$page, // NOTE: eventually, PageUpdater should not know about WikiPage
 			$this->revisionStore,
 			$this->revisionRenderer,
@@ -324,9 +327,10 @@ class PageUpdaterFactory {
 		);
 
 		$derivedDataUpdater->setLogger( $this->logger );
-		$derivedDataUpdater->setArticleCountMethod( $this->options->get( 'ArticleCountMethod' ) );
+		$derivedDataUpdater->setArticleCountMethod(
+			$this->options->get( MainConfigNames::ArticleCountMethod ) );
 		$derivedDataUpdater->setRcWatchCategoryMembership(
-			$this->options->get( 'RCWatchCategoryMembership' )
+			$this->options->get( MainConfigNames::RCWatchCategoryMembership )
 		);
 
 		return $derivedDataUpdater;

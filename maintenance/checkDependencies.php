@@ -20,6 +20,8 @@
  * @file
  */
 
+use MediaWiki\MainConfigNames;
+
 require_once __DIR__ . '/Maintenance.php';
 
 /**
@@ -79,8 +81,8 @@ class CheckDependencies extends Maintenance {
 	}
 
 	private function loadThing( &$dependencies, $name, $extensions, $skins ) {
-		$extDir = $this->getConfig()->get( 'ExtensionDirectory' );
-		$styleDir = $this->getConfig()->get( 'StyleDirectory' );
+		$extDir = $this->getConfig()->get( MainConfigNames::ExtensionDirectory );
+		$styleDir = $this->getConfig()->get( MainConfigNames::StyleDirectory );
 		$queue = [];
 		$missing = false;
 		foreach ( $extensions as $extension ) {
@@ -126,12 +128,13 @@ class CheckDependencies extends Maintenance {
 			} elseif ( $e->missingExtensions || $e->missingSkins ) {
 				// There's an extension missing in the dependency tree,
 				// so add those to the dependency list and try again
-				return $this->loadThing(
+				$this->loadThing(
 					$dependencies,
 					$name,
 					array_merge( $extensions, $e->missingExtensions ),
 					array_merge( $skins, $e->missingSkins )
 				);
+				return;
 			} else {
 				// missing-phpExtension
 				// missing-ability

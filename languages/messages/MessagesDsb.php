@@ -1,11 +1,8 @@
 <?php
 /** Lower Sorbian (dolnoserbski)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
- *
+ * @ingroup Languages
  */
 
 $fallback = 'hsb, de';
@@ -98,6 +95,7 @@ $specialPageAliases = [
 	'Randomredirect'            => [ 'Pśipadne_pśesměrowanje' ],
 	'Recentchanges'             => [ 'Aktualne_změny' ],
 	'Recentchangeslinked'       => [ 'Změny_na_zalinkowanych_bokach' ],
+	'Renameuser'                => [ 'Wužywarja_pśemjeniś' ],
 	'Revisiondelete'            => [ 'Wulašowanje_wersijow' ],
 	'Search'                    => [ 'Pytaś' ],
 	'Shortpages'                => [ 'Nejkrotše_boki' ],

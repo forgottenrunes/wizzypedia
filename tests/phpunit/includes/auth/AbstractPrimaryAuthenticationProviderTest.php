@@ -4,6 +4,7 @@ namespace MediaWiki\Auth;
 
 use MediaWiki\Tests\Unit\Auth\AuthenticationProviderTestTrait;
 use MediaWiki\Tests\Unit\DummyServicesTrait;
+use MediaWiki\User\User;
 
 /**
  * @group AuthManager
@@ -14,7 +15,7 @@ class AbstractPrimaryAuthenticationProviderTest extends \MediaWikiIntegrationTes
 	use AuthenticationProviderTestTrait;
 
 	public function testAbstractPrimaryAuthenticationProvider() {
-		$user = \User::newFromName( 'UTSysop' );
+		$user = $this->createMock( User::class );
 
 		$provider = $this->getMockForAbstractClass( AbstractPrimaryAuthenticationProvider::class );
 
@@ -29,8 +30,6 @@ class AbstractPrimaryAuthenticationProviderTest extends \MediaWikiIntegrationTes
 			$this->fail( 'Expected exception not thrown' );
 		} catch ( \BadMethodCallException $ex ) {
 		}
-
-		$req = $this->getMockForAbstractClass( AuthenticationRequest::class );
 
 		$this->assertTrue( $provider->providerAllowsPropertyChange( 'foo' ) );
 		$this->assertEquals(
@@ -67,27 +66,25 @@ class AbstractPrimaryAuthenticationProviderTest extends \MediaWikiIntegrationTes
 		$reqs = [];
 		for ( $i = 0; $i < 3; $i++ ) {
 			$reqs[$i] = $this->createMock( AuthenticationRequest::class );
-			$reqs[$i]->done = false;
 		}
+		$username = 'TestProviderRevokeAccessForUser';
 
 		$provider = $this->getMockForAbstractClass( AbstractPrimaryAuthenticationProvider::class );
 		$provider->expects( $this->once() )->method( 'getAuthenticationRequests' )
 			->with(
 				$this->identicalTo( AuthManager::ACTION_REMOVE ),
-				$this->identicalTo( [ 'username' => 'UTSysop' ] )
+				$this->identicalTo( [ 'username' => $username ] )
 			)
 			->willReturn( $reqs );
 		$provider->expects( $this->exactly( 3 ) )->method( 'providerChangeAuthenticationData' )
-			->will( $this->returnCallback( function ( $req ) {
-				$this->assertSame( 'UTSysop', $req->username );
-				$this->assertFalse( $req->done );
-				$req->done = true;
-			} ) );
+			->willReturnCallback( function ( $req ) use ( $username ) {
+				$this->assertSame( $username, $req->username );
+			} );
 
-		$provider->providerRevokeAccessForUser( 'UTSysop' );
+		$provider->providerRevokeAccessForUser( $username );
 
 		foreach ( $reqs as $i => $req ) {
-			$this->assertTrue( $req->done, "#$i" );
+			$this->assertNotNull( $req->username, "#$i" );
 		}
 	}
 
@@ -105,7 +102,7 @@ class AbstractPrimaryAuthenticationProviderTest extends \MediaWikiIntegrationTes
 		$msg1 = "{$class}::beginPrimaryAccountLink $msg";
 		$msg2 = "{$class}::continuePrimaryAccountLink is not implemented.";
 
-		$user = \User::newFromName( 'Whatever' );
+		$user = User::newFromName( 'Whatever' );
 
 		try {
 			$provider->beginPrimaryAccountLink( $user, [] );

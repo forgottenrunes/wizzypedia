@@ -21,6 +21,15 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use ApiHelp;
+use ApiMain;
+use ApiUsageException;
+use MediaWiki\Html\Html;
+use MediaWiki\SpecialPage\UnlistedSpecialPage;
+use MediaWiki\Utils\UrlUtils;
+
 /**
  * Special page to redirect to API help pages, for situations where linking to
  * the api.php endpoint is not wanted.
@@ -28,12 +37,21 @@
  * @ingroup SpecialPage
  */
 class SpecialApiHelp extends UnlistedSpecialPage {
-	public function __construct() {
+
+	private UrlUtils $urlUtils;
+
+	/**
+	 * @param UrlUtils $urlUtils
+	 */
+	public function __construct(
+		UrlUtils $urlUtils
+	) {
 		parent::__construct( 'ApiHelp' );
+		$this->urlUtils = $urlUtils;
 	}
 
 	public function execute( $par ) {
-		if ( empty( $par ) ) {
+		if ( !$par ) {
 			$par = 'main';
 		}
 
@@ -50,13 +68,13 @@ class SpecialApiHelp extends UnlistedSpecialPage {
 		// These are for linking from wikitext, since url parameters are a pain
 		// to do.
 		while ( true ) {
-			if ( substr( $par, 0, 4 ) === 'sub/' ) {
+			if ( str_starts_with( $par, 'sub/' ) ) {
 				$par = substr( $par, 4 );
 				$options['submodules'] = 1;
 				continue;
 			}
 
-			if ( substr( $par, 0, 5 ) === 'rsub/' ) {
+			if ( str_starts_with( $par, 'rsub/' ) ) {
 				$par = substr( $par, 5 );
 				$options['recursivesubmodules'] = 1;
 				continue;
@@ -68,17 +86,20 @@ class SpecialApiHelp extends UnlistedSpecialPage {
 
 		if ( !$this->including() ) {
 			unset( $options['nolead'], $options['title'] );
+			// @phan-suppress-next-line PhanPossiblyUndeclaredVariable False positive
 			$options['modules'] = $moduleName;
-			$link = wfAppendQuery( wfExpandUrl( wfScript( 'api' ), PROTO_CURRENT ), $options );
+			$link = wfAppendQuery( (string)$this->urlUtils->expand( wfScript( 'api' ), PROTO_CURRENT ), $options );
 			$this->getOutput()->redirect( $link );
 			return;
 		}
 
 		$main = new ApiMain( $this->getContext(), false );
 		try {
+			// @phan-suppress-next-line PhanTypeMismatchArgumentNullable,PhanPossiblyUndeclaredVariable False positive
 			$module = $main->getModuleFromPath( $moduleName );
 		} catch ( ApiUsageException $ex ) {
 			$this->getOutput()->addHTML( Html::rawElement( 'span', [ 'class' => 'error' ],
+				// @phan-suppress-next-line PhanPossiblyUndeclaredVariable False positive
 				$this->msg( 'apihelp-no-such-module', $moduleName )->inContentLanguage()->parse()
 			) );
 			return;
@@ -91,3 +112,8 @@ class SpecialApiHelp extends UnlistedSpecialPage {
 		return true;
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialApiHelp::class, 'SpecialApiHelp' );

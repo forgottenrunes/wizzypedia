@@ -1,10 +1,8 @@
 <?php
 /** Talysh (tolışi)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Erdemaslancan
  * @author Ganbarzada

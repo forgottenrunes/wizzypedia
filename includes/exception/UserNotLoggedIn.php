@@ -18,6 +18,8 @@
  * @file
  */
 
+use MediaWiki\SpecialPage\SpecialPage;
+
 /**
  * Redirect a user to the login page
  *
@@ -31,7 +33,7 @@
  *
  * @par Example:
  * @code
- * if( $user->isAnon() ) {
+ * if ( $user->isAnon() ) {
  *   throw new UserNotLoggedIn();
  * }
  * @endcode
@@ -41,7 +43,7 @@
  *
  * @par Example:
  * @code
- * if( $user->isAnon() ) {
+ * if ( $user->isAnon() ) {
  *   throw new UserNotLoggedIn( 'action-require-loggedin' );
  * }
  * @endcode

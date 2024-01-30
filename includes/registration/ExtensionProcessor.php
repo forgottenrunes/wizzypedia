@@ -1,5 +1,14 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\ResourceLoader\FilePath;
+
+/**
+ * Load extension manifests and then aggregate their contents.
+ *
+ * @ingroup ExtensionRegistry
+ * @newable since 1.39
+ */
 class ExtensionProcessor implements Processor {
 
 	/**
@@ -8,52 +17,54 @@ class ExtensionProcessor implements Processor {
 	 * @var array
 	 */
 	protected static $globalSettings = [
-		'ActionFilteredLogs',
-		'Actions',
-		'AddGroups',
-		'APIFormatModules',
-		'APIListModules',
-		'APIMetaModules',
-		'APIModules',
-		'APIPropModules',
-		'AuthManagerAutoConfig',
-		'AvailableRights',
-		'CentralIdLookupProviders',
-		'ChangeCredentialsBlacklist',
-		'ConfigRegistry',
-		'ContentHandlers',
-		'DefaultUserOptions',
-		'ExtensionEntryPointListFiles',
-		'ExtensionFunctions',
-		'FeedClasses',
-		'FileExtensions',
-		'FilterLogTypes',
-		'GrantPermissionGroups',
-		'GrantPermissions',
-		'GroupPermissions',
-		'GroupsAddToSelf',
-		'GroupsRemoveFromSelf',
-		'HiddenPrefs',
-		'ImplicitGroups',
-		'JobClasses',
-		'LogActions',
-		'LogActionsHandlers',
-		'LogHeaders',
-		'LogNames',
-		'LogRestrictions',
-		'LogTypes',
-		'MediaHandlers',
-		'PasswordPolicy',
-		'RateLimits',
-		'RawHtmlMessages',
-		'ReauthenticateTime',
-		'RecentChangesFlags',
-		'RemoveCredentialsBlacklist',
-		'RemoveGroups',
-		'ResourceLoaderSources',
-		'RevokePermissions',
-		'SessionProviders',
-		'SpecialPages'
+		MainConfigNames::ActionFilteredLogs,
+		MainConfigNames::Actions,
+		MainConfigNames::AddGroups,
+		MainConfigNames::APIFormatModules,
+		MainConfigNames::APIListModules,
+		MainConfigNames::APIMetaModules,
+		MainConfigNames::APIModules,
+		MainConfigNames::APIPropModules,
+		MainConfigNames::AuthManagerAutoConfig,
+		MainConfigNames::AvailableRights,
+		MainConfigNames::CentralIdLookupProviders,
+		MainConfigNames::ChangeCredentialsBlacklist,
+		MainConfigNames::ConfigRegistry,
+		MainConfigNames::ContentHandlers,
+		MainConfigNames::DefaultUserOptions,
+		MainConfigNames::ExtensionEntryPointListFiles,
+		MainConfigNames::ExtensionFunctions,
+		MainConfigNames::FeedClasses,
+		MainConfigNames::FileExtensions,
+		MainConfigNames::FilterLogTypes,
+		MainConfigNames::GrantPermissionGroups,
+		MainConfigNames::GrantPermissions,
+		MainConfigNames::GroupPermissions,
+		MainConfigNames::GroupsAddToSelf,
+		MainConfigNames::GroupsRemoveFromSelf,
+		MainConfigNames::HiddenPrefs,
+		MainConfigNames::ImplicitGroups,
+		MainConfigNames::JobClasses,
+		MainConfigNames::LogActions,
+		MainConfigNames::LogActionsHandlers,
+		MainConfigNames::LogHeaders,
+		MainConfigNames::LogNames,
+		MainConfigNames::LogRestrictions,
+		MainConfigNames::LogTypes,
+		MainConfigNames::MediaHandlers,
+		MainConfigNames::PasswordPolicy,
+		MainConfigNames::PrivilegedGroups,
+		MainConfigNames::RateLimits,
+		MainConfigNames::RawHtmlMessages,
+		MainConfigNames::ReauthenticateTime,
+		MainConfigNames::RecentChangesFlags,
+		MainConfigNames::RemoveCredentialsBlacklist,
+		MainConfigNames::RemoveGroups,
+		MainConfigNames::ResourceLoaderSources,
+		MainConfigNames::RevokePermissions,
+		MainConfigNames::SessionProviders,
+		MainConfigNames::SpecialPages,
+		MainConfigNames::UserRegistrationProviders,
 	];
 
 	/**
@@ -65,8 +76,13 @@ class ExtensionProcessor implements Processor {
 		'ParsoidModules',
 		'RestRoutes',
 		'SkinOOUIThemes',
+		'SkinCodexThemes',
 		'SearchMappings',
 		'TrackingCategories',
+		'LateJSConfigVarNames',
+		'TempUserSerialProviders',
+		'TempUserSerialMappings',
+		'DatabaseVirtualDomains',
 	];
 
 	/**
@@ -123,12 +139,13 @@ class ExtensionProcessor implements Processor {
 		'namespaces',
 		'requires',
 		'AutoloadClasses',
+		'AutoloadNamespaces',
 		'ExtensionMessagesFiles',
+		'ForeignResourcesDir',
 		'Hooks',
 		'MessagePosterModule',
 		'MessagesDirs',
 		'OOUIThemePaths',
-		'ParserTestFiles',
 		'QUnitTestModule',
 		'ResourceFileModulePaths',
 		'ResourceModuleSkinStyles',
@@ -139,7 +156,7 @@ class ExtensionProcessor implements Processor {
 	/**
 	 * Stuff that is going to be set to $GLOBALS
 	 *
-	 * Some keys are pre-set to arrays so we can += to them
+	 * Some keys are pre-set to arrays, so we can += to them
 	 *
 	 * @var array
 	 */
@@ -156,8 +173,9 @@ class ExtensionProcessor implements Processor {
 	protected $defines = [];
 
 	/**
-	 * Things to be called once registration of these extensions are done
-	 * keyed by the name of the extension that it belongs to
+	 * Things to be called once the registration of these extensions is done
+	 *
+	 * Keyed by the name of the extension that it belongs to
 	 *
 	 * @var callable[]
 	 */
@@ -169,7 +187,32 @@ class ExtensionProcessor implements Processor {
 	protected $credits = [];
 
 	/**
-	 * Any thing else in the $info that hasn't
+	 * Autoloader information.
+	 * Each element is an array of strings.
+	 * 'files' is just a list, 'classes' and 'namespaces' are associative.
+	 *
+	 * @var string[][]
+	 */
+	protected $autoload = [
+		'files' => [],
+		'classes' => [],
+		'namespaces' => [],
+	];
+
+	/**
+	 * Autoloader information for development.
+	 * Same structure as $autoload.
+	 *
+	 * @var string[][]
+	 */
+	protected $autoloadDev = [
+		'files' => [],
+		'classes' => [],
+		'namespaces' => [],
+	];
+
+	/**
+	 * Anything else in the $info that hasn't
 	 * already been processed
 	 *
 	 * @var array
@@ -185,6 +228,24 @@ class ExtensionProcessor implements Processor {
 	protected $extAttributes = [];
 
 	/**
+	 * Extracts extension info from the given JSON file.
+	 *
+	 * @param string $path
+	 *
+	 * @return void
+	 */
+	public function extractInfoFromFile( string $path ) {
+		$json = file_get_contents( $path );
+		$info = json_decode( $json, true );
+
+		if ( !$info ) {
+			throw new RuntimeException( "Failed to load JSON data from $path" );
+		}
+
+		$this->extractInfo( $path, $info, $info['manifest_version'] );
+	}
+
+	/**
 	 * @param string $path
 	 * @param array $info
 	 * @param int $version manifest_version for info
@@ -197,6 +258,7 @@ class ExtensionProcessor implements Processor {
 		$this->extractSkins( $dir, $info );
 		$this->extractSkinImportPaths( $dir, $info );
 		$this->extractNamespaces( $info );
+		$this->extractImplicitRights( $info );
 		$this->extractResourceLoaderModules( $dir, $info );
 		if ( isset( $info['ServiceWiringFiles'] ) ) {
 			$this->extractPathBasedGlobal(
@@ -205,17 +267,12 @@ class ExtensionProcessor implements Processor {
 				$info['ServiceWiringFiles']
 			);
 		}
-		if ( isset( $info['ParserTestFiles'] ) ) {
-			$this->extractPathBasedGlobal(
-				'wgParserTestFiles',
-				$dir,
-				$info['ParserTestFiles']
-			);
-		}
 		$name = $this->extractCredits( $path, $info );
 		if ( isset( $info['callback'] ) ) {
 			$this->callbacks[$name] = $info['callback'];
 		}
+
+		$this->extractAutoload( $info, $dir );
 
 		// config should be after all core globals are extracted,
 		// so duplicate setting detection will work fully
@@ -238,6 +295,8 @@ class ExtensionProcessor implements Processor {
 				$module['name'] = $name;
 			}
 		}
+
+		$this->extractForeignResourcesDir( $info, $name, $dir );
 
 		if ( $version >= 2 ) {
 			$this->extractAttributes( $path, $info );
@@ -283,7 +342,7 @@ class ExtensionProcessor implements Processor {
 		}
 	}
 
-	public function getExtractedInfo() {
+	public function getExtractedInfo( bool $includeDev = false ) {
 		// Make sure the merge strategies are set
 		foreach ( $this->globals as $key => $val ) {
 			if ( isset( self::MERGE_STRATEGIES[$key] ) ) {
@@ -307,12 +366,16 @@ class ExtensionProcessor implements Processor {
 			}
 		}
 
+		$autoload = $this->getExtractedAutoloadInfo( $includeDev );
 		return [
 			'globals' => $this->globals,
 			'defines' => $this->defines,
 			'callbacks' => $this->callbacks,
 			'credits' => $this->credits,
 			'attributes' => $this->attributes,
+			'autoloaderPaths' => $autoload['files'],
+			'autoloaderClasses' => $autoload['classes'],
+			'autoloaderNS' => $autoload['namespaces'],
 		];
 	}
 
@@ -365,7 +428,7 @@ class ExtensionProcessor implements Processor {
 					);
 				} else {
 					// Prefer dev value, but these should be constant
-					// anyways (ext-* and ability-*)
+					// anyway (ext-* and ability-*)
 					$value = $dev['platform'][$pkey] ?? $req['platform'][$pkey];
 				}
 				$merged['platform'][$pkey] = $value;
@@ -583,6 +646,8 @@ class ExtensionProcessor implements Processor {
 					$data['localBasePath'] = "$dir/{$data['localBasePath']}";
 				}
 			}
+			// Satisfy PHPUnit ResourcesTest::testUnsatisfiableDependencies
+			$data['targets'] = [ 'test' ];
 			$this->attributes['QUnitTestModules']["test.{$info['name']}"] = $data;
 		}
 
@@ -592,7 +657,7 @@ class ExtensionProcessor implements Processor {
 			$baseDir = $basePath === '' ? $dir : "$dir/$basePath";
 			foreach ( $data['scripts'] ?? [] as $scripts ) {
 				$this->attributes['MessagePosterModule']['scripts'][] =
-					new ResourceLoaderFilePath( $scripts, $baseDir );
+					new FilePath( $scripts, $baseDir );
 			}
 			foreach ( $data['dependencies'] ?? [] as $dependency ) {
 				$this->attributes['MessagePosterModule']['dependencies'][] = $dependency;
@@ -635,29 +700,36 @@ class ExtensionProcessor implements Processor {
 	protected function extractSkins( $dir, array $info ) {
 		if ( isset( $info['ValidSkinNames'] ) ) {
 			foreach ( $info['ValidSkinNames'] as $skinKey => $data ) {
-				if ( isset( $data['args'][0]['templateDirectory'] ) ) {
-					$templateDirectory = $data['args'][0]['templateDirectory'];
-					$correctedPath = $dir . '/' . $templateDirectory;
-					// Historically the template directory was relative to core
-					// but it really should've been relative to the skin directory.
-					// If the path exists relative to the skin directory, assume that
-					// is what was intended. Otherwise fall back on the previous behavior
-					// of having it relative to core.
-					if ( is_dir( $correctedPath ) ) {
-						$data['args'][0]['templateDirectory'] = $correctedPath;
-					} else {
-						$data['args'][0]['templateDirectory'] = $templateDirectory;
-						wfDeprecatedMsg(
-							'Template directory should be relative to skin or omitted for skin ' . $skinKey,
-							'1.37'
-						);
-					}
-				} elseif ( isset( $data['args'][0] ) ) {
-					// If not set, we set a sensible default.
-					$data['args'][0]['templateDirectory'] = $dir . '/templates';
+				if ( isset( $data['args'][0] ) ) {
+					$templateDirectory = $data['args'][0]['templateDirectory'] ?? 'templates';
+					$data['args'][0]['templateDirectory'] = $dir . '/' . $templateDirectory;
 				}
 				$this->globals['wgValidSkinNames'][$skinKey] = $data;
 			}
+		}
+	}
+
+	/**
+	 * Extract any user rights that should be granted implicitly.
+	 *
+	 * @param array $info
+	 */
+	protected function extractImplicitRights( array $info ) {
+		// Rate limits are only configurable for rights that are either in wgImplicitRights
+		// or in wgAvailableRights. Extensions that define rate limits should not have to
+		// explicitly add them to wgImplicitRights as well, we can do that automatically.
+
+		if ( isset( $info['RateLimits'] ) ) {
+			$rights = array_keys( $info['RateLimits'] );
+
+			if ( isset( $info['AvailableRights'] ) ) {
+				$rights = array_diff( $rights, $info['AvailableRights'] );
+			}
+
+			$this->globals['wgImplicitRights'] = array_merge(
+				$this->globals['wgImplicitRights'] ?? [],
+				$rights
+			);
 		}
 	}
 
@@ -705,6 +777,15 @@ class ExtensionProcessor implements Processor {
 		return $name;
 	}
 
+	protected function extractForeignResourcesDir( array $info, string $name, string $dir ): void {
+		if ( array_key_exists( 'ForeignResourcesDir', $info ) ) {
+			if ( !is_string( $info['ForeignResourcesDir'] ) ) {
+				throw new Exception( "Incorrect ForeignResourcesDir type, must be a string (in $name)" );
+			}
+			$this->attributes['ForeignResourcesDir'][$name] = "{$dir}/{$info['ForeignResourcesDir']}";
+		}
+	}
+
 	/**
 	 * Set configuration settings for manifest_version == 1
 	 * @todo In the future, this should be done via Config interfaces
@@ -728,6 +809,23 @@ class ExtensionProcessor implements Processor {
 	}
 
 	/**
+	 * Applies a base path to the given string or string array.
+	 *
+	 * @param string[] $value
+	 * @param string $dir
+	 *
+	 * @return string[]
+	 */
+	private function applyPath( array $value, string $dir ): array {
+		$result = [];
+
+		foreach ( $value as $k => $v ) {
+			$result[$k] = $dir . '/' . $v;
+		}
+		return $result;
+	}
+
+	/**
 	 * Set configuration settings for manifest_version == 2
 	 * @todo In the future, this should be done via Config interfaces
 	 *
@@ -744,13 +842,10 @@ class ExtensionProcessor implements Processor {
 
 				$value = $data['value'];
 				if ( isset( $data['path'] ) && $data['path'] ) {
-					$callback = static function ( $value ) use ( $dir ) {
-						return "$dir/$value";
-					};
 					if ( is_array( $value ) ) {
-						$value = array_map( $callback, $value );
+						$value = $this->applyPath( $value, $dir );
 					} else {
-						$value = $callback( $value );
+						$value = "$dir/$value";
 					}
 				}
 				if ( isset( $data['merge_strategy'] ) ) {
@@ -766,7 +861,7 @@ class ExtensionProcessor implements Processor {
 	}
 
 	/**
-	 * Helper function to set a value to a specific global, if it isn't set already.
+	 * Helper function to set a value to a specific global config variable if it isn't set already.
 	 *
 	 * @param string $key The config key with the prefix and anything
 	 * @param mixed $value The value of the config
@@ -827,11 +922,90 @@ class ExtensionProcessor implements Processor {
 		}
 	}
 
+	/**
+	 * @deprecated since 1.39, use getExtractedAutoloadInfo instead
+	 *
+	 * @param string $dir
+	 * @param array $info
+	 *
+	 * @return array
+	 */
 	public function getExtraAutoloaderPaths( $dir, array $info ) {
+		wfDeprecated( __METHOD__, '1.39' );
 		$paths = [];
 		if ( isset( $info['load_composer_autoloader'] ) && $info['load_composer_autoloader'] === true ) {
 			$paths[] = "$dir/vendor/autoload.php";
 		}
 		return $paths;
+	}
+
+	/**
+	 * Returns the extracted autoload info.
+	 * The autoload info is returned as an associative array with three keys:
+	 * - files: a list of files to load, for use with Autoloader::loadFile()
+	 * - classes: a map of class names to files, for use with Autoloader::registerClass()
+	 * - namespaces: a map of namespace names to directories, for use
+	 *   with Autoloader::registerNamespace()
+	 *
+	 * @since 1.39
+	 *
+	 * @param bool $includeDev
+	 *
+	 * @return array[] The autoload info.
+	 */
+	public function getExtractedAutoloadInfo( bool $includeDev = false ): array {
+		$autoload = $this->autoload;
+
+		if ( $includeDev ) {
+			$autoload['classes'] += $this->autoloadDev['classes'];
+			$autoload['namespaces'] += $this->autoloadDev['namespaces'];
+
+			// NOTE: This is here for completeness. Per MW 1.39,
+			//       $this->autoloadDev['files'] is always empty.
+			//       So avoid the performance hit of array_merge().
+			if ( !empty( $this->autoloadDev['files'] ) ) {
+				// NOTE: Don't use += with numeric keys!
+				//       Could use PHPUtils::pushArray.
+				$autoload['files'] = array_merge(
+					$autoload['files'],
+					$this->autoloadDev['files']
+				);
+			}
+		}
+
+		return $autoload;
+	}
+
+	/**
+	 * @param array $info
+	 * @param string $dir
+	 */
+	private function extractAutoload( array $info, string $dir ) {
+		if ( isset( $info['load_composer_autoloader'] ) && $info['load_composer_autoloader'] === true ) {
+			$file = "$dir/vendor/autoload.php";
+			if ( file_exists( $file ) ) {
+				$this->autoload['files'][] = $file;
+			}
+		}
+
+		if ( isset( $info['AutoloadClasses'] ) ) {
+			$paths = $this->applyPath( $info['AutoloadClasses'], $dir );
+			$this->autoload['classes'] += $paths;
+		}
+
+		if ( isset( $info['AutoloadNamespaces'] ) ) {
+			$paths = $this->applyPath( $info['AutoloadNamespaces'], $dir );
+			$this->autoload['namespaces'] += $paths;
+		}
+
+		if ( isset( $info['TestAutoloadClasses'] ) ) {
+			$paths = $this->applyPath( $info['TestAutoloadClasses'], $dir );
+			$this->autoloadDev['classes'] += $paths;
+		}
+
+		if ( isset( $info['TestAutoloadNamespaces'] ) ) {
+			$paths = $this->applyPath( $info['TestAutoloadNamespaces'], $dir );
+			$this->autoloadDev['namespaces'] += $paths;
+		}
 	}
 }

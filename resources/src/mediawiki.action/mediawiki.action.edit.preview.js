@@ -4,7 +4,8 @@
 ( function () {
 
 	var parsedMessages = require( './mediawiki.action.edit.preview.parsedMessages.json' ),
-		api = new mw.Api();
+		api = new mw.Api(),
+		$diffNode;
 
 	/**
 	 * Parse preview response
@@ -25,7 +26,7 @@
 				.text( mw.msg( 'preview' ) )
 			)
 			.append( $( '<div>' )
-				.addClass( 'warningbox' )
+				.addClass( 'mw-message-box-warning mw-message-box' )
 				.html( parsedMessages.previewnote )
 				.append( ' ' )
 				.append( $( '<span>' )
@@ -37,7 +38,7 @@
 				)
 			);
 		response.parse.parsewarningshtml.forEach( function ( warning ) {
-			$previewHeader.find( '.warningbox' ).append( $( '<p>' ).append( warning ) );
+			$previewHeader.find( '.mw-message-box-warning' ).append( $( '<p>' ).append( warning ) );
 		} );
 
 		$( '#wikiPreview' ).prepend( $previewHeader );
@@ -48,7 +49,7 @@
 	 * @param {jQuery.Event} e
 	 */
 	function doLivePreview( e ) {
-		var isDiff, section, $editform, $textbox, preview, $wikiPreview;
+		var isDiff, $editform, $textbox, preview, $wikiPreview;
 
 		preview = require( 'mediawiki.page.preview' );
 		isDiff = ( e.target.name === 'wpDiff' );
@@ -56,20 +57,14 @@
 		$editform = $( '#editform' );
 		$textbox = $editform.find( '#wpTextbox1' );
 
-		section = $editform.find( '[name="wpSection"]' ).val();
-
 		if ( $textbox.length === 0 ) {
-			return;
-		}
-		// Show changes for a new section is not yet supported
-		if ( isDiff && section === 'new' ) {
 			return;
 		}
 
 		e.preventDefault();
 
 		// Not shown during normal preview, to be removed if present
-		$( '.mw-newarticletext, .errorbox' ).remove();
+		$( '.mw-newarticletext, .mw-message-box-error' ).remove();
 
 		// Show #wikiPreview if it's hidden to be able to scroll to it.
 		// (If it is hidden, it's also empty, so nothing changes in the rendering.)
@@ -100,10 +95,11 @@
 			// This just shows the error for whatever request failed first
 			var $errorMsg = api.getErrorMessage( result ),
 				$errorBox = $( '<div>' )
-					.addClass( 'errorbox' )
+					.addClass( 'mw-message-box-error mw-message-box' )
 					.append( $( '<strong>' ).text( mw.msg( 'previewerrortext' ) ) )
 					.append( $errorMsg );
 			$wikiPreview.hide().before( $errorBox );
+			$diffNode.hide();
 		} );
 	}
 
@@ -164,41 +160,40 @@
 			var alignStart, rtlDir;
 			rtlDir = $( '#wpTextbox1' ).attr( 'dir' ) === 'rtl';
 			alignStart = rtlDir ? 'right' : 'left';
-			$( '#wikiPreview' ).after(
-				$( '<div>' )
-					.hide()
-					.attr( 'id', 'wikiDiff' )
-					// The following classes are used here:
-					// * diff-editfont-monospace
-					// * diff-editfont-sans-serif
-					// * diff-editfont-serif
-					.addClass( 'diff-editfont-' + mw.user.options.get( 'editfont' ) )
-					// The following classes are used here:
-					// * diff-contentalign-left
-					// * diff-contentalign-right
-					.addClass( 'diff-contentalign-' + alignStart )
-					.append(
-						$( '<table>' ).addClass( 'diff' ).append(
-							$( '<col>' ).addClass( 'diff-marker' ),
-							$( '<col>' ).addClass( 'diff-content' ),
-							$( '<col>' ).addClass( 'diff-marker' ),
-							$( '<col>' ).addClass( 'diff-content' ),
-							$( '<thead>' ).append(
-								$( '<tr>' ).addClass( 'diff-title' ).append(
-									$( '<td>' )
-										.attr( 'colspan', 2 )
-										.addClass( 'diff-otitle diff-side-deleted' )
-										.text( mw.msg( 'currentrev' ) ),
-									$( '<td>' )
-										.attr( 'colspan', 2 )
-										.addClass( 'diff-ntitle diff-side-added' )
-										.text( mw.msg( 'yourtext' ) )
-								)
-							),
-							$( '<tbody>' )
-						)
+			$diffNode = $( '<div>' )
+				.hide()
+				.attr( 'id', 'wikiDiff' )
+				// The following classes are used here:
+				// * diff-editfont-monospace
+				// * diff-editfont-sans-serif
+				// * diff-editfont-serif
+				.addClass( 'diff-editfont-' + mw.user.options.get( 'editfont' ) )
+				// The following classes are used here:
+				// * diff-contentalign-left
+				// * diff-contentalign-right
+				.addClass( 'diff-contentalign-' + alignStart )
+				.append(
+					$( '<table>' ).addClass( 'diff' ).append(
+						$( '<col>' ).addClass( 'diff-marker' ),
+						$( '<col>' ).addClass( 'diff-content' ),
+						$( '<col>' ).addClass( 'diff-marker' ),
+						$( '<col>' ).addClass( 'diff-content' ),
+						$( '<thead>' ).append(
+							$( '<tr>' ).addClass( 'diff-title' ).append(
+								$( '<td>' )
+									.attr( 'colspan', 2 )
+									.addClass( 'diff-otitle diff-side-deleted' )
+									.text( mw.msg( 'currentrev' ) ),
+								$( '<td>' )
+									.attr( 'colspan', 2 )
+									.addClass( 'diff-ntitle diff-side-added' )
+									.text( mw.msg( 'yourtext' ) )
+							)
+						),
+						$( '<tbody>' )
 					)
-			);
+				);
+			$( '#wikiPreview' ).after( $diffNode );
 		}
 
 		// This should be moved down to '#editform', but is kept on the body for now

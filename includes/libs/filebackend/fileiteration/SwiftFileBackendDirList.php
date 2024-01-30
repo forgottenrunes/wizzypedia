@@ -30,8 +30,9 @@ class SwiftFileBackendDirList extends SwiftFileBackendList {
 	 * @see Iterator::current()
 	 * @return string|bool String (relative path) or false
 	 */
+	#[\ReturnTypeWillChange]
 	public function current() {
-		return substr( current( $this->bufferIter ), $this->suffixStart, -1 );
+		return substr( current( $this->iterableBuffer ), $this->suffixStart, -1 );
 	}
 
 	protected function pageFromList( $container, $dir, &$after, $limit, array $params ) {

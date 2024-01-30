@@ -7,19 +7,22 @@ use HtmlArmor;
 use Language;
 use LinkBatch;
 use LinkCache;
-use Linker;
-use MalformedTitleException;
 use MediaWiki\Cache\LinkBatchFactory;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\Linker\Linker;
 use MediaWiki\Linker\LinkRenderer;
 use MediaWiki\Linker\LinkTarget;
-use NamespaceInfo;
+use MediaWiki\Parser\Sanitizer;
+use MediaWiki\Title\MalformedTitleException;
+use MediaWiki\Title\NamespaceInfo;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleParser;
+use MediaWiki\Title\TitleValue;
+use MediaWiki\WikiMap\WikiMap;
 use Parser;
 use RepoGroup;
-use Title;
-use TitleParser;
-use TitleValue;
+use StringUtils;
 
 /**
  * The text processing backend for CommentFormatter.
@@ -170,7 +173,7 @@ class CommentParser {
 		$comment = strtr( $comment, "\n\x1b", "  " );
 		// Allow HTML entities (for T15815)
 		if ( !$unsafe ) {
-			$comment = \Sanitizer::escapeHtmlAllowEntities( $comment );
+			$comment = Sanitizer::escapeHtmlAllowEntities( $comment );
 		}
 		if ( $enableSectionLinks ) {
 			$comment = $this->doSectionLinks( $comment, $selfLinkTarget, $samePage, $wikiId );
@@ -295,7 +298,7 @@ class CommentParser {
 	) {
 		if ( $wikiId !== null && $wikiId !== false && !$target->isExternal() ) {
 			return Linker::makeExternalLink(
-				\WikiMap::getForeignURL(
+				WikiMap::getForeignURL(
 					$wikiId,
 					$target->getNamespace() === 0
 						? $target->getDBkey()
@@ -384,6 +387,7 @@ class CommentParser {
 					if ( isset( $match[1][0] ) && $match[1][0] == ':' ) {
 						$match[1] = substr( $match[1], 1 );
 					}
+					// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
 					if ( $match[1] !== false && $match[1] !== null && $match[1] !== '' ) {
 						if ( preg_match(
 							$this->contLang->linkTrail(),
@@ -395,7 +399,7 @@ class CommentParser {
 							$trail = "";
 						}
 						$linkRegexp = '/\[\[(.*?)\]\]' . preg_quote( $trail, '/' ) . '/';
-						list( $inside, $trail ) = Linker::splitTrail( $trail );
+						[ $inside, $trail ] = Linker::splitTrail( $trail );
 
 						$linkText = $text;
 						$linkTarget = Linker::normalizeSubpageLink( $selfLinkTarget, $match[1], $linkText );
@@ -419,8 +423,10 @@ class CommentParser {
 				if ( $linkMarker ) {
 					// If the link is still valid, go ahead and replace it in!
 					$comment = preg_replace(
+						// @phan-suppress-next-next-line PhanPossiblyUndeclaredVariable linkRegexp set when used
+						// @phan-suppress-next-line PhanTypeMismatchArgumentNullableInternal linkRegexp set when used
 						$linkRegexp,
-						$linkMarker,
+						StringUtils::escapeRegexReplacement( $linkMarker ),
 						$comment,
 						1
 					);
@@ -460,7 +466,7 @@ class CommentParser {
 		if ( $wikiId !== null && $wikiId !== false && !$target->isExternal() ) {
 			// Handle links from a foreign wiki ID
 			return Linker::makeExternalLink(
-				\WikiMap::getForeignURL(
+				WikiMap::getForeignURL(
 					$wikiId,
 					$target->getNamespace() === 0
 						? $target->getDBkey()

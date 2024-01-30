@@ -1,7 +1,5 @@
 <?php
 /**
- * Generator for LocalSettings.php file.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,11 +16,10 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Installer
  */
 
 /**
- * Class for generating LocalSettings.php file.
+ * Generate the LocalSettings.php file.
  *
  * @ingroup Installer
  * @since 1.17
@@ -308,13 +305,13 @@ class LocalSettingsGenerator {
 			$platformSettings = '';
 		}
 
-		$this->values['taglineConfig'] = $this->values['_LogoTagline'] ? "'tagline' => [
+		$this->values['taglineConfig'] = $this->values['_LogoTagline'] ? "\n\t'tagline' => [
 		\"src\" => \"{$this->values['_LogoTagline']}\",
 		\"width\" => {$this->values['_LogoTaglineWidth']},
 		\"height\" => {$this->values['_LogoTaglineHeight']}
 	]," : "";
 
-		$this->values['wordmarkConfig'] = $this->values['_LogoWordmark'] ? "'wordmark' => [
+		$this->values['wordmarkConfig'] = $this->values['_LogoWordmark'] ? "\n\t'wordmark' => [
 		\"src\" => \"{$this->values['_LogoWordmark']}\",
 		\"width\" => {$this->values['_LogoWordmarkWidth']},
 		\"height\" => {$this->values['_LogoWordmarkHeight']},
@@ -328,7 +325,7 @@ class LocalSettingsGenerator {
 # installer. If you make manual changes, please keep track in case you
 # need to recreate them later.
 #
-# See docs/Configuration.md for all configurable settings
+# See includes/MainConfigSchema.php for all configurable settings
 # and their default values, but don't forget to make changes in _this_
 # file, not there.
 #
@@ -352,7 +349,7 @@ if ( !defined( 'MEDIAWIKI' ) ) {
 ## (like /w/index.php/Page_title to /wiki/Page_title) please see:
 ## https://www.mediawiki.org/wiki/Manual:Short_URL
 \$wgScriptPath = \"{$this->values['wgScriptPath']}\";
-${serverSetting}
+{$serverSetting}
 
 ## The URL path to static resources (images, scripts, etc.)
 \$wgResourceBasePath = \$wgScriptPath;
@@ -360,9 +357,7 @@ ${serverSetting}
 ## The URL paths to the logo.  Make sure you change this from the default,
 ## or else you'll overwrite your logo when you upgrade!
 \$wgLogos = [
-	'1x' => \"{$this->values['sidebarLogo']}\",
-	{$this->values['wordmarkConfig']}
-	{$this->values['taglineConfig']}
+	'1x' => \"{$this->values['sidebarLogo']}\",{$this->values['wordmarkConfig']}{$this->values['taglineConfig']}
 	'icon' => \"{$this->values['_LogoIcon']}\",
 ];
 
@@ -409,7 +404,7 @@ ${serverSetting}
 # with MediaWiki developers to help guide future development efforts.
 \$wgPingback = {$this->values['wgPingback']};
 
-# Site language code, should be one of the list in ./languages/data/Names.php
+# Site language code, should be one of the list in ./includes/languages/data/Names.php
 \$wgLanguageCode = \"{$this->values['wgLanguageCode']}\";
 
 # Time zone

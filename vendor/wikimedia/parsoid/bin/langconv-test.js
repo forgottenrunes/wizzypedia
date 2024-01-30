@@ -297,11 +297,11 @@ const extractText = function(env, document) {
 	});
 	dt.addHandler('figcaption', (node) => {
 		/* Captions are suppressed in PHP for:
-		 * figure[typeof~="mw:Image/Frameless"], figure[typeof~="mw:Image"]
+		 * figure[typeof~="mw:File/Frameless"], figure[typeof~="mw:File"]
 		 * See Note 5 of https://www.mediawiki.org/wiki/Specs/HTML/1.7.0#Images
 		 */
-		if (DOMDataUtils.hasTypeOf(node.parentNode, 'mw:Image/Frameless') ||
-			DOMDataUtils.hasTypeOf(node.parentNode, 'mw:Image')) {
+		if (DOMDataUtils.hasTypeOf(node.parentNode, 'mw:File/Frameless') ||
+			DOMDataUtils.hasTypeOf(node.parentNode, 'mw:File')) {
 			// Skip caption contents, since they don't appear in PHP output.
 			return node.nextSibling;
 		}
@@ -539,25 +539,12 @@ if (require.main === module) {
 		}
 		const title = String(argv._[0]);
 		const lang = String(argv._[1]);
-		let ret = null;
 		if (argv.record || argv.replay) {
 			// Don't fork a separate server if record/replay
 			argv.useServer = false;
 		}
 		if (argv.useServer && !argv.parsoidURL) {
-			// Start our own Parsoid server
-			const serviceWrapper = require('../tests/serviceWrapper.js');
-			const serverOpts = {
-				logging: { level: 'info' },
-			};
-			if (argv.apiURL) {
-				serverOpts.mockURL = argv.apiURL;
-				argv.domain = 'customwiki';
-			} else {
-				serverOpts.skipMock = true;
-			}
-			ret = yield serviceWrapper.runServices(serverOpts);
-			argv.parsoidURL = ret.parsoidURL;
+			throw new Error('No parsoidURL provided!');
 		}
 		const formatter =
 			ScriptUtils.booleanOption(argv.silent) ? silentFormat :
@@ -605,9 +592,6 @@ if (require.main === module) {
 					break; /* done! */
 				}
 			}
-		}
-		if (ret !== null) {
-			yield ret.runner.stop();
 		}
 		if (argv.check || exitCode > 1) {
 			process.exit(exitCode);

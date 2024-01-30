@@ -10,7 +10,8 @@
 			"Kenrick95",
 			"Meursault2004",
 			"Rachmat04",
-			"Rex"
+			"Rex",
+			"Veracious"
 		]
 	},
 	"exif-imagewidth": "Lebar",
@@ -25,7 +26,7 @@
 	"exif-ycbcrpositioning": "Penempatan Y dan C",
 	"exif-xresolution": "Resolusi horizontal",
 	"exif-yresolution": "Resolusi vertikal",
-	"exif-stripoffsets": "Lokasi data gambar",
+	"exif-stripoffsets": "Data lokasi gambar",
 	"exif-rowsperstrip": "Jumlah baris per strip",
 	"exif-stripbytecounts": "Bita per strip kompresi",
 	"exif-jpeginterchangeformat": "Ofset ke JPEG SOI",
@@ -193,7 +194,6 @@
 	"exif-originalimageheight": "Tinggi gambar sebelum dipotong",
 	"exif-originalimagewidth": "Lebar gambar sebelum dipotong",
 	"exif-contact-value": "$1\n\n$2\n<div class=\"adr\">\n$3\n\n$4, $5 - $6, $7\n</div>\n$8",
-	"exif-subjectnewscode-value": "$2 ($1)",
 	"exif-compression-1": "Tak terkompresi",
 	"exif-compression-2": "CCITT Group 3 1-Dimensional Modified Huffman RLE",
 	"exif-compression-3": "CCITT Group 3 fax encoding",
@@ -404,6 +404,7 @@
 	"exif-exposurelockused": "Gunakan kunci pajanan",
 	"exif-exposurelockused-true": "Ya",
 	"exif-exposurelockused-false": "Tidak",
+	"exif-poseheadingdegrees": "Kepala pose (derajat)",
 	"exif-initialhorizontalfovdegrees": "Ruang pandang awal (derajat horizontal)",
 	"exif-initialverticalfovdegrees": "Ruang pandang awal (derajat vertikal)",
 	"exif-sourcephotoscount": "Banyak foto sumber",

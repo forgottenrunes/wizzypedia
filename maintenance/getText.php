@@ -23,9 +23,9 @@
  * @ingroup Maintenance
  */
 
-use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Title\Title;
 
 require_once __DIR__ . '/Maintenance.php';
 
@@ -57,7 +57,7 @@ class GetTextMaint extends Maintenance {
 
 		$revId = (int)$this->getOption( 'revision', $title->getLatestRevID() );
 
-		$rev = MediaWikiServices::getInstance()
+		$rev = $this->getServiceContainer()
 			->getRevisionLookup()
 			->getRevisionByTitle( $title, $revId );
 

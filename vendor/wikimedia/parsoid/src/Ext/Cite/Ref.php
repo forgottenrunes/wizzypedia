@@ -3,6 +3,7 @@ declare( strict_types = 1 );
 
 namespace Wikimedia\Parsoid\Ext\Cite;
 
+use Closure;
 use Exception;
 use Wikimedia\Parsoid\DOM\DocumentFragment;
 use Wikimedia\Parsoid\DOM\Element;
@@ -11,7 +12,6 @@ use Wikimedia\Parsoid\Ext\DOMDataUtils;
 use Wikimedia\Parsoid\Ext\DOMUtils;
 use Wikimedia\Parsoid\Ext\ExtensionTagHandler;
 use Wikimedia\Parsoid\Ext\ParsoidExtensionAPI;
-use Wikimedia\Parsoid\Ext\WTUtils;
 use Wikimedia\Parsoid\Utils\DOMCompat;
 
 /**
@@ -33,11 +33,10 @@ class Ref extends ExtensionTagHandler {
 		// function.  However, we're overly permissive here since we can't
 		// distinguish when that's nested in another template.
 		// The php preprocessor did our expansion.
-		$allowNestedRef = !empty( $extApi->inTemplate() ) && $parentExtTag !== 'ref';
+		$allowNestedRef = !empty( $extApi->inTemplate() );
 
 		return $extApi->extTagToDOM(
 			$extArgs,
-			'',
 			$txt,
 			[
 				// NOTE: sup's content model requires it only contain phrasing
@@ -57,25 +56,28 @@ class Ref extends ExtensionTagHandler {
 	}
 
 	/** @inheritDoc */
+	public function processAttributeEmbeddedHTML(
+		ParsoidExtensionAPI $extApi, Element $elt, Closure $proc
+	): void {
+		$dataMw = DOMDataUtils::getDataMw( $elt );
+		if ( isset( $dataMw->body->html ) ) {
+			$dataMw->body->html = $proc( $dataMw->body->html );
+		}
+	}
+
+	/** @inheritDoc */
 	public function lintHandler(
 		ParsoidExtensionAPI $extApi, Element $ref, callable $defaultHandler
 	): ?Node {
-		// Don't lint the content of ref in ref, since it can lead to cycles
-		// using named refs
-		if ( WTUtils::fromExtensionContent( $ref, 'references' ) ) {
-			return $ref->nextSibling;
-		}
-		// Ignore content from reference errors
-		if ( DOMUtils::hasTypeOf( $ref, 'mw:Error' ) ) {
-			return $ref->nextSibling;
-		}
-		$refFirstChild = $ref->firstChild;
-		DOMUtils::assertElt( $refFirstChild );
-		$linkBackId = preg_replace( '/[^#]*#/', '', $refFirstChild->getAttribute( 'href' ) ?? '', 1 );
-		$refNode = $ref->ownerDocument->getElementById( $linkBackId );
-		if ( $refNode ) {
-			// Ex: Buggy input wikitext without ref content
-			$defaultHandler( $refNode->lastChild );
+		$dataMw = DOMDataUtils::getDataMw( $ref );
+		if ( isset( $dataMw->body->html ) ) {
+			$fragment = $extApi->htmlToDom( $dataMw->body->html );
+			$defaultHandler( $fragment );
+		} elseif ( isset( $dataMw->body->id ) ) {
+			$refNode = DOMCompat::getElementById( $extApi->getTopLevelDoc(), $dataMw->body->id );
+			if ( $refNode ) {
+				$defaultHandler( $refNode );
+			}
 		}
 		return $ref->nextSibling;
 	}
@@ -97,10 +99,10 @@ class Ref extends ExtensionTagHandler {
 			'inPHPBlock' => true
 		];
 
-		if ( is_string( $dataMw->body->html ?? null ) ) {
+		if ( isset( $dataMw->body->html ) ) {
 			// First look for the extension's content in data-mw.body.html
 			$src = $extApi->htmlToWikitext( $html2wtOpts, $dataMw->body->html );
-		} elseif ( is_string( $dataMw->body->id ?? null ) ) {
+		} elseif ( isset( $dataMw->body->id ) ) {
 			// If the body isn't contained in data-mw.body.html, look if
 			// there's an element pointed to by body->id.
 			$bodyElt = DOMCompat::getElementById( $extApi->getTopLevelDoc(), $dataMw->body->id );
@@ -163,7 +165,7 @@ class Ref extends ExtensionTagHandler {
 				if ( $hasRefName ) {
 					// Follow content may have been added as spans, so drop it
 					if ( DOMCompat::querySelector( $bodyElt, "span[typeof~='mw:Cite/Follow']" ) ) {
-						$bodyElt = $bodyElt->cloneNode( true );
+						$bodyElt = DOMDataUtils::cloneNode( $bodyElt, true );
 						foreach ( $bodyElt->childNodes as $child ) {
 							if ( DOMUtils::hasTypeOf( $child, 'mw:Cite/Follow' ) ) {
 								// @phan-suppress-next-line PhanTypeMismatchArgumentSuperType
@@ -191,7 +193,17 @@ class Ref extends ExtensionTagHandler {
 		$origDataMw = DOMDataUtils::getDataMw( $origNode );
 		$editedDataMw = DOMDataUtils::getDataMw( $editedNode );
 
-		if ( isset( $origDataMw->body->id ) && isset( $editedDataMw->body->id ) ) {
+		if ( isset( $origDataMw->body->html ) && isset( $editedDataMw->body->html ) ) {
+			$origFragment = $extApi->htmlToDom(
+				$origDataMw->body->html, $origNode->ownerDocument,
+				[ 'markNew' => true ]
+			);
+			$editedFragment = $extApi->htmlToDom(
+				$editedDataMw->body->html, $editedNode->ownerDocument,
+				[ 'markNew' => true ]
+			);
+			return call_user_func( $domDiff, $origFragment, $editedFragment );
+		} elseif ( isset( $origDataMw->body->id ) && isset( $editedDataMw->body->id ) ) {
 			$origId = $origDataMw->body->id;
 			$editedId = $editedDataMw->body->id;
 
@@ -226,16 +238,6 @@ class Ref extends ExtensionTagHandler {
 					);
 				}
 			}
-		} elseif ( isset( $origDataMw->body->html ) && isset( $editedDataMw->body->html ) ) {
-			$origFragment = $extApi->htmlToDom(
-				$origDataMw->body->html, $origNode->ownerDocument,
-				[ 'markNew' => true ]
-			);
-			$editedFragment = $extApi->htmlToDom(
-				$editedDataMw->body->html, $editedNode->ownerDocument,
-				[ 'markNew' => true ]
-			);
-			return call_user_func( $domDiff, $origFragment, $editedFragment );
 		}
 
 		// FIXME: Similar to DOMDiff::subtreeDiffers, maybe $editNode should

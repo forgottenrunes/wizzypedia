@@ -20,7 +20,8 @@
  * @file
  */
 
-use MediaWiki\BadFileLookup;
+use MediaWiki\Page\File\BadFileLookup;
+use Wikimedia\ParamValidator\ParamValidator;
 
 /**
  * A query action to get image information from temporarily stashed files.
@@ -29,8 +30,7 @@ use MediaWiki\BadFileLookup;
  */
 class ApiQueryStashImageInfo extends ApiQueryImageInfo {
 
-	/** @var RepoGroup */
-	private $repoGroup;
+	private RepoGroup $repoGroup;
 
 	/**
 	 * @param ApiQuery $query
@@ -108,10 +108,7 @@ class ApiQueryStashImageInfo extends ApiQueryImageInfo {
 	 * @return array
 	 */
 	public static function getPropertyNames( $filter = null ) {
-		if ( $filter === null ) {
-			$filter = self::$propertyFilter;
-		}
-		return parent::getPropertyNames( $filter );
+		return parent::getPropertyNames( $filter ?? self::$propertyFilter );
 	}
 
 	/**
@@ -121,44 +118,41 @@ class ApiQueryStashImageInfo extends ApiQueryImageInfo {
 	 * @return array
 	 */
 	public static function getPropertyMessages( $filter = null ) {
-		if ( $filter === null ) {
-			$filter = self::$propertyFilter;
-		}
-		return parent::getPropertyMessages( $filter );
+		return parent::getPropertyMessages( $filter ?? self::$propertyFilter );
 	}
 
 	public function getAllowedParams() {
 		return [
 			'filekey' => [
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'sessionkey' => [
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_DEPRECATED => true,
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_DEPRECATED => true,
 			],
 			'prop' => [
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_DFLT => 'timestamp|url',
-				ApiBase::PARAM_TYPE => self::getPropertyNames(),
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_DEFAULT => 'timestamp|url',
+				ParamValidator::PARAM_TYPE => self::getPropertyNames(),
 				ApiBase::PARAM_HELP_MSG => 'apihelp-query+imageinfo-param-prop',
 				ApiBase::PARAM_HELP_MSG_PER_VALUE => self::getPropertyMessages()
 			],
 			'urlwidth' => [
-				ApiBase::PARAM_TYPE => 'integer',
-				ApiBase::PARAM_DFLT => -1,
+				ParamValidator::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_DEFAULT => -1,
 				ApiBase::PARAM_HELP_MSG => [
 					'apihelp-query+imageinfo-param-urlwidth',
 					ApiQueryImageInfo::TRANSFORM_LIMIT,
 				],
 			],
 			'urlheight' => [
-				ApiBase::PARAM_TYPE => 'integer',
-				ApiBase::PARAM_DFLT => -1,
+				ParamValidator::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_DEFAULT => -1,
 				ApiBase::PARAM_HELP_MSG => 'apihelp-query+imageinfo-param-urlheight',
 			],
 			'urlparam' => [
-				ApiBase::PARAM_TYPE => 'string',
-				ApiBase::PARAM_DFLT => '',
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_DEFAULT => '',
 				ApiBase::PARAM_HELP_MSG => 'apihelp-query+imageinfo-param-urlparam',
 			],
 		];

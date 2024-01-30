@@ -1,10 +1,8 @@
 <?php
 /** Telugu (తెలుగు)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Arjunaraoc
  * @author Ashokjayanti

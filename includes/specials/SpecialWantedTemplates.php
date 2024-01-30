@@ -26,8 +26,12 @@
  * @author Danny B.
  */
 
+namespace MediaWiki\Specials;
+
 use MediaWiki\Cache\LinkBatchFactory;
-use Wikimedia\Rdbms\ILoadBalancer;
+use MediaWiki\Linker\LinksMigration;
+use MediaWiki\SpecialPage\WantedQueryPage;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * A querypage to list the most wanted templates
@@ -36,35 +40,44 @@ use Wikimedia\Rdbms\ILoadBalancer;
  */
 class SpecialWantedTemplates extends WantedQueryPage {
 
+	private LinksMigration $linksMigration;
+
 	/**
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param LinkBatchFactory $linkBatchFactory
+	 * @param LinksMigration $linksMigration
 	 */
 	public function __construct(
-		ILoadBalancer $loadBalancer,
-		LinkBatchFactory $linkBatchFactory
+		IConnectionProvider $dbProvider,
+		LinkBatchFactory $linkBatchFactory,
+		LinksMigration $linksMigration
 	) {
 		parent::__construct( 'Wantedtemplates' );
-		$this->setDBLoadBalancer( $loadBalancer );
+		$this->setDatabaseProvider( $dbProvider );
 		$this->setLinkBatchFactory( $linkBatchFactory );
+		$this->linksMigration = $linksMigration;
 	}
 
 	public function getQueryInfo() {
+		$queryInfo = $this->linksMigration->getQueryInfo( 'templatelinks' );
+		[ $ns, $title ] = $this->linksMigration->getTitleFields( 'templatelinks' );
 		return [
-			'tables' => [ 'templatelinks', 'page' ],
+			'tables' => array_merge( $queryInfo['tables'], [ 'page' ] ),
 			'fields' => [
-				'namespace' => 'tl_namespace',
-				'title' => 'tl_title',
+				'namespace' => $ns,
+				'title' => $title,
 				'value' => 'COUNT(*)'
 			],
 			'conds' => [
-				'page_title IS NULL',
-				'tl_namespace' => NS_TEMPLATE
+				'page_title' => null,
+				$ns => NS_TEMPLATE
 			],
-			'options' => [ 'GROUP BY' => [ 'tl_namespace', 'tl_title' ] ],
-			'join_conds' => [ 'page' => [ 'LEFT JOIN',
-				[ 'page_namespace = tl_namespace',
-					'page_title = tl_title' ] ] ]
+			'options' => [ 'GROUP BY' => [ $ns, $title ] ],
+			'join_conds' => array_merge(
+				[ 'page' => [ 'LEFT JOIN',
+					[ "page_namespace = $ns", "page_title = $title" ] ] ],
+				$queryInfo['joins']
+			)
 		];
 	}
 
@@ -72,3 +85,9 @@ class SpecialWantedTemplates extends WantedQueryPage {
 		return 'maintenance';
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialWantedTemplates::class, 'SpecialWantedTemplates' );

@@ -60,6 +60,18 @@ QUnit.test( 'contextChange events', function ( assert ) {
 		[ 'z', [ ve.dm.example.italic ] ],
 		'F', 'o', 'o',
 		{ type: '/paragraph' },
+		{ type: 'list', attributes: { style: 'bullet' } },
+		{ type: 'listItem' },
+		{ type: 'paragraph' },
+		'O', 'n', 'e',
+		{ type: '/paragraph' },
+		{ type: '/listItem' },
+		{ type: 'listItem' },
+		{ type: 'paragraph' },
+		'T', 'w', 'o',
+		{ type: '/paragraph' },
+		{ type: '/listItem' },
+		{ type: '/list' },
 		{ type: 'internalList' }, { type: '/internalList' }
 	] ) );
 
@@ -129,6 +141,12 @@ QUnit.test( 'contextChange events', function ( assert ) {
 			initialSelection: new ve.Range( 2 ),
 			selection: new ve.Range( 5 ),
 			expected: 2 // Move + insertion annotations change
+		},
+		{
+			title: 'setSelection, selection collapsed in end node (but overally non-collapsed) becomes non-collapsed in end node',
+			initialSelection: new ve.Range( 18, 24 ),
+			selection: new ve.Range( 18, 26 ),
+			expected: 1 // Move + insertion annotations change
 		}
 	];
 
@@ -480,7 +498,7 @@ QUnit.test( 'autosave', function ( assert ) {
 
 	fragment.insertContent( ' bar' );
 	surface.breakpoint();
-	assert.deepEqual( storage.getList( 've-changes' ), [], 'Changes aren\'t stored before startStoringChanges' );
+	assert.deepEqual( storage.getObject( 've-changes' ), null, 'Changes aren\'t stored before startStoringChanges' );
 
 	surface = new ve.dm.SurfaceStub();
 	fragment = surface.getLinearFragment( new ve.Range( 3 ) );
@@ -489,7 +507,7 @@ QUnit.test( 'autosave', function ( assert ) {
 	fragment.insertContent( ' bar' );
 	surface.breakpoint();
 	assert.deepEqual(
-		storage.getList( 've-changes' ).map( JSON.parse ),
+		storage.getObject( 've-changes' ),
 		[ {
 			start: 0,
 			transactions: [ [ 3, [ '', ' bar' ], 3 ] ]
@@ -498,12 +516,12 @@ QUnit.test( 'autosave', function ( assert ) {
 	);
 
 	surface.storeChanges();
-	assert.strictEqual( storage.getList( 've-changes' ).length, 1, 'No extra change stored if no changes since last store' );
+	assert.strictEqual( storage.getObject( 've-changes' ).length, 1, 'No extra change stored if no changes since last store' );
 
 	fragment.convertNodes( 'heading', { level: 1 } );
 	surface.breakpoint();
 	assert.deepEqual(
-		storage.getList( 've-changes' ).map( JSON.parse )[ 1 ],
+		storage.getObject( 've-changes' )[ 1 ],
 		{
 			start: 1,
 			transactions: [ [
@@ -519,7 +537,7 @@ QUnit.test( 'autosave', function ( assert ) {
 	surface.setLinearSelection( new ve.Range( 5 ) );
 	surface.breakpoint();
 	assert.strictEqual(
-		storage.getList( 've-changes' ).length, 3, 'Fourth change stored'
+		storage.getObject( 've-changes' ).length, 3, 'Fourth change stored'
 	);
 	assert.deepEqual(
 		storage.getObject( 've-selection' ),
@@ -531,7 +549,7 @@ QUnit.test( 'autosave', function ( assert ) {
 	fragment.collapseToEnd().insertContent( ' quux' );
 	surface.breakpoint();
 	assert.strictEqual(
-		storage.getList( 've-changes' ).length, 3, 'Change not stored after stopStoringChanges'
+		storage.getObject( 've-changes' ).length, 3, 'Change not stored after stopStoringChanges'
 	);
 
 	assert.throws(
@@ -563,7 +581,7 @@ QUnit.test( 'autosave', function ( assert ) {
 	surface.removeDocStateAndChanges();
 	assert.strictEqual( storage.get( 've-html' ), null, 'HTML empty after removeDocStateAndChanges' );
 	assert.strictEqual( storage.getObject( 've-docstate' ), null, 'Doc state empty after removeDocStateAndChanges' );
-	assert.deepEqual( storage.getList( 've-changes' ), [], 'Changes empty after removeDocStateAndChanges' );
+	assert.deepEqual( storage.getObject( 've-changes' ), null, 'Changes empty after removeDocStateAndChanges' );
 
 	surface = new ve.dm.SurfaceStub();
 	fragment = surface.getLinearFragment( new ve.Range( 3 ) );
@@ -579,7 +597,7 @@ QUnit.test( 'autosave', function ( assert ) {
 	assert.strictEqual( surface.storeDocState( state ), false, 'storeDocState returns false when sessionStorage disabled' );
 	fragment.insertContent( ' bar' );
 	surface.breakpoint();
-	assert.strictEqual( storage.getList( 've-changes' ).length, 0, 'No changes recorded after storeDocState failure' );
+	assert.strictEqual( storage.getObject( 've-changes' ), false, 'No changes recorded' );
 	ve.init.platform.storageDisabled = false;
 
 	surface.on( 'autosaveFailed', function () {
@@ -595,7 +613,7 @@ QUnit.test( 'autosave', function ( assert ) {
 	fragment.insertContent( ' baz' );
 	surface.breakpoint();
 	assert.strictEqual( autosaveFailed, 1, 'Subsequent failures don\'t fire autosaveFailed again' );
-	assert.strictEqual( storage.getList( 've-changes' ).length, 0, 'No changes recorded after storeChanges failure' );
+	assert.strictEqual( storage.getObject( 've-changes' ), false, 'No changes recorded' );
 	ve.init.platform.storageDisabled = false;
 
 	surface.storeDocState( state, '<p>foo</p>' );

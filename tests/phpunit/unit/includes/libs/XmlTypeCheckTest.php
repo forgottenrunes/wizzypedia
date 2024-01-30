@@ -1,31 +1,22 @@
 <?php
 /**
- * PHPUnit tests for XMLTypeCheck.
  * @author physikerwelt
  * @group Xml
- * @covers XMLTypeCheck
+ * @covers XmlTypeCheck
  */
 class XmlTypeCheckTest extends PHPUnit\Framework\TestCase {
-
 	use MediaWikiCoversValidator;
 
 	private const WELL_FORMED_XML = "<root><child /></root>";
 	private const MAL_FORMED_XML = "<root><child /></error>";
 	private const XML_WITH_PIH = '<?xml version="1.0"?><?xml-stylesheet type="text/xsl" href="/w/index.php"?><svg><child /></svg>';
 
-	/**
-	 * @covers XMLTypeCheck::newFromString
-	 * @covers XMLTypeCheck::getRootElement
-	 */
 	public function testWellFormedXML() {
 		$testXML = XmlTypeCheck::newFromString( self::WELL_FORMED_XML );
 		$this->assertTrue( $testXML->wellFormed );
 		$this->assertEquals( 'root', $testXML->getRootElement() );
 	}
 
-	/**
-	 * @covers XMLTypeCheck::newFromString
-	 */
 	public function testMalFormedXML() {
 		$testXML = XmlTypeCheck::newFromString( self::MAL_FORMED_XML );
 		$this->assertFalse( $testXML->wellFormed );
@@ -57,9 +48,6 @@ XML;
 		$this->assertFalse( $check->wellFormed );
 	}
 
-	/**
-	 * @covers XMLTypeCheck::processingInstructionHandler
-	 */
 	public function testProcessingInstructionHandler() {
 		$called = false;
 		$testXML = new XmlTypeCheck(
@@ -74,5 +62,4 @@ XML;
 		);
 		$this->assertTrue( $called );
 	}
-
 }

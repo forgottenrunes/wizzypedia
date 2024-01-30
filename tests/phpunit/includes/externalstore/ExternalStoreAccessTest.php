@@ -1,11 +1,13 @@
 <?php
 
+use MediaWiki\Tests\Unit\DummyServicesTrait;
 use PHPUnit\Framework\MockObject\MockObject;
 
 /**
  * @covers ExternalStoreAccess
  */
 class ExternalStoreAccessTest extends MediaWikiIntegrationTestCase {
+	use DummyServicesTrait;
 
 	public function testBasic() {
 		$active = [ 'memory' ];
@@ -28,16 +30,12 @@ class ExternalStoreAccessTest extends MediaWikiIntegrationTestCase {
 	 */
 	public function testReadOnly() {
 		/** @var  ExternalStoreMedium|MockObject $medium */
-		$medium = $this->getMockBuilder( ExternalStoreMedium::class )
-			->disableOriginalConstructor()
-			->getMock();
+		$medium = $this->createMock( ExternalStoreMedium::class );
 
 		$medium->method( 'isReadOnly' )->willReturn( true );
 
 		/** @var  ExternalStoreFactory|MockObject $esFactory */
-		$esFactory = $this->getMockBuilder( ExternalStoreFactory::class )
-			->disableOriginalConstructor()
-			->getMock();
+		$esFactory = $this->createMock( ExternalStoreFactory::class );
 
 		$esFactory->method( 'getWriteBaseUrls' )->willReturn( [ 'test:' ] );
 		$esFactory->method( 'getStoreForUrl' )->willReturn( $medium );
@@ -46,7 +44,8 @@ class ExternalStoreAccessTest extends MediaWikiIntegrationTestCase {
 		$access = new ExternalStoreAccess( $esFactory );
 		$this->assertTrue( $access->isReadOnly() );
 
-		$this->expectExceptionObject( new ReadOnlyError() );
+		$this->setService( 'ReadOnlyMode', $this->getDummyReadOnlyMode( 'Some absurd reason' ) );
+		$this->expectException( ReadOnlyError::class );
 		$access->insert( 'Lorem Ipsum' );
 	}
 

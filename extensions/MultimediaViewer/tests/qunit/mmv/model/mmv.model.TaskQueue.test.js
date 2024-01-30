@@ -15,17 +15,19 @@
  * along with MediaViewer.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+const { TaskQueue } = require( 'mmv' );
+
 ( function () {
 	QUnit.module( 'mmv.model.TaskQueue', QUnit.newMwEnvironment() );
 
 	QUnit.test( 'TaskQueue constructor sense check', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue();
+		var taskQueue = new TaskQueue();
 
-		assert.ok( taskQueue, 'TaskQueue created successfully' );
+		assert.true( taskQueue instanceof TaskQueue, 'TaskQueue created successfully' );
 	} );
 
 	QUnit.test( 'Queue length check', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue();
+		var taskQueue = new TaskQueue();
 
 		assert.strictEqual( taskQueue.queue.length, 0, 'queue is initially empty' );
 
@@ -35,21 +37,21 @@
 	} );
 
 	QUnit.test( 'State check', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue(),
+		var taskQueue = new TaskQueue(),
 			task = $.Deferred(),
 			promise;
 
-		taskQueue.push( function () { return task; } );
+		taskQueue.push( () => task );
 
-		assert.strictEqual( taskQueue.state, mw.mmv.model.TaskQueue.State.NOT_STARTED,
+		assert.strictEqual( taskQueue.state, TaskQueue.State.NOT_STARTED,
 			'state is initially NOT_STARTED' );
 
 		promise = taskQueue.execute().then( function () {
-			assert.strictEqual( taskQueue.state, mw.mmv.model.TaskQueue.State.FINISHED,
+			assert.strictEqual( taskQueue.state, TaskQueue.State.FINISHED,
 				'state is FINISHED after execution finished' );
 		} );
 
-		assert.strictEqual( taskQueue.state, mw.mmv.model.TaskQueue.State.RUNNING,
+		assert.strictEqual( taskQueue.state, TaskQueue.State.RUNNING,
 			'state is RUNNING after execution started' );
 
 		task.resolve();
@@ -58,27 +60,27 @@
 	} );
 
 	QUnit.test( 'State check for cancellation', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue(),
+		var taskQueue = new TaskQueue(),
 			task = $.Deferred();
 
-		taskQueue.push( function () { return task; } );
+		taskQueue.push( () => task );
 		taskQueue.execute();
 		taskQueue.cancel();
 
-		assert.strictEqual( taskQueue.state, mw.mmv.model.TaskQueue.State.CANCELLED,
+		assert.strictEqual( taskQueue.state, TaskQueue.State.CANCELLED,
 			'state is CANCELLED after cancellation' );
 	} );
 
 	QUnit.test( 'Test executing empty queue', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue();
+		var taskQueue = new TaskQueue();
 
 		return taskQueue.execute().done( function () {
-			assert.ok( true, 'Queue promise resolved' );
+			assert.true( true, 'Queue promise resolved' );
 		} );
 	} );
 
 	QUnit.test( 'Simple execution test', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue(),
+		var taskQueue = new TaskQueue(),
 			called = false;
 
 		taskQueue.push( function () {
@@ -91,7 +93,7 @@
 	} );
 
 	QUnit.test( 'Task execution order test', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue(),
+		var taskQueue = new TaskQueue(),
 			order = [];
 
 		taskQueue.push( function () {
@@ -120,7 +122,7 @@
 	} );
 
 	QUnit.test( 'Double execution test', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue(),
+		var taskQueue = new TaskQueue(),
 			called = 0;
 
 		taskQueue.push( function () {
@@ -135,7 +137,7 @@
 	} );
 
 	QUnit.test( 'Parallel execution test', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue(),
+		var taskQueue = new TaskQueue(),
 			called = 0;
 
 		taskQueue.push( function () {
@@ -151,31 +153,29 @@
 	} );
 
 	QUnit.test( 'Test push after execute', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue();
+		var taskQueue = new TaskQueue();
 
 		taskQueue.execute();
 
-		try {
+		assert.throws( function () {
 			taskQueue.push( function () {} );
-		} catch ( e ) {
-			assert.ok( e, 'Exception thrown when trying to push to an already running queue' );
-		}
+		}, 'Exception thrown when trying to push to an already running queue' );
 	} );
 
 	QUnit.test( 'Test failed task', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue();
+		var taskQueue = new TaskQueue();
 
 		taskQueue.push( function () {
 			return $.Deferred().reject();
 		} );
 
 		return taskQueue.execute().done( function () {
-			assert.ok( true, 'Queue promise resolved' );
+			assert.true( true, 'Queue promise resolved' );
 		} );
 	} );
 
 	QUnit.test( 'Test that tasks wait for each other', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue(),
+		var taskQueue = new TaskQueue(),
 			longRunningTaskFinished = false,
 			seenFinished = false;
 
@@ -195,12 +195,12 @@
 		} );
 
 		return taskQueue.execute().then( function () {
-			assert.ok( seenFinished, 'Task waits for previous task to finish' );
+			assert.true( seenFinished, 'Task waits for previous task to finish' );
 		} );
 	} );
 
 	QUnit.test( 'Test cancellation before start', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue(),
+		var taskQueue = new TaskQueue(),
 			triggered = false,
 			verificationTask = function () {
 				triggered = true;
@@ -212,17 +212,17 @@
 
 		taskQueue.execute()
 			.done( function () {
-				assert.ok( false, 'Queue promise rejected' );
+				assert.true( false, 'Queue promise rejected' );
 			} )
 			.fail( function () {
-				assert.ok( true, 'Queue promise rejected' );
+				assert.true( true, 'Queue promise rejected' );
 				assert.strictEqual( triggered, false, 'Task was not triggered' );
 			} )
 			.always( assert.async() );
 	} );
 
 	QUnit.test( 'Test cancellation within callback', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue(),
+		var taskQueue = new TaskQueue(),
 			triggered = false,
 			verificationTask = function () {
 				triggered = true;
@@ -235,17 +235,17 @@
 
 		taskQueue.execute()
 			.done( function () {
-				assert.ok( false, 'Queue promise rejected' );
+				assert.true( false, 'Queue promise rejected' );
 			} )
 			.fail( function () {
-				assert.ok( true, 'Queue promise rejected' );
+				assert.true( true, 'Queue promise rejected' );
 				assert.strictEqual( triggered, false, 'Task was not triggered' );
 			} )
 			.always( assert.async() );
 	} );
 
 	QUnit.test( 'Test cancellation from task', function ( assert ) {
-		var taskQueue = new mw.mmv.model.TaskQueue(),
+		var taskQueue = new TaskQueue(),
 			triggered = false,
 			task1 = $.Deferred(),
 			verificationTask = function () {
@@ -264,10 +264,10 @@
 
 		taskQueue.execute()
 			.done( function () {
-				assert.ok( false, 'Queue promise rejected' );
+				assert.true( false, 'Queue promise rejected' );
 			} )
 			.fail( function () {
-				assert.ok( true, 'Queue promise rejected' );
+				assert.true( true, 'Queue promise rejected' );
 				assert.strictEqual( triggered, false, 'Task was not triggered' );
 			} )
 			.always( assert.async() );

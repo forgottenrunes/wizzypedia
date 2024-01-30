@@ -1,5 +1,9 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
+
 /**
  * @group medium
  * @group Database
@@ -12,14 +16,16 @@
 class RCFeedIntegrationTest extends MediaWikiIntegrationTestCase {
 	protected function setUp(): void {
 		parent::setUp();
-		$this->setMwGlobals( [
-			'wgCanonicalServer' => 'https://example.org',
-			'wgServerName' => 'example.org',
-			'wgScriptPath' => '/w',
-			'wgDBname' => 'example',
-			'wgDBprefix' => $this->dbPrefix(),
-			'wgRCFeeds' => [],
-			'wgRCEngines' => [],
+		$this->overrideConfigValues( [
+			MainConfigNames::CanonicalServer => 'https://example.org',
+			MainConfigNames::ServerName => 'example.org',
+			MainConfigNames::ScriptPath => '/w',
+			MainConfigNames::Script => '/w/index.php',
+			MainConfigNames::ArticlePath => '/wiki/$1',
+			MainConfigNames::DBname => 'example',
+			MainConfigNames::DBprefix => self::dbPrefix(),
+			MainConfigNames::RCFeeds => [],
+			MainConfigNames::RCEngines => [],
 		] );
 	}
 
@@ -29,11 +35,9 @@ class RCFeedIntegrationTest extends MediaWikiIntegrationTestCase {
 			->onlyMethods( [ 'send' ] )
 			->getMock();
 
-		$feed->method( 'send' )
-			->willReturn( true );
-
 		$feed->expects( $this->once() )
 			->method( 'send' )
+			->willReturn( true )
 			->with( $this->anything(), $this->callback( function ( $line ) {
 				$this->assertJsonStringEqualsJsonString(
 					json_encode( [
@@ -41,10 +45,12 @@ class RCFeedIntegrationTest extends MediaWikiIntegrationTestCase {
 						'type' => 'log',
 						'namespace' => 0,
 						'title' => 'Example',
+						'title_url' => 'https://example.org/wiki/Example',
 						'comment' => '',
 						'timestamp' => 1301644800,
 						'user' => 'UTSysop',
 						'bot' => false,
+						'notify_url' => null,
 						'log_id' => 0,
 						'log_type' => 'move',
 						'log_action' => 'move',
@@ -57,22 +63,23 @@ class RCFeedIntegrationTest extends MediaWikiIntegrationTestCase {
 						'server_url' => 'https://example.org',
 						'server_name' => 'example.org',
 						'server_script_path' => '/w',
-						'wiki' => 'example-' . $this->dbPrefix(),
+						'wiki' => 'example-' . self::dbPrefix(),
 					] ),
 					$line
 				);
 				return true;
 			} ) );
 
-		$this->setMwGlobals( [
-			'wgRCFeeds' => [
+		$this->overrideConfigValue(
+			MainConfigNames::RCFeeds,
+			[
 				'myfeed' => [
 					'class' => $feed,
 					'uri' => 'test://localhost:1234',
 					'formatter' => JSONRCFeedFormatter::class,
 				],
-			],
-		] );
+			]
+		);
 		$logpage = SpecialPage::getTitleFor( 'Log', 'move' );
 		$user = $this->getTestSysop()->getUser();
 		$rc = RecentChange::newLogEntry(

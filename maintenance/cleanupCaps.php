@@ -29,7 +29,8 @@
  * @ingroup Maintenance
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 
 require_once __DIR__ . '/TableCleanup.php';
 
@@ -56,7 +57,7 @@ class CleanupCaps extends TableCleanup {
 		$this->namespace = intval( $this->getOption( 'namespace', 0 ) );
 
 		if (
-			MediaWikiServices::getInstance()->getNamespaceInfo()->
+			$this->getServiceContainer()->getNamespaceInfo()->
 				isCapitalized( $this->namespace )
 		) {
 			$this->output( "Will be moving pages to first letter capitalized titles" );
@@ -79,11 +80,12 @@ class CleanupCaps extends TableCleanup {
 		$current = Title::makeTitle( $row->page_namespace, $row->page_title );
 		$display = $current->getPrefixedText();
 		$lower = $row->page_title;
-		$upper = MediaWikiServices::getInstance()->getContentLanguage()->ucfirst( $row->page_title );
+		$upper = $this->getServiceContainer()->getContentLanguage()->ucfirst( $row->page_title );
 		if ( $upper == $lower ) {
 			$this->output( "\"$display\" already uppercase.\n" );
 
-			return $this->progress( 0 );
+			$this->progress( 0 );
+			return;
 		}
 
 		$target = Title::makeTitle( $row->page_namespace, $upper );
@@ -93,6 +95,7 @@ class CleanupCaps extends TableCleanup {
 		}
 		$ok = $this->movePage(
 			$current,
+			// @phan-suppress-next-line PhanTypeMismatchArgumentNullable target is always valid
 			$target,
 			'Converting page title to first-letter uppercase',
 			false
@@ -103,23 +106,25 @@ class CleanupCaps extends TableCleanup {
 				$talk = $target->getTalkPage();
 				$row->page_namespace = $talk->getNamespace();
 				if ( $talk->exists() ) {
-					return $this->processRowToUppercase( $row );
+					$this->processRowToUppercase( $row );
+					return;
 				}
 			}
 		}
 
-		return $this->progress( 0 );
+		$this->progress( 0 );
 	}
 
 	protected function processRowToLowercase( $row ) {
 		$current = Title::makeTitle( $row->page_namespace, $row->page_title );
 		$display = $current->getPrefixedText();
 		$upper = $row->page_title;
-		$lower = MediaWikiServices::getInstance()->getContentLanguage()->lcfirst( $row->page_title );
+		$lower = $this->getServiceContainer()->getContentLanguage()->lcfirst( $row->page_title );
 		if ( $upper == $lower ) {
 			$this->output( "\"$display\" already lowercase.\n" );
 
-			return $this->progress( 0 );
+			$this->progress( 0 );
+			return;
 		}
 
 		$target = Title::makeTitle( $row->page_namespace, $lower );
@@ -127,7 +132,8 @@ class CleanupCaps extends TableCleanup {
 			$targetDisplay = $target->getPrefixedText();
 			$this->output( "\"$display\" skipped; \"$targetDisplay\" already exists\n" );
 
-			return $this->progress( 0 );
+			$this->progress( 0 );
+			return;
 		}
 
 		$ok = $this->movePage( $current, $target, 'Converting page titles to lowercase', true );
@@ -137,12 +143,13 @@ class CleanupCaps extends TableCleanup {
 				$talk = $target->getTalkPage();
 				$row->page_namespace = $talk->getNamespace();
 				if ( $talk->exists() ) {
-					return $this->processRowToLowercase( $row );
+					$this->processRowToLowercase( $row );
+					return;
 				}
 			}
 		}
 
-		return $this->progress( 0 );
+		$this->progress( 0 );
 	}
 
 	/**
@@ -160,7 +167,7 @@ class CleanupCaps extends TableCleanup {
 			$this->output( "\"$display\" -> \"$targetDisplay\": DRY RUN, NOT MOVED\n" );
 			$ok = 'OK';
 		} else {
-			$mp = MediaWikiServices::getInstance()->getMovePageFactory()
+			$mp = $this->getServiceContainer()->getMovePageFactory()
 				->newMovePage( $current, $target );
 			$status = $mp->move( $this->user, $reason, $createRedirect );
 			$ok = $status->isOK() ? 'OK' : $status->getMessage( false, false, 'en' )->text();

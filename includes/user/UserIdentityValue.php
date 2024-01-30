@@ -45,14 +45,15 @@ class UserIdentityValue implements UserIdentity {
 	 */
 	private $name;
 
-	/** @var bool|string */
+	/** @var string|false */
 	private $wikiId;
 
 	/**
 	 * @stable to call
 	 *
 	 * @note Signature in 1.35 was: ( $id, $name, $actor ). This is still supported for
-	 *        backwards compatibility until 1.37. $actor is ignored.
+	 *        backwards compatibility. $actor is ignored. This has emitted deprecation
+	 *        warnings since 1.41.
 	 *
 	 * @param int $id user ID
 	 * @param string $name user name
@@ -65,13 +66,7 @@ class UserIdentityValue implements UserIdentity {
 			$actor = $args[2];
 			$wikiId = $args[3] ?? self::LOCAL;
 
-			if ( $actor > 0 || $wikiId !== self::LOCAL ) {
-				// NOTE: For now, we only trigger a deprecation warning if $actor is not 0,
-				//       or a $wikiId is given.
-				//       A lot of tests construct UserIdentityValue with $actor = 0.
-				// TODO: Trigger a deprecation warning even if $actor is 0
-				wfDeprecatedMsg( 'Old constructor signature: $actor is no longer supported', '1.36' );
-			}
+			wfDeprecatedMsg( 'Old constructor signature: $actor is no longer supported', '1.36' );
 		}
 
 		$this->assertWikiIdParam( $wikiId );
@@ -141,7 +136,7 @@ class UserIdentityValue implements UserIdentity {
 	 *
 	 */
 	public function getId( $wikiId = self::LOCAL ): int {
-		$this->deprecateInvalidCrossWiki( $wikiId, '1.36' );
+		$this->assertWiki( $wikiId );
 		return $this->id;
 	}
 

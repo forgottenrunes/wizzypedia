@@ -22,7 +22,6 @@ namespace MediaWiki\Languages;
 
 use InvalidArgumentException;
 use LocalisationCache;
-use Wikimedia\Assert\Assert;
 
 /**
  * @since 1.35
@@ -108,18 +107,13 @@ class LanguageFallback {
 
 			case self::STRICT:
 				// Use this mode when you don't want to fall back to English unless explicitly
-				// defined, for example when you have language-variant icons and an international
+				// defined, for example, when you have language-variant icons and an international
 				// language-independent fallback.
 				$ret = $this->localisationCache->getItem( $code, 'originalFallbackSequence' );
 				break;
 
 			default:
 				throw new InvalidArgumentException( "Invalid fallback mode \"$mode\"" );
-		}
-
-		foreach ( $ret as $fallbackCode ) {
-			Assert::postcondition( $this->langNameUtils->isValidBuiltInCode( $fallbackCode ),
-				"Invalid fallback code '$fallbackCode' in fallback sequence for '$code'" );
 		}
 
 		return $ret;
@@ -131,7 +125,7 @@ class LanguageFallback {
 	 *
 	 * @since 1.35
 	 * @param string $code Language code
-	 * @return array [ fallbacks, site fallbacks ]
+	 * @return string[][] [ fallbacks, site fallbacks ]
 	 */
 	public function getAllIncludingSiteLanguage( $code ) {
 		// Usually, we will only store a tiny number of fallback chains, so we cache in a member.

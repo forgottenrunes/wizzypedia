@@ -5,7 +5,6 @@
 			"JinJian"
 		]
 	},
-	"visualeditor-aliencontextitem-title": "Item",
 	"visualeditor-align-widget-center": "Butnga",
 	"visualeditor-align-widget-left": "Wala",
 	"visualeditor-align-widget-right": "Tuo",
@@ -24,7 +23,6 @@
 	"visualeditor-clipboard-cut": "Ig-utod",
 	"visualeditor-clipboard-paste": "Padikta",
 	"visualeditor-clipboard-paste-special": "Padikta komo yano nga teksto",
-	"visualeditor-commentinspector-edit": "Igliwat an komentaryo",
 	"visualeditor-commentinspector-title": "Komentaryo",
 	"visualeditor-commentinspector-tooltip": "Komentaryo",
 	"visualeditor-content-select-all": "Igpili ngatanan",

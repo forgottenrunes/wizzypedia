@@ -29,8 +29,12 @@ use MediaWiki\EditPage\Constraint\UserBlockConstraint;
 use MediaWiki\EditPage\SpamChecker;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\Logger\Spi;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Permissions\PermissionManager;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 use Psr\Log\NullLogger;
+use Wikimedia\Rdbms\ReadOnlyMode;
 
 /**
  * Tests the EditConstraintFactory
@@ -44,7 +48,7 @@ class EditConstraintFactoryTest extends MediaWikiUnitTestCase {
 	public function testFactoryMethods() {
 		$options = new ServiceOptions(
 			EditConstraintFactory::CONSTRUCTOR_OPTIONS,
-			[ 'MaxArticleSize' => 10 ]
+			[ MainConfigNames::MaxArticleSize => 10 ]
 		);
 		$loggerFactory = $this->createMock( Spi::class );
 		$loggerFactory->method( 'getLogger' )
@@ -71,7 +75,9 @@ class EditConstraintFactoryTest extends MediaWikiUnitTestCase {
 				$newContent,
 				$context,
 				'EditSummary',
-				true // $minorEdit
+				true, // $minorEdit
+				$this->createMock( Language::class ),
+				$this->createMock( User::class )
 			)
 		);
 		$this->assertInstanceOf(
@@ -90,7 +96,6 @@ class EditConstraintFactoryTest extends MediaWikiUnitTestCase {
 			SpamRegexConstraint::class,
 			$factory->newSpamRegexConstraint(
 				'EditSummary',
-				'new',
 				'SectionHeading',
 				'Text',
 				'RequestIP',

@@ -66,6 +66,7 @@ class MediaFileHandler extends SimpleHandler {
 		if ( $this->file === false ) {
 			$page = $this->getPage();
 			$this->file =
+				// @phan-suppress-next-line PhanTypeMismatchArgumentNullable
 				$this->repoGroup->findFile( $page, [ 'private' => $this->getAuthority() ] ) ?: null;
 		}
 		return $this->file;
@@ -110,10 +111,10 @@ class MediaFileHandler extends SimpleHandler {
 	 * @return array response data
 	 */
 	private function getResponse( File $file ): array {
-		list( $maxWidth, $maxHeight ) = self::getImageLimitsFromOption(
+		[ $maxWidth, $maxHeight ] = self::getImageLimitsFromOption(
 			$this->getAuthority()->getUser(), 'imagesize'
 		);
-		list( $maxThumbWidth, $maxThumbHeight ) = self::getImageLimitsFromOption(
+		[ $maxThumbWidth, $maxThumbHeight ] = self::getImageLimitsFromOption(
 			$this->getAuthority()->getUser(), 'thumbsize'
 		);
 		$transforms = [
@@ -175,6 +176,6 @@ class MediaFileHandler extends SimpleHandler {
 	 */
 	protected function hasRepresentation() {
 		$file = $this->getFile();
-		return $file ? $file->exists() : false;
+		return $file && $file->exists();
 	}
 }

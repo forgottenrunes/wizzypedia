@@ -1,9 +1,13 @@
 <?php
 
 use MediaWiki\Linker\LinkTarget;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Page\PageReference;
+use MediaWiki\Request\FauxRequest;
 use MediaWiki\Tests\Unit\DummyServicesTrait;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleValue;
 use Wikimedia\TestingAccessWrapper;
 
 /**
@@ -38,7 +42,7 @@ class ApiPageSetTest extends ApiTestCase {
 	 * @dataProvider provideRedirectMergePolicy
 	 */
 	public function testRedirectMergePolicyWithArrayResult( $mergePolicy, $expect ) {
-		list( $target, $pageSet ) = $this->createPageSetWithRedirect();
+		[ $target, $pageSet ] = $this->createPageSetWithRedirect();
 		$pageSet->setRedirectMergePolicy( $mergePolicy );
 		$result = [
 			$target->getArticleID() => []
@@ -51,7 +55,7 @@ class ApiPageSetTest extends ApiTestCase {
 	 * @dataProvider provideRedirectMergePolicy
 	 */
 	public function testRedirectMergePolicyWithApiResult( $mergePolicy, $expect ) {
-		list( $target, $pageSet ) = $this->createPageSetWithRedirect();
+		[ $target, $pageSet ] = $this->createPageSetWithRedirect();
 		$pageSet->setRedirectMergePolicy( $mergePolicy );
 		$result = new ApiResult( false );
 		$result->addValue( null, 'pages', [
@@ -93,12 +97,12 @@ class ApiPageSetTest extends ApiTestCase {
 	}
 
 	public function testRedirectMergePolicyRedirectLoop() {
-		$loopA = Title::makeTitle( NS_MAIN, 'UTPageRedirectOne' );
-		$loopB = Title::makeTitle( NS_MAIN, 'UTPageRedirectTwo' );
-		$this->editPage( 'UTPageRedirectOne', '#REDIRECT [[UTPageRedirectTwo]]' );
-		$this->editPage( 'UTPageRedirectTwo', '#REDIRECT [[UTPageRedirectOne]]' );
-		list( $target, $pageSet ) = $this->createPageSetWithRedirect(
-			'#REDIRECT [[UTPageRedirectOne]]'
+		$redirectOneTitle = 'ApiPageSetTestRedirectOne';
+		$redirectTwoTitle = 'ApiPageSetTestRedirectTwo';
+		$this->editPage( $redirectOneTitle, "#REDIRECT [[$redirectTwoTitle]]" );
+		$this->editPage( $redirectTwoTitle, "#REDIRECT [[$redirectOneTitle]]" );
+		[ $target, $pageSet ] = $this->createPageSetWithRedirect(
+			"#REDIRECT [[$redirectOneTitle]]"
 		);
 		$pageSet->setRedirectMergePolicy( static function ( $cur, $new ) {
 			throw new \RuntimeException( 'unreachable, no merge when target is redirect loop' );
@@ -112,7 +116,7 @@ class ApiPageSetTest extends ApiTestCase {
 		$this->assertEqualsCanonicalizing(
 			[
 				'UTRedirectSourceA', 'UTRedirectSourceB', 'UTRedirectTarget',
-				'UTPageRedirectOne', 'UTPageRedirectTwo',
+				$redirectOneTitle, $redirectTwoTitle,
 			],
 			array_map( static function ( $x ) {
 				return $x->getPrefixedText();
@@ -138,11 +142,71 @@ class ApiPageSetTest extends ApiTestCase {
 		);
 	}
 
+	public static function provideConversionWithRedirects() {
+		return [
+			'convert, redirect, convert' => [
+				[
+					'Esttay 1' => '#REDIRECT [[Test 2]]',
+					'Esttay 2' => '',
+				],
+				[ 'titles' => 'Test 1', 'converttitles' => 1, 'redirects' => 1 ],
+				[
+					[ 'from' => 'Test 1', 'to' => 'Esttay 1' ],
+					[ 'from' => 'Test 2', 'to' => 'Esttay 2' ]
+				],
+				[ [ 'from' => 'Esttay 1', 'to' => 'Test 2' ] ],
+			],
+
+			'redirect, convert, redirect' => [
+				[
+					'Esttay 1' => '#REDIRECT [[Test 2]]',
+					'Esttay 2' => '#REDIRECT [[Esttay 3]]',
+				],
+				[ 'titles' => 'Esttay 1', 'converttitles' => 1, 'redirects' => 1 ],
+				[ [ 'from' => 'Test 2', 'to' => 'Esttay 2' ] ],
+				[
+					[ 'from' => 'Esttay 1', 'to' => 'Test 2' ],
+					[ 'from' => 'Esttay 2', 'to' => 'Esttay 3' ]
+				],
+			],
+
+			'self-redirect to variant, with converttitles' => [
+				[ 'Esttay' => '#REDIRECT [[Test]]' ],
+				[ 'titles' => 'Esttay', 'converttitles' => 1, 'redirects' => 1 ],
+				[ [ 'from' => 'Test', 'to' => 'Esttay' ] ],
+				[ [ 'from' => 'Esttay', 'to' => 'Test' ] ],
+			],
+
+			'self-redirect to variant, without converttitles' => [
+				[ 'Esttay' => '#REDIRECT [[Test]]' ],
+				[ 'titles' => 'Esttay', 'redirects' => 1 ],
+				[],
+				[ [ 'from' => 'Esttay', 'to' => 'Test' ] ],
+			],
+		];
+	}
+
+	/**
+	 * @dataProvider provideConversionWithRedirects
+	 */
+	public function testHandleConversionWithRedirects( $pages, $params, $expectedConversion, $expectedRedirects ) {
+		$this->overrideConfigValue( MainConfigNames::UsePigLatinVariant, true );
+		foreach ( $pages as $title => $content ) {
+			$this->editPage( $title, $content );
+		}
+
+		$pageSet = $this->newApiPageSet( $params );
+		$pageSet->execute();
+
+		$this->assertSame( $expectedConversion, $pageSet->getConvertedTitlesAsResult() );
+		$this->assertSame( $expectedRedirects, $pageSet->getRedirectTitlesAsResult() );
+	}
+
 	public function testSpecialRedirects() {
 		$id1 = $this->editPage( 'UTApiPageSet', 'UTApiPageSet in the default language' )
-			->value['revision-record']->getPageId();
+			->getNewRevision()->getPageId();
 		$id2 = $this->editPage( 'UTApiPageSet/de', 'UTApiPageSet in German' )
-			->value['revision-record']->getPageId();
+			->getNewRevision()->getPageId();
 
 		$user = $this->getTestUser()->getUser();
 		$userName = $user->getName();
@@ -166,10 +230,10 @@ class ApiPageSetTest extends ApiTestCase {
 		$this->assertEquals( [
 		], $pageSet->getRedirectTitlesAsResult() );
 		$this->assertEquals( [
-			[ 'ns' => -1, 'title' => 'Special:MyContributions', 'special' => true ],
-			[ 'ns' => -1, 'title' => 'Special:MyPage', 'special' => true ],
-			[ 'ns' => -1, 'title' => 'Special:MyTalk/subpage', 'special' => true ],
-			[ 'ns' => -1, 'title' => 'Special:MyLanguage/UTApiPageSet', 'special' => true ],
+			[ 'ns' => NS_SPECIAL, 'title' => 'Special:MyContributions', 'special' => true ],
+			[ 'ns' => NS_SPECIAL, 'title' => 'Special:MyPage', 'special' => true ],
+			[ 'ns' => NS_SPECIAL, 'title' => 'Special:MyTalk/subpage', 'special' => true ],
+			[ 'ns' => NS_SPECIAL, 'title' => 'Special:MyLanguage/UTApiPageSet', 'special' => true ],
 		], $pageSet->getInvalidTitlesAndRevisions() );
 		$this->assertEquals( [
 		], $pageSet->getAllTitlesByNamespace() );
@@ -185,14 +249,14 @@ class ApiPageSetTest extends ApiTestCase {
 			[ 'from' => 'Special:MyLanguage/UTApiPageSet', 'to' => 'UTApiPageSet' ],
 		], $pageSet->getRedirectTitlesAsResult() );
 		$this->assertEquals( [
-			[ 'ns' => -1, 'title' => 'Special:MyContributions', 'special' => true ],
-			[ 'ns' => 2, 'title' => "User:$userName", 'missing' => true ],
-			[ 'ns' => 3, 'title' => "User talk:$userName/subpage", 'missing' => true ],
+			[ 'ns' => NS_SPECIAL, 'title' => 'Special:MyContributions', 'special' => true ],
+			[ 'ns' => NS_USER, 'title' => "User:$userName", 'missing' => true ],
+			[ 'ns' => NS_USER_TALK, 'title' => "User talk:$userName/subpage", 'missing' => true ],
 		], $pageSet->getInvalidTitlesAndRevisions() );
 		$this->assertEquals( [
-			0 => [ 'UTApiPageSet' => $id1 ],
-			2 => [ $userDbkey => -2 ],
-			3 => [ "$userDbkey/subpage" => -3 ],
+			NS_MAIN => [ 'UTApiPageSet' => $id1 ],
+			NS_USER => [ $userDbkey => -2 ],
+			NS_USER_TALK => [ "$userDbkey/subpage" => -3 ],
 		], $pageSet->getAllTitlesByNamespace() );
 
 		$context->setLanguage( 'de' );
@@ -206,29 +270,32 @@ class ApiPageSetTest extends ApiTestCase {
 			[ 'from' => 'Special:MyLanguage/UTApiPageSet', 'to' => 'UTApiPageSet/de' ],
 		], $pageSet->getRedirectTitlesAsResult() );
 		$this->assertEquals( [
-			[ 'ns' => -1, 'title' => 'Special:MyContributions', 'special' => true ],
-			[ 'ns' => 2, 'title' => "User:$userName", 'missing' => true ],
-			[ 'ns' => 3, 'title' => "User talk:$userName/subpage", 'missing' => true ],
+			[ 'ns' => NS_SPECIAL, 'title' => 'Special:MyContributions', 'special' => true ],
+			[ 'ns' => NS_USER, 'title' => "User:$userName", 'missing' => true ],
+			[ 'ns' => NS_USER_TALK, 'title' => "User talk:$userName/subpage", 'missing' => true ],
 		], $pageSet->getInvalidTitlesAndRevisions() );
 		$this->assertEquals( [
-			0 => [ 'UTApiPageSet/de' => $id2 ],
-			2 => [ $userDbkey => -2 ],
-			3 => [ "$userDbkey/subpage" => -3 ],
+			NS_MAIN => [ 'UTApiPageSet/de' => $id2 ],
+			NS_USER => [ $userDbkey => -2 ],
+			NS_USER_TALK => [ "$userDbkey/subpage" => -3 ],
 		], $pageSet->getAllTitlesByNamespace() );
 	}
 
 	/**
 	 * Test that ApiPageSet is calling GenderCache for provided user names to prefill the
-	 * GenderCache and avoid a performance issue when loading each users' gender on it's own.
+	 * GenderCache and avoid a performance issue when loading each users' gender on its own.
 	 * The test is setting the "missLimit" to 0 on the GenderCache to trigger misses logic.
 	 * When the "misses" property is no longer 0 at the end of the test,
 	 * something was requested which is not part of the cache. Than the test is failing.
 	 */
 	public function testGenderCaching() {
+		// Create the test user now so that the cache will be empty later
+		$this->getTestSysop()->getUser();
 		// Set up the user namespace to have gender aliases to trigger the gender cache
-		$this->setMwGlobals( [
-			'wgExtraGenderNamespaces' => [ NS_USER => [ 'male' => 'Male', 'female' => 'Female' ] ]
-		] );
+		$this->overrideConfigValue(
+			MainConfigNames::ExtraGenderNamespaces,
+			[ NS_USER => [ 'male' => 'Male', 'female' => 'Female' ] ]
+		);
 		$this->overrideMwServices();
 
 		// User names to test with - it is not needed that the user exists in the database

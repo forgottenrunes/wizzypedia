@@ -1,11 +1,8 @@
 <?php
 /** Upper Sorbian (hornjoserbsce)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
- *
+ * @ingroup Languages
  */
 
 $fallback = 'dsb, de';
@@ -116,6 +113,7 @@ $specialPageAliases = [
 	'Recentchanges'             => [ 'Aktualne_změny' ],
 	'Recentchangeslinked'       => [ 'Změny_zwjazanych_stronow' ],
 	'Redirect'                  => [ 'Dalesposrědkowanje' ],
+	'Renameuser'                => [ 'Wužiwarja_přemjenować' ],
 	'Revisiondelete'            => [ 'Wušmórnjenje_wersijow' ],
 	'Search'                    => [ 'Pytać' ],
 	'Shortpages'                => [ 'Najkrótše_strony' ],

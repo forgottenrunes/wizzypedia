@@ -23,7 +23,7 @@
 
 use MediaWiki\Auth\Throttler;
 use MediaWiki\Logger\LoggerFactory;
-use MediaWiki\MediaWikiServices;
+use MediaWiki\MainConfigNames;
 use Wikimedia\IPUtils;
 
 require_once __DIR__ . '/Maintenance.php';
@@ -72,7 +72,7 @@ class ResetAuthenticationThrottle extends Maintenance {
 			$this->clearSignupThrottle( $ip );
 		}
 
-		LoggerFactory::getInstance( 'throttler' )->notice( 'Manually cleared {type} throttle', [
+		LoggerFactory::getInstance( 'throttler' )->info( 'Manually cleared {type} throttle', [
 			'type' => implode( ' and ', array_filter( [
 				$forLogin ? 'login' : null,
 				$forSignup ? 'signup' : null,
@@ -89,7 +89,7 @@ class ResetAuthenticationThrottle extends Maintenance {
 	protected function clearLoginThrottle( $rawUsername, $ip ) {
 		$this->output( 'Clearing login throttle...' );
 
-		$passwordAttemptThrottle = $this->getConfig()->get( 'PasswordAttemptThrottle' );
+		$passwordAttemptThrottle = $this->getConfig()->get( MainConfigNames::PasswordAttemptThrottle );
 		if ( !$passwordAttemptThrottle ) {
 			$this->output( "none set\n" );
 			return;
@@ -100,7 +100,7 @@ class ResetAuthenticationThrottle extends Maintenance {
 			'cache' => ObjectCache::getLocalClusterInstance(),
 		] );
 		if ( $rawUsername !== null ) {
-			$usernames = MediaWikiServices::getInstance()->getAuthManager()
+			$usernames = $this->getServiceContainer()->getAuthManager()
 				->normalizeUsername( $rawUsername );
 			if ( !$usernames ) {
 				$this->fatalError( "Not a valid username: $rawUsername" );
@@ -116,6 +116,7 @@ class ResetAuthenticationThrottle extends Maintenance {
 			'type' => 'botpassword',
 			'cache' => ObjectCache::getLocalClusterInstance(),
 		] );
+		// @phan-suppress-next-line PhanPossiblyUndeclaredVariable T240141
 		$botPasswordThrottler->clear( $username, $ip );
 
 		$this->output( "done\n" );
@@ -127,7 +128,7 @@ class ResetAuthenticationThrottle extends Maintenance {
 	protected function clearSignupThrottle( $ip ) {
 		$this->output( 'Clearing signup throttle...' );
 
-		$accountCreationThrottle = $this->getConfig()->get( 'AccountCreationThrottle' );
+		$accountCreationThrottle = $this->getConfig()->get( MainConfigNames::AccountCreationThrottle );
 		if ( !is_array( $accountCreationThrottle ) ) {
 			$accountCreationThrottle = [ [
 				'count' => $accountCreationThrottle,

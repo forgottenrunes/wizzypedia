@@ -14,6 +14,7 @@ use Wikimedia\Parsoid\DOM\Node;
 use Wikimedia\Parsoid\DOM\Text;
 use Wikimedia\Parsoid\Ext\ParsoidExtensionAPI;
 use Wikimedia\Parsoid\Html2Wt\ConstrainedText\ConstrainedText;
+use Wikimedia\Parsoid\Utils\DiffDOMUtils;
 use Wikimedia\Parsoid\Utils\DOMCompat;
 use Wikimedia\Parsoid\Utils\DOMDataUtils;
 use Wikimedia\Parsoid\Utils\DOMUtils;
@@ -291,18 +292,22 @@ class SerializerState {
 
 	/**
 	 * @param WikitextSerializer $serializer
-	 * @param array $options
+	 * @param array $options List of options for serialization:
+	 *   - onSOL: (bool)
+	 *   - inPHPBlock: (bool)
+	 *   - inAttribute: (bool)
+	 *   - protect: (string)
+	 *   - selserData: (SelserData)
 	 */
 	public function __construct( WikitextSerializer $serializer, array $options = [] ) {
 		$this->env = $serializer->env;
 		$this->serializer = $serializer;
 		$this->extApi = new ParsoidExtensionAPI( $this->env, [ 'html2wt' => [ 'state' => $this ] ] );
-		foreach ( $options as $name => $option ) {
-			// PORT-FIXME validate
-			if ( !( $option instanceof Env ) ) {
-				$this->$name = Utils::clone( $option );
-			}
-		}
+		$this->onSOL = $options['onSOL'] ?? $this->onSOL;
+		$this->inPHPBlock = $options['inPHPBlock'] ?? $this->inPHPBlock;
+		$this->inAttribute = $options['inAttribute'] ?? $this->inAttribute;
+		$this->protect = $options['protect'] ?? null;
+		$this->selserData = $options['selserData'] ?? null;
 		$this->resetCurrLine( null );
 		$this->singleLineContext = new SingleLineContext();
 		$this->resetSep();
@@ -333,7 +338,7 @@ class SerializerState {
 	}
 
 	/**
-	 * Appends the seperator source to the separator src buffer.
+	 * Appends the separator source to the separator src buffer.
 	 * Don't update $state->onSOL since this string hasn't been emitted yet.
 	 * If content handlers change behavior based on whether this newline will
 	 * be emitted or not, they should peek into this buffer (ex: see TDHandler
@@ -395,7 +400,9 @@ class SerializerState {
 			$start <= $end &&
 			// FIXME: Having a $start greater than the source length is
 			// probably a canary for corruption.  Maybe we should be throwing
-			// here instead.  See T240053
+			// here instead.  See T240053.
+			// But, see comment in UnpackDOMFragments where we very very rarely
+			// can deliberately set DSR to point outside page source.
 			$start <= strlen( $this->selserData->oldText )
 		) {
 			return substr( $this->selserData->oldText, $start, $end - $start );
@@ -451,7 +458,7 @@ class SerializerState {
 	}
 
 	/**
-	 * Pushes the seperator to the current line and resets the separator state.
+	 * Pushes the separator to the current line and resets the separator state.
 	 * @param string $sep
 	 * @param Node $node
 	 * @param string $debugPrefix
@@ -473,7 +480,7 @@ class SerializerState {
 	}
 
 	/**
-	 * Determines if we can use the original seperator for this node or if we
+	 * Determines if we can use the original separator for this node or if we
 	 * need to build one based on its constraints, and then emits it.
 	 *
 	 * @param Node $node
@@ -614,7 +621,7 @@ class SerializerState {
 			$res = new ConstrainedText( [
 				'text' => $this->serializer->escapeWikitext( $this, $res->text, [
 					'node' => $node,
-					'isLastChild' => DOMUtils::nextNonDeletedSibling( $node ) === null,
+					'isLastChild' => DiffDOMUtils::nextNonDeletedSibling( $node ) === null,
 				] ),
 				'prefix' => $res->prefix,
 				'suffix' => $res->suffix,
@@ -652,7 +659,7 @@ class SerializerState {
 				 && !$this->prevNodeUnmodified
 				&& DOMCompat::nodeName( $node ) === 'p' && !WTUtils::isLiteralHTMLNode( $node )
 			) {
-				$pChild = DOMUtils::firstNonSepChild( $node );
+				$pChild = DiffDOMUtils::firstNonSepChild( $node );
 				// If a text node, we have to make sure that the text doesn't
 				// get reparsed as non-text in the wt2html pipeline.
 				if ( $pChild instanceof Text ) {

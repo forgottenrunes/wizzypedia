@@ -24,25 +24,24 @@
 
 namespace MediaWiki\Extension\CategoryTree;
 
-use Html;
 use HTMLForm;
+use MediaWiki\Html\Html;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
 use SearchEngineFactory;
-use SpecialPage;
-use Title;
 
 /**
  * Special page for the CategoryTree extension, an AJAX based gadget
  * to display the category structure of a wiki
  */
 class CategoryTreePage extends SpecialPage {
+	/** @var string */
 	public $target = '';
 
 	/** @var SearchEngineFactory */
 	private $searchEngineFactory;
 
-	/**
-	 * @var CategoryTree
-	 */
+	/** @var CategoryTree */
 	public $tree = null;
 
 	/**
@@ -133,6 +132,7 @@ class CategoryTreePage extends SpecialPage {
 				'name' => 'target',
 				'label-message' => 'categorytree-category',
 				'namespace' => NS_CATEGORY,
+				'default' => str_replace( '_', ' ', $this->target ),
 			],
 
 			'mode' => [
@@ -157,10 +157,11 @@ class CategoryTreePage extends SpecialPage {
 		];
 
 		HTMLForm::factory( 'ooui', $formDescriptor, $this->getContext() )
-			->addHiddenFields( [ 'title' => $this->getPageTitle()->getPrefixedDbKey() ] )
 			->setWrapperLegendMsg( 'categorytree-legend' )
 			->setSubmitTextMsg( 'categorytree-go' )
 			->setMethod( 'get' )
+			// Strip subpage
+			->setTitle( $this->getPageTitle() )
 			->prepareForm()
 			->displayForm( false );
 	}
@@ -213,7 +214,7 @@ class CategoryTreePage extends SpecialPage {
 	 */
 	public function prefixSearchSubpages( $search, $limit, $offset ) {
 		$title = Title::newFromText( $search, NS_CATEGORY );
-		if ( $title && $title->getNamespace() !== NS_CATEGORY ) {
+		if ( $title && !$title->inNamespace( NS_CATEGORY ) ) {
 			// Someone searching for something like "Wikipedia:Foo"
 			$title = Title::makeTitleSafe( NS_CATEGORY, $search );
 		}

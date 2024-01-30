@@ -25,7 +25,6 @@
  */
 
 use MediaWiki\Linker\LinkTarget;
-use MediaWiki\MediaWikiServices;
 
 require_once __DIR__ . '/Maintenance.php';
 
@@ -103,7 +102,9 @@ TEXT
 		);
 		$this->addOption( 'image-base-path', 'Import files from a specified path', false, true );
 		$this->addOption( 'skip-to', 'Start from nth page by skipping first n-1 pages', false, true );
-		$this->addOption( 'username-prefix', 'Prefix for interwiki usernames', false, true );
+		$this->addOption( 'username-prefix',
+			'Prefix for interwiki usernames; a trailing ">" will be added. Default: "imported>"',
+			false, true );
 		$this->addOption( 'no-local-users',
 			'Treat all usernames as interwiki. ' .
 			'The default is to assign edits to local users where they exist.',
@@ -113,7 +114,7 @@ TEXT
 	}
 
 	public function execute() {
-		if ( wfReadOnly() ) {
+		if ( $this->getServiceContainer()->getReadOnlyMode()->isReadOnly() ) {
 			$this->fatalError( "Wiki is in read-only mode; you'll need to disable it for import to work." );
 		}
 
@@ -154,7 +155,7 @@ TEXT
 	}
 
 	private function getNsIndex( $namespace ) {
-		$contLang = MediaWikiServices::getInstance()->getContentLanguage();
+		$contLang = $this->getServiceContainer()->getContentLanguage();
 		$result = $contLang->getNsIndex( $namespace );
 		if ( $result !== false ) {
 			return $result;
@@ -168,7 +169,6 @@ TEXT
 
 	/**
 	 * @param LinkTarget|null $title
-	 * @throws MWException
 	 * @return bool
 	 */
 	private function skippedNamespace( $title ) {
@@ -225,9 +225,10 @@ TEXT
 			if ( !$this->dryRun ) {
 				// bluuuh hack
 				// call_user_func( $this->uploadCallback, $revision );
-				$dbw = $this->getDB( DB_PRIMARY );
+				$importer = $this->getServiceContainer()->getWikiRevisionUploadImporter();
+				$statusValue = $importer->import( $revision );
 
-				return $dbw->deadlockLoop( [ $revision, 'importUpload' ] );
+				return $statusValue->isGood();
 			}
 		}
 
@@ -272,7 +273,7 @@ TEXT
 				$this->progress( "$this->revCount ($revrate revs/sec)" );
 			}
 		}
-		MediaWikiServices::getInstance()->getDBLoadBalancerFactory()->waitForReplication();
+		$this->getServiceContainer()->getDBLoadBalancerFactory()->waitForReplication();
 	}
 
 	private function progress( $string ) {
@@ -309,7 +310,7 @@ TEXT
 		$this->startTime = microtime( true );
 
 		$source = new ImportStreamSource( $handle );
-		$importer = MediaWikiServices::getInstance()
+		$importer = $this->getServiceContainer()
 			->getWikiImporterFactory()
 			->getWikiImporter( $source );
 
@@ -322,12 +323,10 @@ TEXT
 		if ( $this->hasOption( 'no-updates' ) ) {
 			$importer->setNoUpdates( true );
 		}
-		if ( $this->hasOption( 'username-prefix' ) ) {
-			$importer->setUsernamePrefix(
-				$this->getOption( 'username-prefix' ),
-				!$this->hasOption( 'no-local-users' )
-			);
-		}
+		$importer->setUsernamePrefix(
+			$this->getOption( 'username-prefix', 'imported' ),
+			!$this->hasOption( 'no-local-users' )
+		);
 		if ( $this->hasOption( 'rootpage' ) ) {
 			$statusRootPage = $importer->setTargetRootPage( $this->getOption( 'rootpage' ) );
 			if ( !$statusRootPage->isGood() ) {

@@ -1,8 +1,9 @@
 <?php
 
-require_once __DIR__ . '/Maintenance.php';
+use MediaWiki\Parser\Sanitizer;
+use MediaWiki\User\User;
 
-use MediaWiki\MediaWikiServices;
+require_once __DIR__ . '/Maintenance.php';
 
 /**
  * A script to remove emails that are invalid from
@@ -29,19 +30,17 @@ class RemoveInvalidEmails extends Maintenance {
 		$dbr = $this->getDB( DB_REPLICA );
 		$dbw = $this->getDB( DB_PRIMARY );
 		$lastId = 0;
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 		do {
-			$rows = $dbr->select(
-				'user',
-				[ 'user_id', 'user_email' ],
-				[
+			$rows = $dbr->newSelectQueryBuilder()
+				->select( [ 'user_id', 'user_email' ] )
+				->from( 'user' )
+				->where( [
 					'user_id > ' . $dbr->addQuotes( $lastId ),
-					'user_email != ""',
-					'user_email_authenticated IS NULL'
-				],
-				__METHOD__,
-				[ 'LIMIT' => $this->getBatchSize() ]
-			);
+					'user_email != ' . $dbr->addQuotes( '' ),
+					'user_email_authenticated' => null,
+				] )
+				->limit( $this->getBatchSize() )
+				->caller( __METHOD__ )->fetchResultSet();
 			$count = $rows->numRows();
 			$badIds = [];
 			foreach ( $rows as $row ) {
@@ -67,7 +66,7 @@ class RemoveInvalidEmails extends Maintenance {
 					foreach ( $badIds as $badId ) {
 						User::newFromId( $badId )->invalidateCache();
 					}
-					$lbFactory->waitForReplication();
+					$this->waitForReplication();
 				} else {
 					$this->output( "Would have removed $badCount emails from the database.\n" );
 

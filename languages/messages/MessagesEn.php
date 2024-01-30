@@ -4,7 +4,6 @@
  * information excluding interface strings, which are stored in JSON files.
  *
  * Please see https://www.mediawiki.org/wiki/Localisation for more information.
- * To improve a translation please visit https://translatewiki.net
  */
 
 /**
@@ -30,6 +29,16 @@ $digitTransformTable = null;
  * Transform table for decimal point '.' and thousands separator ','
  */
 $separatorTransformTable = null;
+
+/**
+ * The minimum number of digits a number must have, in addition to the grouping
+ * size, before grouping separators are added.
+ *
+ * For example, Polish has minimumGroupingDigits = 2, which with a grouping
+ * size of 3 causes 4-digit numbers to be written like 9999, but 5-digit
+ * numbers are written like "10 000".
+ */
+$minimumGroupingDigits = 1;
 
 /**
  * URLs do not specify their encoding. UTF-8 is used by default, but if the
@@ -210,6 +219,7 @@ $bookstoreList = [
 $magicWords = [
 #   ID                               CASE  SYNONYMS
 	'!'                       => [ 1, '!' ],
+	'='                       => [ 1, '=' ],
 	'anchorencode'            => [ 0, 'ANCHORENCODE' ],
 	'articlepath'             => [ 0, 'ARTICLEPATH' ],
 	'basepagename'            => [ 1, 'BASEPAGENAME' ],
@@ -411,6 +421,7 @@ $specialPageAliases = [
 	'ChangePassword'            => [ 'ChangePassword', 'ResetPass', 'ResetPassword' ],
 	'ComparePages'              => [ 'ComparePages' ],
 	'Confirmemail'              => [ 'ConfirmEmail' ],
+	'Contribute'                => [ 'Contribute' ],
 	'Contributions'             => [ 'Contributions', 'Contribs' ],
 	'CreateAccount'             => [ 'CreateAccount' ],
 	'Deadendpages'              => [ 'DeadendPages' ],
@@ -457,8 +468,9 @@ $specialPageAliases = [
 	'Mostrevisions'             => [ 'MostRevisions' ],
 	'Movepage'                  => [ 'MovePage' ],
 	'Mute'                      => [ 'Mute' ],
-	'Mycontributions'           => [ 'MyContributions' ],
+	'Mycontributions'           => [ 'MyContributions', 'MyContribs' ],
 	'MyLanguage'                => [ 'MyLanguage' ],
+	'Mylog'                     => [ 'MyLog' ],
 	'Mypage'                    => [ 'MyPage' ],
 	'Mytalk'                    => [ 'MyTalk' ],
 	'Myuploads'                 => [ 'MyUploads', 'MyFiles' ],
@@ -487,6 +499,7 @@ $specialPageAliases = [
 	'Recentchangeslinked'       => [ 'RecentChangesLinked', 'RelatedChanges' ],
 	'Redirect'                  => [ 'Redirect' ],
 	'RemoveCredentials'         => [ 'RemoveCredentials' ],
+	'Renameuser'                => [ 'RenameUser' ],
 	'ResetTokens'               => [ 'ResetTokens' ],
 	'Revisiondelete'            => [ 'RevisionDelete' ],
 	'RunJobs'                   => [ 'RunJobs' ],

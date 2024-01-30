@@ -1,5 +1,11 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\Request\FauxRequest;
+use MediaWiki\SpecialPage\ChangesListSpecialPage;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
+use Wikimedia\Rdbms\Database;
 use Wikimedia\TestingAccessWrapper;
 
 /**
@@ -15,6 +21,11 @@ use Wikimedia\TestingAccessWrapper;
  * @covers ChangesListSpecialPage
  */
 class ChangesListSpecialPageTest extends AbstractChangesListSpecialPageTestCase {
+
+	protected function setUp(): void {
+		parent::setUp();
+		$this->clearHooks();
+	}
 
 	/**
 	 * @return ChangesListSpecialPage
@@ -129,7 +140,7 @@ class ChangesListSpecialPageTest extends AbstractChangesListSpecialPageTestCase 
 	 * @return bool false if condition begins with 'rc_timestamp '
 	 */
 	private static function filterOutRcTimestampCondition( $var ): bool {
-		return ( is_array( $var ) || strpos( $var, 'rc_timestamp ' ) === false );
+		return ( is_array( $var ) || strpos( (string)$var, 'rc_timestamp ' ) === false );
 	}
 
 	public function testRcNsFilter() {
@@ -366,7 +377,7 @@ class ChangesListSpecialPageTest extends AbstractChangesListSpecialPageTestCase 
 	}
 
 	public function testRcHidepatrolledDisabledFilter() {
-		$this->setMwGlobals( 'wgUseRCPatrol', false );
+		$this->overrideConfigValue( MainConfigNames::UseRCPatrol, false );
 		$user = $this->getTestUser()->getUser();
 		$this->assertConditions(
 			[ # expected
@@ -380,7 +391,7 @@ class ChangesListSpecialPageTest extends AbstractChangesListSpecialPageTestCase 
 	}
 
 	public function testRcHideunpatrolledDisabledFilter() {
-		$this->setMwGlobals( 'wgUseRCPatrol', false );
+		$this->overrideConfigValue( MainConfigNames::UseRCPatrol, false );
 		$user = $this->getTestUser()->getUser();
 		$this->assertConditions(
 			[ # expected
@@ -573,9 +584,9 @@ class ChangesListSpecialPageTest extends AbstractChangesListSpecialPageTestCase 
 	public function testFilterUserExpLevelUnregisteredOrExperienced() {
 		$conds = $this->buildQuery( [ 'userExpLevel' => 'unregistered;experienced' ] );
 
-		$this->assertRegExp(
+		$this->assertMatchesRegularExpression(
 			'/actor_user IS NULL OR '
-				. '\(\(user_editcount >= 500\) AND \(\(user_registration IS NULL\) OR '
+				. '\(\(user_editcount >= 500\) AND \(user_registration IS NULL OR '
 				. '\(user_registration <= \'[^\']+\'\)\)\)/',
 			reset( $conds ),
 			"rc conditions: userExpLevel=unregistered;experienced"
@@ -584,11 +595,11 @@ class ChangesListSpecialPageTest extends AbstractChangesListSpecialPageTestCase 
 
 	public function testFilterUserExpLevel() {
 		$now = time();
-		$this->setMwGlobals( [
-			'wgLearnerEdits' => 10,
-			'wgLearnerMemberSince' => 4,
-			'wgExperiencedUserEdits' => 500,
-			'wgExperiencedUserMemberSince' => 30,
+		$this->overrideConfigValues( [
+			MainConfigNames::LearnerEdits => 10,
+			MainConfigNames::LearnerMemberSince => 4,
+			MainConfigNames::ExperiencedUserEdits => 500,
+			MainConfigNames::ExperiencedUserMemberSince => 30,
 		] );
 
 		$this->createUsers( [
@@ -689,11 +700,12 @@ class ChangesListSpecialPageTest extends AbstractChangesListSpecialPageTestCase 
 
 		// @todo: This is not at all safe or sensible. It just blindly assumes
 		// nothing in $conds depends on any other tables.
-		$result = wfGetDB( DB_PRIMARY )->select(
-			'user',
-			'user_name',
-			array_filter( $conds ) + [ 'user_email' => 'ut' ]
-		);
+		$result = $this->getDb()->newSelectQueryBuilder()
+			->select( 'user_name' )
+			->from( 'user' )
+			->where( array_filter( $conds ) )
+			->andWhere( [ 'user_email' => 'ut' ] )
+			->fetchResultSet();
 
 		$usernames = [];
 		foreach ( $result as $row ) {
@@ -952,7 +964,7 @@ class ChangesListSpecialPageTest extends AbstractChangesListSpecialPageTestCase 
 		];
 	}
 
-	public function provideGetFilterConflicts() {
+	public static function provideGetFilterConflicts() {
 		return [
 			[
 				"parameters" => [],
@@ -1097,7 +1109,7 @@ class ChangesListSpecialPageTest extends AbstractChangesListSpecialPageTestCase 
 			],
 			[
 				// changeType
-				[ 'hidepageedits' => 1, 'hidenewpages' => 1, 'hidecategorization' => 1, 'hidelog' => 1, ],
+				[ 'hidepageedits' => 1, 'hidenewpages' => 1, 'hidecategorization' => 1, 'hidelog' => 1, 'hidenewuserlog' => 1 ],
 				true,
 				[],
 				true,

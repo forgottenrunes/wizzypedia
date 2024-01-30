@@ -1,5 +1,8 @@
 <?php
 
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
+
 /**
  * @group Database
  * @group Parser
@@ -50,7 +53,7 @@ class TagHooksTest extends MediaWikiIntegrationTestCase {
 		$parser->setHook( $tag, [ $this, 'tagCallback' ] );
 		$parserOutput = $parser->parse(
 			"Foo<$tag>Bar</$tag>Baz",
-			Title::newFromText( 'Test' ),
+			Title::makeTitle( NS_MAIN, 'Test' ),
 			$this->getParserOptions()
 		);
 		$this->assertEquals( "<p>FooOneBaz\n</p>", $parserOutput->getText( [ 'unwrap' => true ] ) );
@@ -62,7 +65,7 @@ class TagHooksTest extends MediaWikiIntegrationTestCase {
 	public function testBadTagHooks( $tag ) {
 		$parser = $this->getServiceContainer()->getParserFactory()->create();
 
-		$this->expectException( MWException::class );
+		$this->expectException( InvalidArgumentException::class );
 		$parser->setHook( $tag, [ $this, 'tagCallback' ] );
 	}
 

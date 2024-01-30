@@ -19,6 +19,9 @@
  */
 
 use MediaWiki\FileBackend\FSFile\TempFSFileFactory;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\TitleFactory;
+use Wikimedia\ParamValidator\ParamValidator;
 
 /**
  * @ingroup API
@@ -26,27 +29,28 @@ use MediaWiki\FileBackend\FSFile\TempFSFileFactory;
 class ApiImageRotate extends ApiBase {
 	private $mPageSet = null;
 
-	/** @var RepoGroup */
-	private $repoGroup;
-
-	/** @var TempFSFileFactory */
-	private $tempFSFileFactory;
+	private RepoGroup $repoGroup;
+	private TempFSFileFactory $tempFSFileFactory;
+	private TitleFactory $titleFactory;
 
 	/**
 	 * @param ApiMain $mainModule
 	 * @param string $moduleName
 	 * @param RepoGroup $repoGroup
 	 * @param TempFSFileFactory $tempFSFileFactory
+	 * @param TitleFactory $titleFactory
 	 */
 	public function __construct(
 		ApiMain $mainModule,
 		$moduleName,
 		RepoGroup $repoGroup,
-		TempFSFileFactory $tempFSFileFactory
+		TempFSFileFactory $tempFSFileFactory,
+		TitleFactory $titleFactory
 	) {
 		parent::__construct( $mainModule, $moduleName );
 		$this->repoGroup = $repoGroup;
 		$this->tempFSFileFactory = $tempFSFileFactory;
+		$this->titleFactory = $titleFactory;
 	}
 
 	public function execute() {
@@ -73,7 +77,8 @@ class ApiImageRotate extends ApiBase {
 			}
 		}
 
-		foreach ( $pageSet->getTitles() as $title ) {
+		foreach ( $pageSet->getPages() as $page ) {
+			$title = $this->titleFactory->newFromPageIdentity( $page );
 			$r = [];
 			$r['id'] = $title->getArticleID();
 			ApiQueryBase::addTitleInfo( $r, $title );
@@ -125,7 +130,7 @@ class ApiImageRotate extends ApiBase {
 				'rotation' => $rotation
 			] );
 			if ( !$err ) {
-				$comment = wfMessage(
+				$comment = $this->msg(
 					'rotate-comment'
 				)->numParams( $rotation )->inContentLanguage()->text();
 				// @phan-suppress-next-line PhanUndeclaredMethod
@@ -166,9 +171,7 @@ class ApiImageRotate extends ApiBase {
 	 * @return ApiPageSet
 	 */
 	private function getPageSet() {
-		if ( $this->mPageSet === null ) {
-			$this->mPageSet = new ApiPageSet( $this, 0, NS_FILE );
-		}
+		$this->mPageSet ??= new ApiPageSet( $this, 0, NS_FILE );
 
 		return $this->mPageSet;
 	}
@@ -184,15 +187,15 @@ class ApiImageRotate extends ApiBase {
 	public function getAllowedParams( $flags = 0 ) {
 		$result = [
 			'rotation' => [
-				ApiBase::PARAM_TYPE => [ '90', '180', '270' ],
-				ApiBase::PARAM_REQUIRED => true
+				ParamValidator::PARAM_TYPE => [ '90', '180', '270' ],
+				ParamValidator::PARAM_REQUIRED => true
 			],
 			'continue' => [
 				ApiBase::PARAM_HELP_MSG => 'api-help-param-continue',
 			],
 			'tags' => [
-				ApiBase::PARAM_TYPE => 'tags',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'tags',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 		];
 		if ( $flags ) {

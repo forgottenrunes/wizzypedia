@@ -31,19 +31,15 @@ use Wikimedia\LightweightObjectStore\StorageAwareness;
  *
  * ### Using WANObjectCache
  *
- * All operations go to the local datacenter cache, except for delete(),
- * touchCheckKey(), and resetCheckKey(), which broadcast to all datacenters.
+ * This class intends to boost performance of code paths by using cache-aside logic
+ * for data potentially derived from source databases subject to replication lag. Callers
+ * will generally make use of the getWithSetCallback() method.
  *
- * This class is intended for caching data from primary stores.
- * If the get() method does not return a value, then the caller
- * should query the new value and backfill the cache using set().
- * The preferred way to do this logic is through getWithSetCallback().
- * When querying the store on cache miss, the closest DB replica
- * should be used. Try to avoid heavyweight DB primary or quorum reads.
+ * All operations go to the local datacenter cache, except for delete(), touchCheckKey(),
+ * and resetCheckKey(), which are also broadcasted to caches in all datacenters.
  *
- * To ensure consumers of the cache see new values in a timely manner,
- * you either need to follow either the validation strategy, or the
- * purge strategy.
+ * To ensure consumers of the cache see new values in a timely manner, you need to
+ * follow either the validation strategy, or the purge strategy.
  *
  * The validation strategy refers to the natural avoidance of stale data
  * by one of the following means:
@@ -56,23 +52,25 @@ use Wikimedia\LightweightObjectStore\StorageAwareness;
  *        database replication, to ensure deterministic values without oscillation.
  *   - B) Validity is checked against the source after get().
  *        This is the inverse of A. The unique identifier is embedded inside the value
- *        and validated after on retreival. If outdated, the value is recomputed.
+ *        and validated after on retrieval. If outdated, the value is recomputed.
  *   - C) The value is cached with a modest TTL (without validation).
  *        If value recomputation is reasonably performant, and the value is allowed to
  *        be stale, one should consider using TTL only – using the value's age as
  *        method of validation.
  *
- * The purge strategy refers to the approach whereby your application knows that
- * source data has changed and can react by purging the relevant cache keys.
- * As purges are expensive, this strategy should be avoided if possible.
- * The simplest purge method is delete().
+ * The purge strategy refers to the approach whereby your application knows that source
+ * data has changed and can react by purging the relevant cache keys. Since purges are
+ * expensive, this strategy should be avoided if possible. The simplest purge method is
+ * delete().
  *
- * No matter which strategy you choose, callers must not rely on updates or purges
- * being immediately visible to other servers. It should be treated similarly as
- * one would a database replica.
+ * In any case, callers must not assume that updates and purges are immediately visible
+ * to all application servers. It should be treated like a replica database in this regard.
+ * If such semantics are required, then solutions must be sought outside WANObjectCache.
  *
- * The need for immediate updates should be avoided. If needed, solutions must be
- * sought outside WANObjectCache.
+ * Note that write operations, such as set() and delete(), are allowed to return true as
+ * soon as the command could be sent or buffered via an open socket to the relevant cache
+ * backend server. If that server is a proxy, then it is responsible for detecting
+ * and tracking downed servers.
  *
  * @anchor wanobjectcache-deployment
  * ### Deploying WANObjectCache
@@ -121,6 +119,7 @@ use Wikimedia\LightweightObjectStore\StorageAwareness;
  *        values cannot be stored, neither regularly nor using interim keys.
  *
  * @ingroup Cache
+ * @newable
  * @since 1.26
  */
 class WANObjectCache implements
@@ -152,15 +151,10 @@ class WANObjectCache implements
 	protected $useInterimHoldOffCaching = true;
 	/** @var float Unix timestamp of the oldest possible valid values */
 	protected $epoch;
-	/** @var string Stable secret used for hasing long strings into key components */
+	/** @var string Stable secret used for hashing long strings into key components */
 	protected $secret;
 	/** @var int Scheme to use for key coalescing (Hash Tags or Hash Stops) */
 	protected $coalesceScheme;
-
-	/** @var int Reads/second assumed during a hypothetical cache write stampede for a key */
-	private $keyHighQps;
-	/** @var float Max tolerable bytes/second to spend on a cache write stampede for a key */
-	private $keyHighUplinkBps;
 
 	/** @var array<int,array> List of (key, UNIX timestamp) tuples for get() cache misses */
 	private $missLog;
@@ -183,7 +177,7 @@ class WANObjectCache implements
 	public const HOLDOFF_TTL = self::MAX_COMMIT_DELAY + self::MAX_READ_LAG + 1;
 
 	/** Consider regeneration if the key will expire within this many seconds */
-	private const LOW_TTL = 30;
+	private const LOW_TTL = 60;
 	/** Max TTL, in seconds, to store keys when a data source has high replication lag */
 	public const TTL_LAGGED = 30;
 
@@ -219,12 +213,10 @@ class WANObjectCache implements
 	/** Seconds to keep dependency purge keys around */
 	private const CHECK_KEY_TTL = self::TTL_YEAR;
 	/** Seconds to keep interim value keys for tombstoned keys around */
-	private const INTERIM_KEY_TTL = 1;
+	private const INTERIM_KEY_TTL = 2;
 
 	/** Seconds to keep lock keys around */
 	private const LOCK_TTL = 10;
-	/** Seconds to no-op key set() calls to avoid large blob I/O stampedes */
-	private const COOLOFF_TTL = 1;
 	/** Seconds to ramp up the chance of regeneration due to expected time-till-refresh */
 	private const RAMPUP_TTL = 30;
 
@@ -240,8 +232,6 @@ class WANObjectCache implements
 
 	/** Consider value generation somewhat high if it takes this many seconds or more */
 	private const GENERATION_HIGH_SEC = 0.2;
-	/** Consider value generation slow if it takes this many seconds or more */
-	private const GENERATION_SLOW_SEC = 3.0;
 
 	/** Key to the tombstone entry timestamp */
 	private const PURGE_TIME = 0;
@@ -293,8 +283,7 @@ class WANObjectCache implements
 	private const /** @noinspection PhpUnusedPrivateFieldInspection */ FLD_FLAGS = 4;
 	/** Key to collection cache version number; stored in blobs */
 	private const FLD_VALUE_VERSION = 5;
-	/** Key to how long it took to generate the value; stored in blobs */
-	private const FLD_GENERATION_TIME = 6;
+	private const /** @noinspection PhpUnusedPrivateFieldInspection */ FLD_GENERATION_TIME = 6;
 
 	/** Single character component for value keys */
 	private const TYPE_VALUE = 'v';
@@ -304,13 +293,12 @@ class WANObjectCache implements
 	private const TYPE_MUTEX = 'm';
 	/** Single character component for interium value keys */
 	private const TYPE_INTERIM = 'i';
-	/** Single character component for cool-off bounce keys */
-	private const TYPE_COOLOFF = 'c';
 
 	/** Value prefix of purge values */
 	private const PURGE_VAL_PREFIX = 'PURGED';
 
 	/**
+	 * @stable to call
 	 * @param array $params
 	 *   - cache    : BagOStuff object for a persistent cache
 	 *   - logger   : LoggerInterface object
@@ -334,13 +322,6 @@ class WANObjectCache implements
 	 *       "helper" keys for a "value" key within the same cache server. This reduces network
 	 *       overhead and reduces the chance the a single downed cache server causes disruption.
 	 *       Use "hash_stop" with mcrouter and "hash_tag" with dynomite. [default: "hash_stop"]
-	 *   - keyHighQps: reads/second assumed during a hypothetical cache write stampede for
-	 *       a single key. This is used to decide when the overhead of checking short-lived
-	 *       write throttling keys is worth it.
-	 *       [default: 100]
-	 *   - keyHighUplinkBps: maximum tolerable bytes/second to spend on a cache write stampede
-	 *       for a single key. This is used to decide when the overhead of checking short-lived
-	 *       write throttling keys is worth it. [default: (1/100 of a 1Gbps link)]
 	 */
 	public function __construct( array $params ) {
 		$this->cache = $params['cache'];
@@ -357,20 +338,11 @@ class WANObjectCache implements
 			$this->coalesceScheme = self::SCHEME_HASH_STOP;
 		}
 
-		$this->keyHighQps = $params['keyHighQps'] ?? 100;
-		$this->keyHighUplinkBps = $params['keyHighUplinkBps'] ?? ( 1e9 / 8 / 100 );
-
 		$this->setLogger( $params['logger'] ?? new NullLogger() );
 		$this->stats = $params['stats'] ?? new NullStatsdDataFactory();
 		$this->asyncHandler = $params['asyncHandler'] ?? null;
 
 		$this->missLog = array_fill( 0, 10, [ '', 0.0 ] );
-
-		$this->cache->registerWrapperInfoForStats(
-			'WANCache',
-			'wanobjectcache',
-			[ __CLASS__, 'getCollectionFromSisterKey' ]
-		);
 	}
 
 	/**
@@ -465,8 +437,7 @@ class WANObjectCache implements
 
 		if ( $curTTL === null || $curTTL <= 0 ) {
 			// Log the timestamp in case a corresponding set() call does not provide "walltime"
-			reset( $this->missLog );
-			unset( $this->missLog[key( $this->missLog )] );
+			unset( $this->missLog[array_key_first( $this->missLog )] );
 			$this->missLog[] = [ $key, $this->getCurrentTime() ];
 		}
 
@@ -690,8 +661,14 @@ class WANObjectCache implements
 				: null;
 
 			if ( $purge === null ) {
-				$wrapped = $this->makeCheckPurgeValue( $now, self::HOLDOFF_TTL, $purge );
-				$this->cache->add( $timeKey, $wrapped, self::CHECK_KEY_TTL );
+				// No holdoff when lazy creating a check key, use cache right away (T344191)
+				$wrapped = $this->makeCheckPurgeValue( $now, self::HOLDOFF_TTL_NONE, $purge );
+				$this->cache->add(
+					$timeKey,
+					$wrapped,
+					self::CHECK_KEY_TTL,
+					$this->cache::WRITE_BACKGROUND
+				);
 			}
 
 			$purges[] = $purge;
@@ -768,33 +745,83 @@ class WANObjectCache implements
 	 *      and its as-of time to the callback. This is useful if adaptiveTTL() is used
 	 *      on the old value's as-of time when it is verified as still being correct.
 	 *      Default: WANObjectCache::STALE_TTL_NONE
+	 *   - segmentable: Allow partitioning of the value if it is a large string.
+	 *      Default: false.
 	 *   - creating: Optimize for the case where the key does not already exist.
 	 *      Default: false
-	 *   - version: Integer version number signifiying the format of the value.
+	 *   - version: Integer version number signifying the format of the value.
 	 *      Default: null
 	 *   - walltime: How long the value took to generate in seconds. Default: null
 	 * @phpcs:ignore Generic.Files.LineLength
-	 * @phan-param array{lag?:int,since?:int,pending?:bool,lockTSE?:int,staleTTL?:int,creating?:bool,version?:int,walltime?:int|float} $opts
+	 * @phan-param array{lag?:float|int,since?:float|int,pending?:bool,lockTSE?:int,staleTTL?:int,creating?:bool,version?:int,walltime?:int|float,segmentable?:bool} $opts
 	 * @note Options added in 1.28: staleTTL
 	 * @note Options added in 1.33: creating
 	 * @note Options added in 1.34: version, walltime
+	 * @note Options added in 1.40: segmentable
 	 * @return bool Success
 	 */
 	final public function set( $key, $value, $ttl = self::TTL_INDEFINITE, array $opts = [] ) {
-		$now = $this->getCurrentTime();
-		$dataReplicaLag = $opts['lag'] ?? 0;
-		$dataSnapshotLag = isset( $opts['since'] ) ? max( 0, $now - $opts['since'] ) : 0;
-		$dataCombinedLag = $dataReplicaLag + $dataSnapshotLag;
-		$dataPendingCommit = $opts['pending'] ?? null;
-		$lockTSE = $opts['lockTSE'] ?? self::TSE_NONE;
-		$staleTTL = $opts['staleTTL'] ?? self::STALE_TTL_NONE;
-		$creating = $opts['creating'] ?? false;
-		$version = $opts['version'] ?? null;
-		$walltime = $opts['walltime'] ?? $this->timeSinceLoggedMiss( $key, $now );
+		$keygroup = $this->determineKeyGroupForStats( $key );
 
+		$ok = $this->setMainValue(
+			$key,
+			$value,
+			$ttl,
+			$opts['version'] ?? null,
+			$opts['walltime'] ?? null,
+			$opts['lag'] ?? 0,
+			$opts['since'] ?? null,
+			$opts['pending'] ?? false,
+			$opts['lockTSE'] ?? self::TSE_NONE,
+			$opts['staleTTL'] ?? self::STALE_TTL_NONE,
+			$opts['segmentable'] ?? false,
+			$opts['creating'] ?? false
+		);
+
+		$this->stats->increment( "wanobjectcache.$keygroup.set." . ( $ok ? 'ok' : 'error' ) );
+
+		return $ok;
+	}
+
+	/**
+	 * @param string $key Cache key made with makeKey()/makeGlobalKey()
+	 * @param mixed $value
+	 * @param int|float $ttl
+	 * @param int|null $version
+	 * @param float|null $walltime
+	 * @param float|int|bool $dataReplicaLag
+	 * @param float|int|null $dataReadSince
+	 * @param bool $dataPendingCommit
+	 * @param int $lockTSE
+	 * @param int $staleTTL
+	 * @param bool $segmentable
+	 * @param bool $creating
+	 * @return bool Success
+	 */
+	private function setMainValue(
+		$key,
+		$value,
+		$ttl,
+		?int $version,
+		?float $walltime,
+		$dataReplicaLag,
+		$dataReadSince,
+		bool $dataPendingCommit,
+		int $lockTSE,
+		int $staleTTL,
+		bool $segmentable,
+		bool $creating
+	) {
 		if ( $ttl < 0 ) {
-			return true; // not cacheable
+			// not cacheable
+			return true;
 		}
+
+		$now = $this->getCurrentTime();
+		$ttl = (int)$ttl;
+		$walltime ??= $this->timeSinceLoggedMiss( $key, $now );
+		$dataSnapshotLag = ( $dataReadSince !== null ) ? max( 0, $now - $dataReadSince ) : 0;
+		$dataCombinedLag = $dataReplicaLag + $dataSnapshotLag;
 
 		// Forbid caching data that only exists within an uncommitted transaction. Also, lower
 		// the TTL when the data has a "since" time so far in the past that a delete() tombstone,
@@ -818,7 +845,7 @@ class WANObjectCache implements
 				// Case B2: slow generation made transaction duration long
 				$mitigated = 'snapshot lag (high generation time)';
 				// Probably systemic; use a low TTL to avoid stampedes/uncacheability
-				$mitigationTTL = self::LOW_TTL;
+				$mitigationTTL = self::TTL_LAGGED;
 			}
 		} elseif ( $dataReplicaLag === false || $dataReplicaLag > self::MAX_READ_LAG ) {
 			// Case C: low/medium snapshot lag with high replication lag
@@ -837,7 +864,7 @@ class WANObjectCache implements
 				// Case D2: slow generation made read lag too high
 				$mitigated = 'read lag (high generation time)';
 				// Probably systemic; use a low TTL to avoid stampedes/uncacheability
-				$mitigationTTL = self::LOW_TTL;
+				$mitigationTTL = self::TTL_LAGGED;
 			}
 		} else {
 			// Case E: new value generated with recent data
@@ -857,7 +884,8 @@ class WANObjectCache implements
 				]
 			);
 
-			return true; // no-op the write for being unsafe
+			// no-op the write for being unsafe
+			return true;
 		}
 
 		// TTL to use in staleness checks (does not effect persistence layer TTL)
@@ -885,14 +913,20 @@ class WANObjectCache implements
 		}
 
 		// Wrap that value with time/TTL/version metadata
-		$wrapped = $this->wrap( $value, $logicalTTL ?: $ttl, $version, $now, $walltime );
+		$wrapped = $this->wrap( $value, $logicalTTL ?: $ttl, $version, $now );
 		$storeTTL = $ttl + $staleTTL;
+
+		$flags = $this->cache::WRITE_BACKGROUND;
+		if ( $segmentable ) {
+			$flags |= $this->cache::WRITE_ALLOW_SEGMENTS;
+		}
 
 		if ( $creating ) {
 			$ok = $this->cache->add(
 				$this->makeSisterKey( $key, self::TYPE_VALUE ),
 				$wrapped,
-				$storeTTL
+				$storeTTL,
+				$flags
 			);
 		} else {
 			$ok = $this->cache->merge(
@@ -902,7 +936,8 @@ class WANObjectCache implements
 					return ( is_string( $cWrapped ) ) ? false : $wrapped;
 				},
 				$storeTTL,
-				1 // 1 attempt
+				$this->cache::MAX_CONFLICTS_ONE,
+				$flags
 			);
 		}
 
@@ -991,12 +1026,12 @@ class WANObjectCache implements
 			// mitigation systems.
 			$now = $this->getCurrentTime();
 			// Set the key to the purge value in all datacenters
-			$purgeBySisterKey = [ $valueSisterKey => $this->makeTombstonePurgeValue( $now ) ];
-			$ok = $this->relayVolatilePurges( $purgeBySisterKey, $ttl );
+			$purge = $this->makeTombstonePurgeValue( $now );
+			$ok = $this->relayVolatilePurge( $valueSisterKey, $purge, $ttl );
 		}
 
-		$kClass = $this->determineKeyClassForStats( $key );
-		$this->stats->increment( "wanobjectcache.$kClass.delete." . ( $ok ? 'ok' : 'error' ) );
+		$keygroup = $this->determineKeyGroupForStats( $key );
+		$this->stats->increment( "wanobjectcache.$keygroup.delete." . ( $ok ? 'ok' : 'error' ) );
 
 		return $ok;
 	}
@@ -1099,8 +1134,13 @@ class WANObjectCache implements
 		foreach ( $checkSisterKeysByKey as $key => $checkSisterKey ) {
 			$purge = $this->parsePurgeValue( $wrappedBySisterKey[$checkSisterKey] );
 			if ( $purge === null ) {
-				$wrapped = $this->makeCheckPurgeValue( $now, self::HOLDOFF_TTL, $purge );
-				$this->cache->add( $checkSisterKey, $wrapped, self::CHECK_KEY_TTL );
+				$wrapped = $this->makeCheckPurgeValue( $now, self::HOLDOFF_TTL_NONE, $purge );
+				$this->cache->add(
+					$checkSisterKey,
+					$wrapped,
+					self::CHECK_KEY_TTL,
+					$this->cache::WRITE_BACKGROUND
+				);
 			}
 
 			$times[$key] = $purge[self::PURGE_TIME];
@@ -1146,11 +1186,11 @@ class WANObjectCache implements
 		$checkSisterKey = $this->makeSisterKey( $key, self::TYPE_TIMESTAMP );
 
 		$now = $this->getCurrentTime();
-		$purgeBySisterKey = [ $checkSisterKey => $this->makeCheckPurgeValue( $now, $holdoff ) ];
-		$ok = $this->relayVolatilePurges( $purgeBySisterKey, self::CHECK_KEY_TTL );
+		$purge = $this->makeCheckPurgeValue( $now, $holdoff );
+		$ok = $this->relayVolatilePurge( $checkSisterKey, $purge, self::CHECK_KEY_TTL );
 
-		$kClass = $this->determineKeyClassForStats( $key );
-		$this->stats->increment( "wanobjectcache.$kClass.ck_touch." . ( $ok ? 'ok' : 'error' ) );
+		$keygroup = $this->determineKeyGroupForStats( $key );
+		$this->stats->increment( "wanobjectcache.$keygroup.ck_touch." . ( $ok ? 'ok' : 'error' ) );
 
 		return $ok;
 	}
@@ -1186,8 +1226,8 @@ class WANObjectCache implements
 		$checkSisterKey = $this->makeSisterKey( $key, self::TYPE_TIMESTAMP );
 		$ok = $this->relayNonVolatilePurge( $checkSisterKey );
 
-		$kClass = $this->determineKeyClassForStats( $key );
-		$this->stats->increment( "wanobjectcache.$kClass.ck_reset." . ( $ok ? 'ok' : 'error' ) );
+		$keygroup = $this->determineKeyGroupForStats( $key );
+		$this->stats->increment( "wanobjectcache.$keygroup.ck_reset." . ( $ok ? 'ok' : 'error' ) );
 
 		return $ok;
 	}
@@ -1405,23 +1445,21 @@ class WANObjectCache implements
 	 *      is useful if thousands or millions of keys depend on the same entity. The entity can
 	 *      simply have its "check" key updated whenever the entity is modified.
 	 *      Default: [].
-	 *   - graceTTL: If the key is purged (by "checkKeys" or "touchedCallback") less than
-	 *      this many seconds ago, consider reusing the stale value. The odds of a refresh become
-	 *      more likely over time, becoming certain once the grace period is reached. This can
-	 *      reduce traffic spikes when millions of keys are compared to the same "check" key and
-	 *      touchCheckKey() or resetCheckKey() is called on that "check" key. This option is not
-	 *      useful for avoiding traffic spikes in the case of the key simply expiring on account
-	 *      of its TTL (use "lowTTL" instead).
+	 *   - graceTTL: If the key is stale due to a purge (by "checkKeys" or "touchedCallback")
+	 *      less than this many seconds ago, consider reusing the stale value. The odds of a
+	 *      refresh become more likely over time, becoming certain once the grace period is
+	 *      reached. This can reduce traffic spikes when millions of keys are compared to the
+	 *      same  "check" key and touchCheckKey() or resetCheckKey() is called on that "check" key.
+	 *      This option is not useful for avoiding traffic spikes in the case of the key simply
+	 *      expiring on account of its TTL (use "lowTTL" instead).
 	 *      Default: WANObjectCache::GRACE_TTL_NONE.
-	 *   - lockTSE: Prefer the use of a mutex during value regeneration of the key if its TSE
-	 *      ("time since expiry") is less than the given number of seconds ago. The TSE of the
-	 *      key is influenced by purges (e.g. via delete(), "checkKeys", and "touchedCallback"),
-	 *      and various other options (e.g. "staleTTL"). A low enough TSE is assumed to indicate
-	 *      a high enough key access rate to justify stampede avoidance. A thread that tries and
-	 *      fails to acquire the mutex will use a stale value for the key, if there is one, and,
-	 *      if not, it will execute the callback. Note that no cache value exists after deletion
-	 *      or storage-layer expiration/eviction; to prevent stampedes during these cases, avoid
-	 *      using delete(), keep "lowTTL" enabled, and consider using "busyValue".
+	 *   - lockTSE: If the value is stale and the "time since expiry" (TSE) is less than the given
+	 *      number of seconds ago, then reuse the stale value if another such thread is already
+	 *      regenerating the value. The TSE of the key is influenced by purges (e.g. via delete(),
+	 *      "checkKeys", "touchedCallback"), and various other options (e.g. "staleTTL"). A low
+	 *      enough TSE is assumed to indicate a high enough key access rate to justify stampede
+	 *      avoidance. Note that no cache value exists after deletion, expiration, or eviction
+	 *      at the storage-layer; to prevent stampedes during these cases, use "busyValue".
 	 *      Default: WANObjectCache::TSE_NONE.
 	 *   - busyValue: Specify a placeholder value to use when no value exists and another thread
 	 *      is currently regenerating it. This assures that cache stampedes cannot happen if the
@@ -1515,14 +1553,13 @@ class WANObjectCache implements
 			}
 		}
 
-		$res = $this->fetchOrRegenerate( $key, $ttl, $callback, $opts, $cbParams );
-		list( $value, $valueVersion, $curAsOf ) = $res;
+		[ $value, $valueVersion, $curAsOf ] = $this->fetchOrRegenerate( $key, $ttl, $callback, $opts, $cbParams );
 		if ( $valueVersion !== $version ) {
 			// Current value has a different version; use the variant key for this version.
 			// Regenerate the variant value if it is not newer than the main value at $key
 			// so that purges to the main key propagate to the variant value.
 			$this->logger->debug( "getWithSetCallback($key): using variant key" );
-			list( $value ) = $this->fetchOrRegenerate(
+			[ $value ] = $this->fetchOrRegenerate(
 				$this->makeGlobalKey( 'WANCache-key-variant', md5( $key ), (string)$version ),
 				$ttl,
 				$callback,
@@ -1565,7 +1602,7 @@ class WANObjectCache implements
 		$touchedCb = $opts['touchedCallback'] ?? null;
 		$startTime = $this->getCurrentTime();
 
-		$kClass = $this->determineKeyClassForStats( $key );
+		$keygroup = $this->determineKeyGroupForStats( $key );
 
 		// Get the current key value and its metadata
 		$curState = $this->fetchKeys( [ $key ], $checkKeys, $touchedCb )[$key];
@@ -1574,7 +1611,7 @@ class WANObjectCache implements
 		if ( $this->isAcceptablyFreshValue( $curState, $graceTTL, $minAsOf ) ) {
 			if ( !$this->isLotteryRefreshDue( $curState, $lowTTL, $ageNew, $hotTTR, $startTime ) ) {
 				$this->stats->timing(
-					"wanobjectcache.$kClass.hit.good",
+					"wanobjectcache.$keygroup.hit.good",
 					1e3 * ( $this->getCurrentTime() - $startTime )
 				);
 
@@ -1582,7 +1619,7 @@ class WANObjectCache implements
 			} elseif ( $this->scheduleAsyncRefresh( $key, $ttl, $callback, $opts, $cbParams ) ) {
 				$this->logger->debug( "fetchOrRegenerate($key): hit with async refresh" );
 				$this->stats->timing(
-					"wanobjectcache.$kClass.hit.refresh",
+					"wanobjectcache.$keygroup.hit.refresh",
 					1e3 * ( $this->getCurrentTime() - $startTime )
 				);
 
@@ -1593,7 +1630,7 @@ class WANObjectCache implements
 		}
 
 		$isKeyTombstoned = ( $curState[self::RES_TOMB_AS_OF] !== null );
-		// Use the interim key as an temporary alternative if the key is tombstoned
+		// Use the interim key as a temporary alternative if the key is tombstoned
 		if ( $isKeyTombstoned ) {
 			$volState = $this->getInterimValue( $key, $minAsOf, $startTime, $touchedCb );
 			$volValue = $volState[self::RES_VALUE];
@@ -1617,7 +1654,7 @@ class WANObjectCache implements
 		if ( $this->isExtremelyNewValue( $volState, $safeMinAsOf, $startTime ) ) {
 			$this->logger->debug( "fetchOrRegenerate($key): volatile hit" );
 			$this->stats->timing(
-				"wanobjectcache.$kClass.hit.volatile",
+				"wanobjectcache.$keygroup.hit.volatile",
 				1e3 * ( $this->getCurrentTime() - $startTime )
 			);
 
@@ -1627,6 +1664,7 @@ class WANObjectCache implements
 		$lockTSE = $opts['lockTSE'] ?? self::TSE_NONE;
 		$busyValue = $opts['busyValue'] ?? null;
 		$staleTTL = $opts['staleTTL'] ?? self::STALE_TTL_NONE;
+		$segmentable = $opts['segmentable'] ?? false;
 		$version = $opts['version'] ?? null;
 
 		// Determine whether one thread per datacenter should handle regeneration at a time
@@ -1655,10 +1693,11 @@ class WANObjectCache implements
 		$hasLock = $useRegenerationLock && $this->claimStampedeLock( $key );
 		if ( $useRegenerationLock && !$hasLock ) {
 			// Determine if there is stale or volatile cached value that is still usable
+			// @phan-suppress-next-line PhanTypeMismatchArgumentNullable False positive
 			if ( $this->isValid( $volValue, $volState[self::RES_AS_OF], $minAsOf ) ) {
 				$this->logger->debug( "fetchOrRegenerate($key): returning stale value" );
 				$this->stats->timing(
-					"wanobjectcache.$kClass.hit.stale",
+					"wanobjectcache.$keygroup.hit.stale",
 					1e3 * ( $this->getCurrentTime() - $startTime )
 				);
 
@@ -1667,7 +1706,7 @@ class WANObjectCache implements
 				$miss = is_infinite( $minAsOf ) ? 'renew' : 'miss';
 				$this->logger->debug( "fetchOrRegenerate($key): busy $miss" );
 				$this->stats->timing(
-					"wanobjectcache.$kClass.$miss.busy",
+					"wanobjectcache.$keygroup.$miss.busy",
 					1e3 * ( $this->getCurrentTime() - $startTime )
 				);
 				$placeholderValue = $this->resolveBusyValue( $busyValue );
@@ -1680,6 +1719,8 @@ class WANObjectCache implements
 		$setOpts = [];
 		$preCallbackTime = $this->getCurrentTime();
 		++$this->callbackDepth;
+		// https://github.com/phan/phan/issues/4419
+		$value = null;
 		try {
 			$value = $callback(
 				( $curState[self::RES_VERSION] === $version ) ? $curValue : false,
@@ -1698,31 +1739,43 @@ class WANObjectCache implements
 
 		// How long it took to generate the value
 		$walltime = max( $postCallbackTime - $preCallbackTime, 0.0 );
-		$this->stats->timing( "wanobjectcache.$kClass.regen_walltime", 1e3 * $walltime );
+		$this->stats->timing( "wanobjectcache.$keygroup.regen_walltime", 1e3 * $walltime );
 
 		// Attempt to save the newly generated value if applicable
 		if (
 			// Callback yielded a cacheable value
 			( $value !== false && $ttl >= 0 ) &&
 			// Current thread was not raced out of a regeneration lock or key is tombstoned
-			( !$useRegenerationLock || $hasLock || $isKeyTombstoned ) &&
-			// Key does not appear to be undergoing a set() stampede
-			$this->checkAndSetCooloff( $key, $kClass, $value, $elapsed, $hasLock )
+			( !$useRegenerationLock || $hasLock || $isKeyTombstoned )
 		) {
+			$this->stats->timing( "wanobjectcache.$keygroup.regen_set_delay", 1e3 * $elapsed );
 			// If the key is write-holed then use the (volatile) interim key as an alternative
 			if ( $isKeyTombstoned ) {
-				$this->setInterimValue( $key, $value, $lockTSE, $version, $postCallbackTime, $walltime );
+				$this->setInterimValue(
+					$key,
+					$value,
+					$lockTSE,
+					$version,
+					$segmentable
+				);
 			} else {
-				$finalSetOpts = [
-					// @phan-suppress-next-line PhanUselessBinaryAddRight,PhanCoalescingAlwaysNull
-					'since' => $setOpts['since'] ?? $preCallbackTime,
-					'version' => $version,
-					'staleTTL' => $staleTTL,
-					'lockTSE' => $lockTSE, // informs lag vs performance trade-offs
-					'creating' => ( $curValue === false ), // optimization
-					'walltime' => $walltime
-				] + $setOpts;
-				$this->set( $key, $value, $ttl, $finalSetOpts );
+				$this->setMainValue(
+					$key,
+					$value,
+					$ttl,
+					$version,
+					$walltime,
+					// @phan-suppress-next-line PhanCoalescingAlwaysNull
+					$setOpts['lag'] ?? 0,
+					// @phan-suppress-next-line PhanCoalescingAlwaysNull
+					$setOpts['since'] ?? $preCallbackTime,
+					// @phan-suppress-next-line PhanCoalescingAlwaysNull
+					$setOpts['pending'] ?? false,
+					$lockTSE,
+					$staleTTL,
+					$segmentable,
+					( $curValue === false )
+				);
 			}
 		}
 
@@ -1731,7 +1784,7 @@ class WANObjectCache implements
 		$miss = is_infinite( $minAsOf ) ? 'renew' : 'miss';
 		$this->logger->debug( "fetchOrRegenerate($key): $miss, new value computed" );
 		$this->stats->timing(
-			"wanobjectcache.$kClass.$miss.compute",
+			"wanobjectcache.$keygroup.$miss.compute",
 			1e3 * ( $this->getCurrentTime() - $startTime )
 		);
 
@@ -1755,7 +1808,7 @@ class WANObjectCache implements
 	private function yieldStampedeLock( $key, $hasLock ) {
 		if ( $hasLock ) {
 			$checkSisterKey = $this->makeSisterKey( $key, self::TYPE_MUTEX );
-			$this->cache->changeTTL( $checkSisterKey, (int)$this->getCurrentTime() - 60 );
+			$this->cache->delete( $checkSisterKey, $this->cache::WRITE_BACKGROUND );
 		}
 	}
 
@@ -1805,26 +1858,6 @@ class WANObjectCache implements
 	}
 
 	/**
-	 * @param string $sisterKey Sister key from makeSisterKey()
-	 * @return string Key collection name
-	 * @internal For use by WANObjectCache/BagOStuff only
-	 * @since 1.36
-	 */
-	public static function getCollectionFromSisterKey( string $sisterKey ) {
-		if ( substr( $sisterKey, -4 ) === '|#|v' ) {
-			// Key style: "WANCache:<base key>|#|<character>"
-			$collection = substr( $sisterKey, 9, strcspn( $sisterKey, ':|', 9 ) );
-		} elseif ( substr( $sisterKey, -3 ) === '}:v' ) {
-			// Key style: "WANCache:{<base key>}:<character>"
-			$collection = substr( $sisterKey, 10, strcspn( $sisterKey, ':}', 10 ) );
-		} else {
-			$collection = 'internal';
-		}
-
-		return $collection;
-	}
-
-	/**
 	 * Check if a key value is non-false, new enough, and has an "as of" time almost equal to now
 	 *
 	 * If the value was just written to cache, and it did not take an unusually long time to
@@ -1844,76 +1877,6 @@ class WANObjectCache implements
 		$age = $now - $res[self::RES_AS_OF];
 
 		return ( $age < mt_rand( self::RECENT_SET_LOW_MS, self::RECENT_SET_HIGH_MS ) / 1e3 );
-	}
-
-	/**
-	 * Check whether set() is rate-limited to avoid concurrent I/O spikes
-	 *
-	 * This mitigates problems caused by popular keys suddenly becoming unavailable due to
-	 * unexpected evictions or cache server outages. These cases are not handled by the usual
-	 * preemptive refresh logic.
-	 *
-	 * With a typical scale-out infrastructure, CPU and query load from getWithSetCallback()
-	 * invocations is distributed among appservers and replica DBs, but cache operations for
-	 * a given key route to a single cache server (e.g. striped consistent hashing). A set()
-	 * stampede to a key can saturate the network link to its cache server. The intensity of
-	 * the problem is proportionate to the value size and access rate. The duration of the
-	 * problem is proportionate to value regeneration time.
-	 *
-	 * @param string $key Cache key made with makeKey()/makeGlobalKey()
-	 * @param string $kClass
-	 * @param mixed $value The regenerated value
-	 * @param float $elapsed Seconds spent fetching, validating, and regenerating the value
-	 * @param bool $hasLock Whether this thread has an exclusive regeneration lock
-	 * @return bool Whether it is OK to proceed with a key set operation
-	 */
-	private function checkAndSetCooloff( $key, $kClass, $value, $elapsed, $hasLock ) {
-		$valueSisterKey = $this->makeSisterKey( $key, self::TYPE_VALUE );
-		list( $estimatedSize ) = $this->cache->setNewPreparedValues( [
-			$valueSisterKey => $value
-		] );
-
-		if ( !$hasLock ) {
-			// Suppose that this cache key is very popular (KEY_HIGH_QPS reads/second).
-			// After eviction, there will be cache misses until it gets regenerated and saved.
-			// If the time window when the key is missing lasts less than one second, then the
-			// number of misses will not reach KEY_HIGH_QPS. This window largely corresponds to
-			// the key regeneration time. Estimate the count/rate of cache misses, e.g.:
-			//  - 100 QPS, 20ms regeneration => ~2 misses (< 1s)
-			//  - 100 QPS, 100ms regeneration => ~10 misses (< 1s)
-			//  - 100 QPS, 3000ms regeneration => ~300 misses (100/s for 3s)
-			$missesPerSecForHighQPS = ( min( $elapsed, 1 ) * $this->keyHighQps );
-
-			// Determine whether there is enough I/O stampede risk to justify throttling set().
-			// Estimate unthrottled set() overhead, as bps, from miss count/rate and value size,
-			// comparing it to the per-key uplink bps limit (KEY_HIGH_UPLINK_BPS), e.g.:
-			//  - 2 misses (< 1s), 10KB value, 1250000 bps limit => 160000 bits (low risk)
-			//  - 2 misses (< 1s), 100KB value, 1250000 bps limit => 1600000 bits (high risk)
-			//  - 10 misses (< 1s), 10KB value, 1250000 bps limit => 800000 bits (low risk)
-			//  - 10 misses (< 1s), 100KB value, 1250000 bps limit => 8000000 bits (high risk)
-			//  - 300 misses (100/s), 1KB value, 1250000 bps limit => 800000 bps (low risk)
-			//  - 300 misses (100/s), 10KB value, 1250000 bps limit => 8000000 bps (high risk)
-			//  - 300 misses (100/s), 100KB value, 1250000 bps limit => 80000000 bps (high risk)
-			if ( ( $missesPerSecForHighQPS * $estimatedSize ) >= $this->keyHighUplinkBps ) {
-				$cooloffSisterKey = $this->makeSisterKey( $key, self::TYPE_COOLOFF );
-				$watchPoint = $this->cache->watchErrors();
-				if (
-					!$this->cache->add( $cooloffSisterKey, 1, self::COOLOFF_TTL ) &&
-					// Don't treat failures due to I/O errors as the key being in cool-off
-					$this->cache->getLastError( $watchPoint ) === self::ERR_NONE
-				) {
-					$this->stats->increment( "wanobjectcache.$kClass.cooloff_bounce" );
-
-					return false;
-				}
-			}
-		}
-
-		// Corresponding metrics for cache writes that actually get sent over the write
-		$this->stats->timing( "wanobjectcache.$kClass.regen_set_delay", 1e3 * $elapsed );
-		$this->stats->updateCount( "wanobjectcache.$kClass.regen_set_bytes", $estimatedSize );
-
-		return true;
 	}
 
 	/**
@@ -1950,22 +1913,34 @@ class WANObjectCache implements
 	/**
 	 * @param string $key Cache key made with makeKey()/makeGlobalKey()
 	 * @param mixed $value
-	 * @param int $ttl
+	 * @param int|float $ttl
 	 * @param int|null $version Value version number
-	 * @param float $now Time after value regen
-	 * @param float $walltime How long it took to generate the value in seconds
+	 * @param bool $segmentable
+	 * @return bool Success
 	 */
-	private function setInterimValue( $key, $value, $ttl, $version, $now, $walltime ) {
+	private function setInterimValue(
+		$key,
+		$value,
+		$ttl,
+		?int $version,
+		bool $segmentable
+	) {
+		$now = $this->getCurrentTime();
 		$ttl = max( self::INTERIM_KEY_TTL, (int)$ttl );
 
-		$wrapped = $this->wrap( $value, $ttl, $version, $now, $walltime );
-		$this->cache->merge(
+		// Wrap that value with time/TTL/version metadata
+		$wrapped = $this->wrap( $value, $ttl, $version, $now );
+
+		$flags = $this->cache::WRITE_BACKGROUND;
+		if ( $segmentable ) {
+			$flags |= $this->cache::WRITE_ALLOW_SEGMENTS;
+		}
+
+		return $this->cache->set(
 			$this->makeSisterKey( $key, self::TYPE_INTERIM ),
-			static function () use ( $wrapped ) {
-				return $wrapped;
-			},
+			$wrapped,
 			$ttl,
-			1
+			$flags
 		);
 	}
 
@@ -1982,7 +1957,8 @@ class WANObjectCache implements
 	 *
 	 * This works the same as getWithSetCallback() except:
 	 *   - a) The $keys argument must be the result of WANObjectCache::makeMultiKeys()
-	 *   - b) The $callback argument must be a callback that takes the following arguments:
+	 *   - b) The $callback argument expects a function that returns an entity value, using
+	 *        boolean "false" if it does not exist. The callback takes the following arguments:
 	 *         - $id: ID of the entity to query
 	 *         - $oldValue: prior cache value or false if none was present
 	 *         - &$ttl: reference to the TTL to be assigned to the new value (alterable)
@@ -1999,7 +1975,7 @@ class WANObjectCache implements
 	 *         // Map of cache keys to entity IDs
 	 *         $cache->makeMultiKeys(
 	 *             $this->fileVersionIds(),
-	 *             function ( $id ) use ( $cache ) {
+	 *             function ( $id, $cache ) {
 	 *                 return $cache->makeKey( 'file-version', $id );
 	 *             }
 	 *         ),
@@ -2061,8 +2037,9 @@ class WANObjectCache implements
 			return $callback( $params['id'], $oldValue, $ttl, $setOpts, $oldAsOf );
 		};
 
+		// Get the order-preserved result map using the warm-up cache
 		$values = [];
-		foreach ( $keyedIds as $key => $id ) { // preserve order
+		foreach ( $keyedIds as $key => $id ) {
 			$values[$key] = $this->getWithSetCallback(
 				$key,
 				$ttl,
@@ -2082,8 +2059,9 @@ class WANObjectCache implements
 	 *
 	 * This works the same as getWithSetCallback() except:
 	 *   - a) The $keys argument expects the result of WANObjectCache::makeMultiKeys()
-	 *   - b) The $callback argument expects a callback returning a map of (ID => new value)
-	 *        for all entity IDs in $ids and it takes the following arguments:
+	 *   - b) The $callback argument expects a function that returns a map of (ID => new value),
+	 *        using boolean "false" for entities that could not be found, for all entity IDs in
+	 *        $ids. The callback takes the following arguments:
 	 *          - $ids: list of entity IDs that require value generation
 	 *          - &$ttls: reference to the (entity ID => new TTL) map (alterable)
 	 *          - &$setOpts: reference to the new value set() options (alterable)
@@ -2112,7 +2090,7 @@ class WANObjectCache implements
 	 *             $setOpts += Database::getCacheSetOptions( $dbr );
 	 *
 	 *             // Load the rows for these files
-	 *             $rows = [];
+	 *             $rows = array_fill_keys( $ids, false );
 	 *             $queryInfo = File::getQueryInfo();
 	 *             $res = $dbr->select(
 	 *                 $queryInfo['tables'],
@@ -2147,8 +2125,10 @@ class WANObjectCache implements
 	) {
 		$checkKeys = $opts['checkKeys'] ?? [];
 		$minAsOf = $opts['minAsOf'] ?? self::MIN_TIMESTAMP_NONE;
-		unset( $opts['lockTSE'] ); // incompatible
-		unset( $opts['busyValue'] ); // incompatible
+
+		// unset incompatible keys
+		unset( $opts['lockTSE'] );
+		unset( $opts['busyValue'] );
 
 		// Batch load required keys into the in-process warmup cache
 		$keysByIdGet = $this->getNonProcessCachedMultiKeys( $keyedIds, $opts );
@@ -2176,17 +2156,18 @@ class WANObjectCache implements
 		$newTTLsById = array_fill_keys( $idsRegen, $ttl );
 		$newValsById = $idsRegen ? $callback( $idsRegen, $newTTLsById, $newSetOpts ) : [];
 
+		$method = __METHOD__;
 		// The required callback signature includes $id as the first argument for convenience
 		// to distinguish different items. To reuse the code in getWithSetCallback(), wrap the
 		// callback with a proxy callback that has the standard getWithSetCallback() signature.
 		// This is defined only once per batch to avoid closure creation overhead.
-		$proxyCb = static function ( $oldValue, &$ttl, &$setOpts, $oldAsOf, $params )
-			use ( $callback, $newValsById, $newTTLsById, $newSetOpts )
+		$proxyCb = function ( $oldValue, &$ttl, &$setOpts, $oldAsOf, $params )
+			use ( $callback, $newValsById, $newTTLsById, $newSetOpts, $method )
 		{
 			$id = $params['id'];
 
 			if ( array_key_exists( $id, $newValsById ) ) {
-				// Value was already regerated as expected, so use the value in $newValsById
+				// Value was already regenerated as expected, so use the value in $newValsById
 				$newValue = $newValsById[$id];
 				$ttl = $newTTLsById[$id];
 				$setOpts = $newSetOpts;
@@ -2194,16 +2175,25 @@ class WANObjectCache implements
 				// Pre-emptive/popularity refresh and version mismatch cases are not detected
 				// above and thus $newValsById has no entry. Run $callback on this single entity.
 				$ttls = [ $id => $ttl ];
-				$newValue = $callback( [ $id ], $ttls, $setOpts )[$id];
+				$result = $callback( [ $id ], $ttls, $setOpts );
+				if ( !isset( $result[$id] ) ) {
+					// T303092
+					$this->logger->warning(
+						$method . ' failed due to {id} not set in result {result}', [
+						'id' => $id,
+						'result' => json_encode( $result )
+					] );
+				}
+				$newValue = $result[$id];
 				$ttl = $ttls[$id];
 			}
 
 			return $newValue;
 		};
 
-		// Run the cache-aside logic using warmupCache instead of persistent cache queries
+		// Get the order-preserved result map using the warm-up cache
 		$values = [];
-		foreach ( $keyedIds as $key => $id ) { // preserve order
+		foreach ( $keyedIds as $key => $id ) {
 			$values[$key] = $this->getWithSetCallback(
 				$key,
 				$ttl,
@@ -2219,94 +2209,26 @@ class WANObjectCache implements
 	}
 
 	/**
-	 * Set a key to soon expire in the local cluster if it pre-dates $purgeTimestamp
-	 *
-	 * This sets stale keys' time-to-live at HOLDOFF_TTL seconds, which both avoids
-	 * broadcasting in mcrouter setups and also avoids races with new tombstones.
-	 *
-	 * @param string $key Cache key made with makeKey()/makeGlobalKey()
-	 * @param int|float $purgeTimestamp UNIX timestamp of purge
-	 * @param bool &$isStale Whether the key is stale
-	 * @return bool Success
-	 * @since 1.28
-	 */
-	final public function reap( $key, $purgeTimestamp, &$isStale = false ) {
-		$valueSisterKey = $this->makeSisterKey( $key, self::TYPE_VALUE );
-
-		$minAsOf = $purgeTimestamp + self::HOLDOFF_TTL;
-		$wrapped = $this->cache->get( $valueSisterKey );
-		if ( is_array( $wrapped ) && $wrapped[self::FLD_TIME] < $minAsOf ) {
-			$isStale = true;
-			$this->logger->warning( "Reaping stale value key '$key'." );
-			$ttlReap = self::HOLDOFF_TTL; // avoids races with tombstone creation
-			$ok = $this->cache->changeTTL( $valueSisterKey, $ttlReap );
-			if ( !$ok ) {
-				$this->logger->error( "Could not complete reap of key '$key'." );
-			}
-
-			return $ok;
-		}
-
-		$isStale = false;
-
-		return true;
-	}
-
-	/**
-	 * Set a "check" key to soon expire in the local cluster if it pre-dates $purgeTimestamp
-	 *
-	 * @param string $key Cache key made with makeKey()/makeGlobalKey()
-	 * @param int $purgeTimestamp UNIX timestamp of purge
-	 * @param bool &$isStale Whether the key is stale
-	 * @return bool Success
-	 * @since 1.28
-	 */
-	final public function reapCheckKey( $key, $purgeTimestamp, &$isStale = false ) {
-		$checkSisterKey = $this->makeSisterKey( $key, self::TYPE_TIMESTAMP );
-
-		$wrapped = $this->cache->get( $checkSisterKey );
-		$purge = $this->parsePurgeValue( $wrapped );
-		if ( $purge !== null && $purge[self::PURGE_TIME] < $purgeTimestamp ) {
-			$isStale = true;
-			$this->logger->warning( "Reaping stale check key '$key'." );
-			$ok = $this->cache->changeTTL( $checkSisterKey, self::TTL_SECOND );
-			if ( !$ok ) {
-				$this->logger->error( "Could not complete reap of check key '$key'." );
-			}
-
-			return $ok;
-		}
-
-		$isStale = false;
-
-		return false;
-	}
-
-	/**
-	 * Make a cache key for the global keyspace and given components
-	 *
-	 * @see IStoreKeyEncoder::makeGlobalKey()
-	 *
-	 * @param string $collection Key collection name component
+	 * @see BagOStuff::makeGlobalKey()
+	 * @since 1.27
+	 * @param string $keygroup Key group component, should be under 48 characters.
 	 * @param string|int ...$components Additional, ordered, key components for entity IDs
 	 * @return string Colon-separated, keyspace-prepended, ordered list of encoded components
-	 * @since 1.27
 	 */
-	public function makeGlobalKey( $collection, ...$components ) {
+	public function makeGlobalKey( $keygroup, ...$components ) {
+		// @phan-suppress-next-line PhanParamTooFewUnpack Should infer non-emptiness
 		return $this->cache->makeGlobalKey( ...func_get_args() );
 	}
 
 	/**
-	 * Make a cache key using the "global" keyspace for the given components
-	 *
-	 * @see IStoreKeyEncoder::makeKey()
-	 *
-	 * @param string $collection Key collection name component
+	 * @see BagOStuff::makeKey()
+	 * @since 1.27
+	 * @param string $keygroup Key group component, should be under 48 characters.
 	 * @param string|int ...$components Additional, ordered, key components for entity IDs
 	 * @return string Colon-separated, keyspace-prepended, ordered list of encoded components
-	 * @since 1.27
 	 */
-	public function makeKey( $collection, ...$components ) {
+	public function makeKey( $keygroup, ...$components ) {
+		// @phan-suppress-next-line PhanParamTooFewUnpack Should infer non-emptiness
 		return $this->cache->makeKey( ...func_get_args() );
 	}
 
@@ -2324,17 +2246,19 @@ class WANObjectCache implements
 	/**
 	 * Get an iterator of (cache key => entity ID) for a list of entity IDs
 	 *
-	 * The callback takes an ID string and returns a key via makeKey()/makeGlobalKey().
-	 * There should be no network nor filesystem I/O used in the callback. The entity
-	 * ID/key mapping must be 1:1 or an exception will be thrown. If hashing is needed,
-	 * then use the hash256() method.
+	 * The $callback argument expects a function that returns the key for an entity ID via
+	 * makeKey()/makeGlobalKey(). There should be no network nor filesystem I/O used in the
+	 * callback. The entity ID/key mapping must be 1:1 or an exception will be thrown. Use
+	 * the hash256() method for any hashing. The callback takes the following arguments:
+	 *   - $id: An entity ID
+	 *   - $cache: This WANObjectCache instance
 	 *
 	 * Example usage for the default keyspace:
 	 * @code
 	 *     $keyedIds = $cache->makeMultiKeys(
 	 *         $modules,
-	 *         function ( $module ) use ( $cache ) {
-	 *             return $cache->makeKey( 'module-info', $module );
+	 *         function ( $module, $cache ) {
+	 *             return $cache->makeKey( 'example-module', $module );
 	 *         }
 	 *     );
 	 * @endcode
@@ -2343,10 +2267,10 @@ class WANObjectCache implements
 	 * @code
 	 *     $keyedIds = $cache->makeMultiKeys(
 	 *         $filters,
-	 *         function ( $filter ) use ( $cache ) {
-	 *             return ( strpos( $filter, 'central:' ) === 0 )
-	 *                 ? $cache->makeGlobalKey( 'regex-filter', $filter )
-	 *                 : $cache->makeKey( 'regex-filter', $filter )
+	 *         function ( $filter, $cache ) {
+	 *             return self::isCentral( $filter )
+	 *                 ? $cache->makeGlobalKey( 'example-filter', $filter )
+	 *                 : $cache->makeKey( 'example-filter', $filter )
 	 *         }
 	 *     );
 	 * @endcode
@@ -2355,8 +2279,8 @@ class WANObjectCache implements
 	 * @code
 	 *     $keyedIds = $cache->makeMultiKeys(
 	 *         $urls,
-	 *         function ( $url ) use ( $cache ) {
-	 *             return $cache->makeKey( 'url-info', $cache->hash256( $url ) );
+	 *         function ( $url, $cache ) {
+	 *             return $cache->makeKey( 'example-url', $cache->hash256( $url ) );
 	 *         }
 	 *     );
 	 * @endcode
@@ -2368,7 +2292,6 @@ class WANObjectCache implements
 	 * @param string[]|int[] $ids List of entity IDs
 	 * @param callable $keyCallback Function returning makeKey()/makeGlobalKey() on the input ID
 	 * @return ArrayIterator Iterator of (cache key => ID); order of $ids is preserved
-	 * @throws UnexpectedValueException
 	 * @since 1.28
 	 */
 	final public function makeMultiKeys( array $ids, $keyCallback ) {
@@ -2399,7 +2322,7 @@ class WANObjectCache implements
 	 * For use with getMultiWithSetCallback() and getMultiWithUnionSetCallback().
 	 *
 	 * *Only* use this method if the entity ID/key mapping is trivially 1:1 without exception.
-	 * Key generation method must utitilize the *full* entity ID in the key (not a hash of it).
+	 * Key generation method must utilize the *full* entity ID in the key (not a hash of it).
 	 *
 	 * Example usage:
 	 * @code
@@ -2595,9 +2518,11 @@ class WANObjectCache implements
 	 * @since 1.28
 	 */
 	public function adaptiveTTL( $mtime, $maxTTL, $minTTL = 30, $factor = 0.2 ) {
-		$mtime = (int)$mtime; // handle fractional seconds and string integers
+		// handle fractional seconds and string integers
+		$mtime = (int)$mtime;
 		if ( $mtime <= 0 ) {
-			return $minTTL; // no last-modified time provided
+			// no last-modified time provided
+			return $minTTL;
 		}
 
 		$age = (int)$this->getCurrentTime() - $mtime;
@@ -2606,10 +2531,12 @@ class WANObjectCache implements
 	}
 
 	/**
-	 * @return int Number of warmup key cache misses last round
+	 * @internal For use by unit tests only
+	 * @return int
 	 * @since 1.30
 	 */
 	final public function getWarmupKeyMisses() {
+		// Number of misses in $this->warmupCache during the last call to certain methods
 		return $this->warmupKeyMisses;
 	}
 
@@ -2622,30 +2549,24 @@ class WANObjectCache implements
 	 * so that even if the older value replaces the newer value, the TTL will greater than the
 	 * remaining TTL on the older value (assuming that all purges for a key use the same TTL).
 	 *
-	 * @param array<string,string> $purgeBySisterKey Map of
-	 *  (sister key => result of makeTombstonePurgeValue()/makeCheckKeyPurgeValue())
+	 * @param string $sisterKey A value key or "check" key
+	 * @param string $purgeValue Result of makeTombstonePurgeValue()/makeCheckKeyPurgeValue()
 	 * @param int $ttl Seconds to keep the purge value around
 	 * @return bool Success
 	 */
-	protected function relayVolatilePurges( array $purgeBySisterKey, int $ttl ) {
-		$purgeByRouteKey = [];
-		foreach ( $purgeBySisterKey as $sisterKey => $purge ) {
-			if ( $this->broadcastRoute !== null ) {
-				$routeKey = $this->prependRoute( $sisterKey, $this->broadcastRoute );
-			} else {
-				$routeKey = $sisterKey;
-			}
-			$purgeByRouteKey[$routeKey] = $purge;
-		}
-
-		if ( count( $purgeByRouteKey ) == 1 ) {
-			$purge = reset( $purgeByRouteKey );
-			$ok = $this->cache->set( key( $purgeByRouteKey ), $purge, $ttl );
+	protected function relayVolatilePurge( string $sisterKey, string $purgeValue, int $ttl ) {
+		if ( $this->broadcastRoute !== null ) {
+			$routeKey = $this->prependRoute( $sisterKey, $this->broadcastRoute );
 		} else {
-			$ok = $this->cache->setMulti( $purgeByRouteKey, $ttl );
+			$routeKey = $sisterKey;
 		}
 
-		return $ok;
+		return $this->cache->set(
+			$routeKey,
+			$purgeValue,
+			$ttl,
+			$this->cache::WRITE_BACKGROUND
+		);
 	}
 
 	/**
@@ -2663,7 +2584,7 @@ class WANObjectCache implements
 			$routeKey = $sisterKey;
 		}
 
-		return $this->cache->delete( $routeKey );
+		return $this->cache->delete( $routeKey, $this->cache::WRITE_BACKGROUND );
 	}
 
 	/**
@@ -2806,9 +2727,7 @@ class WANObjectCache implements
 		// Ramp up $chance from 0 to its nominal value over RAMPUP_TTL seconds to avoid stampedes
 		$chance *= ( $timeOld <= self::RAMPUP_TTL ) ? $timeOld / self::RAMPUP_TTL : 1;
 
-		$decision = ( mt_rand( 1, 1000000000 ) <= 1000000000 * $chance );
-
-		return $decision;
+		return ( mt_rand( 1, 1000000000 ) <= 1000000000 * $chance );
 	}
 
 	/**
@@ -2825,7 +2744,7 @@ class WANObjectCache implements
 	 * of cache access traffic without the need for configuration or expensive state.
 	 *
 	 * @param float $curTTL Approximate TTL left on the key
-	 * @param float $logicalTTL Full logical TTL assigned to the key
+	 * @param float $logicalTTL Full logical TTL assigned to the key; 0 for "infinite"
 	 * @param float $lowTTL Consider a refresh when $curTTL is less than this; the "low" threshold
 	 * @return bool
 	 */
@@ -2833,20 +2752,23 @@ class WANObjectCache implements
 		if ( $lowTTL <= 0 ) {
 			return false;
 		}
-
 		// T264787: avoid having keys start off with a high chance of being refreshed;
 		// the point where refreshing becomes possible cannot precede the key lifetime.
 		$effectiveLowTTL = min( $lowTTL, $logicalTTL ?: INF );
 
-		if ( $curTTL >= $effectiveLowTTL || $curTTL <= 0 ) {
+		// How long the value was in the "low TTL" phase
+		$timeOld = $effectiveLowTTL - $curTTL;
+		if ( $timeOld <= 0 || $timeOld >= $effectiveLowTTL ) {
 			return false;
 		}
 
-		$chance = ( 1 - $curTTL / $effectiveLowTTL );
+		// Ratio of the low TTL phase that has elapsed (r)
+		$ttrRatio = $timeOld / $effectiveLowTTL;
+		// Use p(r) as the monotonically increasing "chance of refresh" function,
+		// having p(0)=0 and p(1)=1. The value expires at the nominal expiry.
+		$chance = $ttrRatio ** 4;
 
-		$decision = ( mt_rand( 1, 1000000000 ) <= 1000000000 * $chance );
-
-		return $decision;
+		return ( mt_rand( 1, 1000000000 ) <= 1000000000 * $chance );
 	}
 
 	/**
@@ -2866,10 +2788,9 @@ class WANObjectCache implements
 	 * @param int $ttl Seconds to live or zero for "indefinite"
 	 * @param int|null $version Value version number or null if not versioned
 	 * @param float $now Unix Current timestamp just before calling set()
-	 * @param float|null $walltime How long it took to generate the value in seconds
 	 * @return array
 	 */
-	private function wrap( $value, $ttl, $version, $now, $walltime ) {
+	private function wrap( $value, $ttl, $version, $now ) {
 		// Returns keys in ascending integer order for PHP7 array packing:
 		// https://nikic.github.io/2014/12/22/PHPs-new-hashtable-implementation.html
 		$wrapped = [
@@ -2881,16 +2802,13 @@ class WANObjectCache implements
 		if ( $version !== null ) {
 			$wrapped[self::FLD_VALUE_VERSION] = $version;
 		}
-		if ( $walltime >= self::GENERATION_SLOW_SEC ) {
-			$wrapped[self::FLD_GENERATION_TIME] = $walltime;
-		}
 
 		return $wrapped;
 	}
 
 	/**
 	 * @param array|string|false $wrapped The entry at a cache key (false if key is nonexistant)
-	 * @param float $now Unix Current timestamp (preferrably pre-query)
+	 * @param float $now Unix Current timestamp (preferably pre-query)
 	 * @return array<int,mixed> Result map/n-tuple that includes the following:
 	 *   - WANObjectCache::RES_VALUE: value or false if absent/tombstoned/malformed
 	 *   - WANObjectCache::KEY_VERSION: value version number; null if there is no value
@@ -2952,10 +2870,11 @@ class WANObjectCache implements
 	}
 
 	/**
-	 * @param string $key String of the format <scope>:<collection>[:<constant or variable>]...
-	 * @return string A collection name to describe this class of key
+	 * @param string $key Cache key in the format `<keyspace>:<keygroup>[:<other components>]...`
+	 *  as formatted by WANObjectCache::makeKey() or ::makeKeyGlobal.
+	 * @return string The key group of this cache key
 	 */
-	private function determineKeyClassForStats( $key ) {
+	private function determineKeyGroupForStats( $key ) {
 		$parts = explode( ':', $key, 3 );
 		// Fallback in case the key was not made by makeKey.
 		// Replace dots because they are special in StatsD (T232907)
@@ -3022,7 +2941,7 @@ class WANObjectCache implements
 	 */
 	private function getProcessCache( $group ) {
 		if ( !isset( $this->processCaches[$group] ) ) {
-			list( , $size ) = explode( ':', $group );
+			[ , $size ] = explode( ':', $group );
 			$this->processCaches[$group] = new MapCacheLRU( (int)$size );
 			if ( $this->wallClockOverride !== null ) {
 				$this->processCaches[$group]->setMockTime( $this->wallClockOverride );
@@ -3106,17 +3025,7 @@ class WANObjectCache implements
 	 * @codeCoverageIgnore
 	 */
 	protected function getCurrentTime() {
-		if ( $this->wallClockOverride ) {
-			return $this->wallClockOverride;
-		}
-
-		$clockTime = (float)time(); // call this first
-		// microtime() uses an initial gettimeofday() call added to usage clocks.
-		// This can severely drift from time() and the microtime() value of other threads
-		// due to undercounting of the amount of time elapsed. Instead of seeing the current
-		// time as being in the past, use the value of time(). This avoids setting cache values
-		// that will immediately be seen as expired and possibly cause stampedes.
-		return max( microtime( true ), $clockTime );
+		return $this->wallClockOverride ?: microtime( true );
 	}
 
 	/**

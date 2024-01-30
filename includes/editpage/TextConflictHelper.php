@@ -1,9 +1,5 @@
 <?php
 /**
- * Helper for displaying edit conflicts to users
- *
- * Copyright (C) 2017 Kunal Mehta <legoktm@debian.org>
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -26,20 +22,19 @@ namespace MediaWiki\EditPage;
 
 use Content;
 use ContentHandler;
-use Html;
 use IBufferingStatsdDataFactory;
 use MediaWiki\Content\IContentHandlerFactory;
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Html\Html;
+use MediaWiki\Output\OutputPage;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 use MWUnknownContentModelException;
-use OutputPage;
-use Title;
-use User;
 
 /**
- * Helper for displaying edit conflicts in text content
- * models to users
+ * Helper for displaying edit conflicts in text content models to users
  *
  * @since 1.31
+ * @author Kunal Mehta <legoktm@debian.org>
  */
 class TextConflictHelper {
 
@@ -93,23 +88,19 @@ class TextConflictHelper {
 	 * @param OutputPage $out
 	 * @param IBufferingStatsdDataFactory $stats
 	 * @param string $submitLabel
-	 * @param IContentHandlerFactory|null $contentHandlerFactory Required param with legacy support
+	 * @param IContentHandlerFactory $contentHandlerFactory Required param with legacy support
 	 *
 	 * @throws MWUnknownContentModelException
 	 */
-	public function __construct( Title $title, OutputPage $out, IBufferingStatsdDataFactory $stats,
-		$submitLabel, ?IContentHandlerFactory $contentHandlerFactory = null
+	public function __construct(
+		Title $title, OutputPage $out, IBufferingStatsdDataFactory $stats, $submitLabel,
+		IContentHandlerFactory $contentHandlerFactory
 	) {
 		$this->title = $title;
 		$this->out = $out;
 		$this->stats = $stats;
 		$this->submitLabel = $submitLabel;
 		$this->contentModel = $title->getContentModel();
-
-		if ( !$contentHandlerFactory ) {
-			wfDeprecated( __METHOD__ . ' without $contentHandlerFactory parameter', '1.35' );
-			$contentHandlerFactory = MediaWikiServices::getInstance()->getContentHandlerFactory();
-		}
 		$this->contentHandlerFactory = $contentHandlerFactory;
 
 		$this->contentFormat = $this->contentHandlerFactory

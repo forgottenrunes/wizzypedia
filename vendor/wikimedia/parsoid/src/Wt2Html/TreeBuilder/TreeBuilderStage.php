@@ -12,6 +12,7 @@ namespace Wikimedia\Parsoid\Wt2Html\TreeBuilder;
 use Generator;
 use Wikimedia\Parsoid\Config\Env;
 use Wikimedia\Parsoid\DOM\Node;
+use Wikimedia\Parsoid\NodeData\DataMw;
 use Wikimedia\Parsoid\NodeData\DataParsoid;
 use Wikimedia\Parsoid\NodeData\NodeData;
 use Wikimedia\Parsoid\NodeData\TempData;
@@ -168,19 +169,19 @@ class TreeBuilderStage extends PipelineStage {
 	 * Keep this in sync with `DOMDataUtils.setNodeData()`
 	 *
 	 * @param array $attribs
-	 * @param DataParsoid $dataAttribs
+	 * @param DataParsoid $dataParsoid
 	 * @return array
 	 */
-	private function stashDataAttribs( array $attribs, DataParsoid $dataAttribs ): array {
+	private function stashDataAttribs( array $attribs, DataParsoid $dataParsoid ): array {
 		$data = new NodeData;
-		$data->parsoid = $dataAttribs;
+		$data->parsoid = $dataParsoid;
 		if ( isset( $attribs['data-mw'] ) ) {
-			$data->mw = json_decode( $attribs['data-mw'] );
+			$data->mw = new DataMw( (array)json_decode( $attribs['data-mw'] ) );
 			unset( $attribs['data-mw'] );
 		}
 		// Store in the top level doc since we'll be importing the nodes after treebuilding
-		$docId = DOMDataUtils::stashObjectInDoc( $this->env->topLevelDoc, $data );
-		$attribs[DOMDataUtils::DATA_OBJECT_ATTR_NAME] = (string)$docId;
+		$nodeId = DOMDataUtils::stashObjectInDoc( $this->env->topLevelDoc, $data );
+		$attribs[DOMDataUtils::DATA_OBJECT_ATTR_NAME] = (string)$nodeId;
 		return $attribs;
 	}
 
@@ -201,8 +202,8 @@ class TreeBuilderStage extends PipelineStage {
 
 		$dispatcher = $this->remexPipeline->dispatcher;
 		$attribs = isset( $token->attribs ) ? $this->kvArrToAttr( $token->attribs ) : [];
-		$dataAttribs = $token->dataAttribs ?? new DataParsoid;
-		$tmp = $dataAttribs->getTemp();
+		$dataParsoid = $token->dataParsoid ?? new DataParsoid;
+		$tmp = $dataParsoid->getTemp();
 
 		if ( $this->inTransclusion ) {
 			$tmp->setFlag( TempData::IN_TRANSCLUSION );
@@ -267,41 +268,33 @@ class TreeBuilderStage extends PipelineStage {
 
 			$node = $this->remexPipeline->insertExplicitStartTag(
 				$tName,
-				$this->stashDataAttribs( $attribs, $dataAttribs ),
+				$this->stashDataAttribs( $attribs, $dataParsoid ),
 				false
 			);
 			if ( !$node ) {
-				$this->handleDeletedStartTag( $tName, $dataAttribs );
+				$this->handleDeletedStartTag( $tName, $dataParsoid );
 			}
 		} elseif ( $token instanceof SelfclosingTagTk ) {
 			$tName = $token->getName();
 
 			// Re-expand an empty-line meta-token into its constituent comment + WS tokens
 			if ( TokenUtils::isEmptyLineMetaToken( $token ) ) {
-				$this->processChunk( $dataAttribs->tokens );
+				$this->processChunk( $dataParsoid->tokens );
 				return;
 			}
 
 			$wasInserted = false;
 
-			// FIXME: This prevents fostering of all metas except those
-			// that are explictly identified for fostering. Instead,
-			// this should foster all metas except those are explicitly
-			// barred from being fostered.
-
-			// <*include*> metas, behavior switch metas
-			// should be fostered since they end up generating
-			// HTML content at the marker site.
+			// Transclusion metas are placeholders and are eliminated after template-wrapping.
+			// Fostering them unnecessarily expands template ranges. Same for mw:Param metas.
+			// Annotations are not fostered because the AnnotationBuilder handles its own
+			// range expansion for metas that end up in fosterable positions.
 			if ( $tName === 'meta' ) {
-				$shouldFoster = TokenUtils::matchTypeOf(
+				$shouldNotFoster = TokenUtils::matchTypeOf(
 					$token,
-					'#^mw:Includes/(OnlyInclude|IncludeOnly|NoInclude)(/|$)#'
+					'#^mw:(Transclusion|Annotation|Param)(/|$)#'
 				);
-				if ( !$shouldFoster ) {
-					$prop = $token->getAttribute( 'property' ) ?? '';
-					$shouldFoster = preg_match( '/^(mw:PageProp\/[a-zA-Z]*)\b/', $prop );
-				}
-				if ( !$shouldFoster ) {
+				if ( $shouldNotFoster ) {
 					// transclusions state
 					$transType = TokenUtils::matchTypeOf( $token, '#^mw:Transclusion#' );
 					if ( $transType ) {
@@ -309,7 +302,7 @@ class TreeBuilderStage extends PipelineStage {
 						$this->inTransclusion = ( $transType === 'mw:Transclusion' );
 					}
 					$this->remexPipeline->insertUnfosteredMeta(
-						$this->stashDataAttribs( $attribs, $dataAttribs ) );
+						$this->stashDataAttribs( $attribs, $dataParsoid ) );
 					$wasInserted = true;
 				}
 			}
@@ -317,16 +310,16 @@ class TreeBuilderStage extends PipelineStage {
 			if ( !$wasInserted ) {
 				$node = $this->remexPipeline->insertExplicitStartTag(
 					$tName,
-					$this->stashDataAttribs( $attribs, $dataAttribs ),
+					$this->stashDataAttribs( $attribs, $dataParsoid ),
 					false
 				);
 				if ( $node ) {
 					if ( !Utils::isVoidElement( $tName ) ) {
 						$this->remexPipeline->insertExplicitEndTag(
-							$tName, ( $dataAttribs->stx ?? '' ) === 'html' );
+							$tName, ( $dataParsoid->stx ?? '' ) === 'html' );
 					}
 				} else {
-					$this->insertPlaceholderMeta( $tName, $dataAttribs, true );
+					$this->insertPlaceholderMeta( $tName, $dataParsoid, true );
 				}
 			}
 		} elseif ( $token instanceof EndTagTk ) {
@@ -336,27 +329,29 @@ class TreeBuilderStage extends PipelineStage {
 			}
 			$node = $this->remexPipeline->insertExplicitEndTag(
 				$tName,
-				( $dataAttribs->stx ?? '' ) === 'html'
+				( $dataParsoid->stx ?? '' ) === 'html'
 			);
 			if ( $node ) {
 				// Copy data attribs from the end tag to the element
 				$nodeDP = DOMDataUtils::getDataParsoid( $node );
 				if ( !WTUtils::hasLiteralHTMLMarker( $nodeDP )
-					&& isset( $dataAttribs->endTagSrc )
+					&& isset( $dataParsoid->endTagSrc )
 				) {
-					$nodeDP->endTagSrc = $dataAttribs->endTagSrc;
+					$nodeDP->endTagSrc = $dataParsoid->endTagSrc;
 				}
-				if ( !empty( $dataAttribs->stx ) ) {
+				if ( !empty( $dataParsoid->stx ) ) {
 					// FIXME: Not sure why we do this. For example,
 					// with "{|\n|x\n</table>", why should the entire table
 					// be marked HTML syntax? This is probably entirely
 					// 2013-era historical stuff. Investigate & fix.
 					//
+					// Same behavior with '''foo</b>
+					//
 					// Transfer stx flag
-					$nodeDP->stx = $dataAttribs->stx;
+					$nodeDP->stx = $dataParsoid->stx;
 				}
-				if ( isset( $dataAttribs->tsr ) ) {
-					$nodeDP->getTemp()->endTSR = $dataAttribs->tsr;
+				if ( isset( $dataParsoid->tsr ) ) {
+					$nodeDP->getTemp()->endTSR = $dataParsoid->tsr;
 				}
 				if ( isset( $nodeDP->autoInsertedStartToken ) ) {
 					$nodeDP->autoInsertedStart = true;
@@ -368,9 +363,17 @@ class TreeBuilderStage extends PipelineStage {
 				}
 			} else {
 				// The tag was stripped. Insert an mw:Placeholder for round-tripping
-				$this->insertPlaceholderMeta( $tName, $dataAttribs, false );
+				$this->insertPlaceholderMeta( $tName, $dataParsoid, false );
 			}
 		} elseif ( $token instanceof CommentTk ) {
+			$dp = $token->dataParsoid;
+			// @phan-suppress-next-line PhanUndeclaredProperty
+			if ( isset( $dp->unclosedComment ) ) {
+				// Add a marker meta tag to aid accurate DSR computation
+				$attribs = [ 'typeof' => 'mw:Placeholder/UnclosedComment' ];
+				$this->remexPipeline->insertUnfosteredMeta(
+					$this->stashDataAttribs( $attribs, $dp ) );
+			}
 			$dispatcher->comment( $token->value, 0, 0 );
 		} elseif ( $token instanceof EOFTk ) {
 			$dispatcher->endDocument( 0 );

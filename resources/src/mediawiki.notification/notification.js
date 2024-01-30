@@ -7,8 +7,7 @@
 		// Number of open notification boxes at any time
 		openNotificationCount = 0,
 		isPageReady = false,
-		preReadyNotifQueue = [],
-		rAF = window.requestAnimationFrame || setTimeout;
+		preReadyNotifQueue = [];
 
 	/**
 	 * A Notification object for 1 message.
@@ -172,9 +171,9 @@
 				.addClass( 'mw-notification-visible' );
 		} else {
 			$area.append( $notification );
-			rAF( function () {
+			requestAnimationFrame( function () {
 				// This frame renders the element in the area (invisible)
-				rAF( function () {
+				requestAnimationFrame( function () {
 					$notification.addClass( 'mw-notification-visible' );
 				} );
 			} );
@@ -251,7 +250,7 @@
 		// notification that has now become one of the first {autoHideLimit} notifications.
 		notification.resume();
 
-		rAF( function () {
+		requestAnimationFrame( function () {
 			notif.$notification.removeClass( 'mw-notification-visible' );
 
 			setTimeout( function () {
@@ -296,7 +295,7 @@
 	 * @ignore
 	 */
 	function init() {
-		var offset, $overlay, skinHasArea,
+		var offset, $overlay,
 			isFloating = false;
 
 		function updateAreaMode() {
@@ -313,8 +312,7 @@
 		// Look for a preset notification area in the skin.
 		// 'data-mw*' attributes are banned from user content in Sanitizer.
 		$area = $( '.mw-notification-area[data-mw="interface"]' ).first();
-		skinHasArea = $area.length > 0;
-		if ( !skinHasArea ) {
+		if ( !$area.length ) {
 			$area = $( '<div>' ).addClass( 'mw-notification-area' );
 			// Create overlay div for the notification area
 			$overlay = $( '<div>' ).addClass( 'mw-notification-area-overlay' );
@@ -348,13 +346,10 @@
 		// Read from the DOM:
 		// Must be in the next frame to avoid synchronous layout
 		// computation from offset()/getBoundingClientRect().
-		rAF( function () {
+		requestAnimationFrame( function () {
 			var notif;
 
-			// If a skin provides its own notification area, use its offset. Otherwise, use the
-			// offset of the content area in order to maintain approximate backwards compatibility
-			// (because $area used to be prepended to $content).
-			offset = skinHasArea ? $area.offset() : mw.util.$content.offset();
+			offset = $area.offset();
 
 			// Initial mode (reads, and then maybe writes)
 			updateAreaMode();

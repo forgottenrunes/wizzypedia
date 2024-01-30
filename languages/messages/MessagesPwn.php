@@ -1,17 +1,16 @@
 <?php
 /** Paiwan (pinayuanan)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Amir E. Aharoni
- * @author Jon Harald Søby
  * @author Iyumu
+ * @author Jon Harald Søby
+ * @author Winston Sung
  */
 
-$fallback = 'zh-tw, zh-hant, zh-hans';
+$fallback = 'zh-tw, zh-hant, zh, zh-hans';
 
 $namespaceNames = [
   NS_MEDIA            => 'mitiya',

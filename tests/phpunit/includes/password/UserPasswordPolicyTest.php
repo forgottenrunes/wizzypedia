@@ -20,6 +20,9 @@
  * @file
  */
 
+use MediaWiki\Status\Status;
+use MediaWiki\User\User;
+
 /**
  * @group Database
  * @covers UserPasswordPolicy
@@ -134,7 +137,7 @@ class UserPasswordPolicyTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( $expectedStatus->getValue(), $status->getValue(), 'flags' );
 	}
 
-	public function provideCheckUserPassword() {
+	public static function provideCheckUserPassword() {
 		$success = Status::newGood( [] );
 		$warning = Status::newGood( [] );
 		$forceChange = Status::newGood( [ 'forceChange' => true ] );
@@ -193,8 +196,8 @@ class UserPasswordPolicyTest extends MediaWikiIntegrationTestCase {
 		$user->addToDatabase();
 
 		$status = $upp->checkUserPassword( $user, 'Passpass' );
-		$this->assertFalse( $status->isGood(), 'password invalid' );
-		$this->assertTrue( $status->isOK(), 'can login' );
+		$this->assertStatusNotGood( $status, 'password invalid' );
+		$this->assertStatusOK( $status, 'can login' );
 	}
 
 	/**
@@ -207,7 +210,7 @@ class UserPasswordPolicyTest extends MediaWikiIntegrationTestCase {
 		);
 	}
 
-	public function provideMaxOfPolicies() {
+	public static function provideMaxOfPolicies() {
 		return [
 			'Basic max in p1' => [
 				[ 'MinimalPasswordLength' => 8 ], // p1

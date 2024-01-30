@@ -7,8 +7,8 @@ use Wikimedia\Parsoid\DOM\DocumentFragment;
 use Wikimedia\Parsoid\Ext\ExtensionModule;
 use Wikimedia\Parsoid\Ext\ExtensionTagHandler;
 use Wikimedia\Parsoid\Ext\ParsoidExtensionAPI;
+use Wikimedia\Parsoid\Ext\PHPUtils;
 use Wikimedia\Parsoid\Utils\DOMCompat;
-use Wikimedia\Parsoid\Utils\PHPUtils;
 
 class Poem extends ExtensionTagHandler implements ExtensionModule {
 
@@ -23,6 +23,9 @@ class Poem extends ExtensionTagHandler implements ExtensionModule {
 				[
 					'name' => 'poem',
 					'handler' => self::class,
+					'options' => [
+						'outputHasCoreMwDomSpecMarkup' => true
+					],
 				]
 			]
 		];
@@ -70,8 +73,9 @@ class Poem extends ExtensionTagHandler implements ExtensionModule {
 					$span = $doc->createElement( 'span' );
 					$span->setAttribute( 'class', 'mw-poem-indented' );
 					$span->setAttribute( 'style', 'display: inline-block; margin-inline-start: ' . $i . 'em;' );
-					$span->appendChild( $doc->createTextNode( ltrim( $line, ':' ) ) );
-					return DOMCompat::getOuterHTML( $span );
+					// $line isn't an HTML text node, it's wikitext that will be passed to extTagToDOM
+					return substr( DOMCompat::getOuterHTML( $span ), 0, -7 ) .
+						ltrim( $line, ':' ) . '</span>';
 				} else {
 					return $line;
 				}
@@ -111,7 +115,7 @@ class Poem extends ExtensionTagHandler implements ExtensionModule {
 			$extApi->addNewArg( $extArgs, 'class', 'poem' );
 		}
 
-		return $extApi->extTagToDOM( $extArgs, '', $content, [
+		return $extApi->extTagToDOM( $extArgs, $content, [
 				'wrapperTag' => 'div',
 				'parseOpts' => [ 'extTag' => 'poem' ],
 				// Create new frame, because $content doesn't literally appear in

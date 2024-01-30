@@ -2,9 +2,9 @@
 
 namespace MediaWiki\Session;
 
+use MediaWiki\User\User;
 use MediaWikiIntegrationTestCase;
 use Psr\Log\LogLevel;
-use User;
 use Wikimedia\TestingAccessWrapper;
 
 /**
@@ -91,7 +91,7 @@ class SessionTest extends MediaWikiIntegrationTestCase {
 
 		// Unserializable data
 		$iv = random_bytes( 16 );
-		list( $encKey, $hmacKey ) = TestingAccessWrapper::newFromObject( $session )->getSecretKeys();
+		[ $encKey, $hmacKey ] = TestingAccessWrapper::newFromObject( $session )->getSecretKeys();
 		$ciphertext = openssl_encrypt( 'foobar', 'aes-256-ctr', $encKey, OPENSSL_RAW_DATA, $iv );
 		$sealed = base64_encode( $iv ) . '.' . base64_encode( $ciphertext );
 		$hmac = hash_hmac( 'sha256', $sealed, $hmacKey, true );
@@ -108,7 +108,13 @@ class SessionTest extends MediaWikiIntegrationTestCase {
 
 		// Simple round-trip
 		$session->setSecret( 'secret', $data );
-		$this->assertNotEquals( $data, $session->get( 'secret' ) );
+		// Cast to strings because PHPUnit sometimes considers true as equal to a string,
+		// depending on the other of the parameters (T317750)
+		$raw = $session->get( 'secret' );
+		$this->assertIsString( $raw );
+		if ( is_scalar( $data ) ) {
+			$this->assertNotSame( (string)$data, $raw );
+		}
 		$this->assertEquals( $data, $session->getSecret( 'secret', 'defaulted' ) );
 	}
 

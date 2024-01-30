@@ -12,22 +12,25 @@ const {
 // @chrome @en.m.wikipedia.beta.wmflabs.org @firefox @test2.m.wikipedia.org @vagrant @login
 describe( 'Wikitext Editor', () => {
 
-	beforeEach( () => {
-		iAmLoggedIntoTheMobileWebsite();
-		iAmOnAPageThatDoesNotExist();
-		iClickTheEditButton();
-		iSeeTheWikitextEditorOverlay();
+	beforeEach( async () => {
+		await iAmLoggedIntoTheMobileWebsite();
+		await iAmOnAPageThatDoesNotExist();
 	} );
 
 	// @smoke
-	it( 'Closing editor (overlay button)', () => {
+	// Skipped on 2022-12-07 because of T313775
+	it.skip( 'Closing editor (overlay button)', () => {
+		iClickTheEditButton();
+		iSeeTheWikitextEditorOverlay();
 		iClickTheOverlayCloseButton();
 		iDoNotSeeAnOverlay();
 	} );
 
-	it( 'Closing editor (browser button)', () => {
-		iClickTheBrowserBackButton();
-		iDoNotSeeAnOverlay();
+	it( 'Closing editor (browser button)', async () => {
+		await iClickTheEditButton();
+		await iSeeTheWikitextEditorOverlay();
+		await iClickTheBrowserBackButton();
+		await iDoNotSeeAnOverlay();
 	} );
 
 } );

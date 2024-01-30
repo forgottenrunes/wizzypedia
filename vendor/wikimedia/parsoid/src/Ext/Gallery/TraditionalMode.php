@@ -6,7 +6,7 @@ namespace Wikimedia\Parsoid\Ext\Gallery;
 use Wikimedia\Parsoid\DOM\Document;
 use Wikimedia\Parsoid\DOM\DocumentFragment;
 use Wikimedia\Parsoid\DOM\Element;
-
+use Wikimedia\Parsoid\Ext\DOMDataUtils;
 use Wikimedia\Parsoid\Ext\DOMUtils;
 use Wikimedia\Parsoid\Ext\ParsoidExtensionAPI;
 use Wikimedia\Parsoid\Ext\PHPUtils;
@@ -70,7 +70,6 @@ class TraditionalMode extends Mode {
 			$total = $opts->imageWidth + $padding->thumb + $padding->box + $padding->border;
 			$total *= $opts->imagesPerRow;
 			$this->appendAttr( $ul, 'style', 'max-width: ' . $total . 'px;' );
-			$this->appendAttr( $ul, 'style', '_width: ' . $total . 'px;' );
 		}
 	}
 
@@ -191,6 +190,7 @@ class TraditionalMode extends Mode {
 		$box = $doc->createElement( 'li' );
 		$box->setAttribute( 'class', 'gallerybox' );
 		$box->setAttribute( 'style', $this->boxStyle( $width, $height ) );
+		DOMDataUtils::getDataParsoid( $box )->dsr = $o->dsr;
 
 		$thumb = $doc->createElement( 'div' );
 		$thumb->setAttribute( 'class', 'thumb' );

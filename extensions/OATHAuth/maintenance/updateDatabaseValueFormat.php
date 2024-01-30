@@ -24,8 +24,8 @@
  * @ingroup Maintenance
  */
 
-use MediaWiki\Extension\OATHAuth\Hook\LoadExtensionSchemaUpdates\UpdateTables;
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Extension\OATHAuth\Hook\UpdateTables;
+use MediaWiki\Extension\OATHAuth\OATHAuthServices;
 
 if ( getenv( 'MW_INSTALL_PATH' ) ) {
 	$IP = getenv( 'MW_INSTALL_PATH' );
@@ -45,13 +45,12 @@ class UpdateDatabaseValueFormat extends Maintenance {
 	 * @throws ConfigException
 	 */
 	public function execute() {
-		global $wgOATHAuthDatabase;
-		$lb = MediaWikiServices::getInstance()->getDBLoadBalancerFactory()
-			->getMainLB( $wgOATHAuthDatabase );
-		$dbw = $lb->getConnectionRef( DB_PRIMARY, [], $wgOATHAuthDatabase );
+		$database = OATHAuthServices::getInstance()->getDatabase();
+		$dbw = $database->getDB( DB_PRIMARY );
 
+		// @phan-suppress-next-line PhanTypeMismatchArgumentSuperType
 		if ( !UpdateTables::convertToGenericFields( $dbw ) ) {
-			$this->error( "Failed to update the data structure rows.\n", 1 );
+			$this->fatalError( "Failed to update the data structure rows.\n" );
 		}
 		$this->output( "Done.\n" );
 	}

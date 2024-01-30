@@ -1,3 +1,5 @@
+'use strict';
+
 /*
  * VisualEditor user interface MWCitationDialog class.
  *
@@ -18,9 +20,6 @@ ve.ui.MWCitationDialog = function VeUiMWCitationDialog( config ) {
 	// Parent constructor
 	ve.ui.MWCitationDialog.super.call( this, config );
 
-	// Override feature set.
-	this.useBackButton = false;
-
 	// Properties
 	this.referenceModel = null;
 	this.referenceNode = null;
@@ -38,25 +37,12 @@ ve.ui.MWCitationDialog.static.name = 'cite';
 /* Methods */
 
 /**
- * Hide the "show options" button when using the old workflow.
- */
-ve.ui.MWCitationDialog.prototype.autoExpandSidebar = function () {
-	ve.ui.MWCitationDialog.super.prototype.autoExpandSidebar.call( this );
-
-	if ( !this.useInlineDescriptions && !this.useNewSidebar && !this.isSidebarExpanded ) {
-		this.actions.forEach( { actions: [ 'mode' ] }, function ( action ) {
-			action.toggle( false );
-		} );
-	}
-};
-
-/**
  * Get the reference node to be edited.
  *
  * @return {ve.dm.MWReferenceNode|null} Reference node to be edited, null if none exists
  */
 ve.ui.MWCitationDialog.prototype.getReferenceNode = function () {
-	var selectedNode = this.getFragment().getSelectedNode();
+	const selectedNode = this.getFragment().getSelectedNode();
 
 	if ( selectedNode instanceof ve.dm.MWReferenceNode ) {
 		return selectedNode;
@@ -69,12 +55,12 @@ ve.ui.MWCitationDialog.prototype.getReferenceNode = function () {
  * @inheritdoc
  */
 ve.ui.MWCitationDialog.prototype.getSelectedNode = function () {
-	var referenceNode = this.getReferenceNode();
+	const referenceNode = this.getReferenceNode();
 
-	var transclusionNode;
+	let transclusionNode;
 	if ( referenceNode ) {
-		var branches = referenceNode.getInternalItem().getChildren();
-		var leaves = branches &&
+		const branches = referenceNode.getInternalItem().getChildren();
+		const leaves = branches &&
 			branches.length === 1 &&
 			branches[ 0 ].canContainContent() &&
 			branches[ 0 ].getChildren();
@@ -158,23 +144,22 @@ ve.ui.MWCitationDialog.prototype.setApplicableStatus = function () {
  * @inheritdoc
  */
 ve.ui.MWCitationDialog.prototype.getActionProcess = function ( action ) {
-	var dialog = this;
+	const dialog = this;
 	if (
 		this.inDialog !== 'reference' &&
 		( action === 'done' || action === 'insert' )
 	) {
 		return new OO.ui.Process( function () {
-			var deferred = $.Deferred();
+			const deferred = $.Deferred();
 			dialog.checkRequiredParameters().done( function () {
-				var item, refDoc,
-					surfaceModel = dialog.getFragment().getSurface(),
-					doc = surfaceModel.getDocument(),
-					internalList = doc.getInternalList(),
-					obj = dialog.transclusionModel.getPlainObject();
+				const surfaceModel = dialog.getFragment().getSurface();
+				const doc = surfaceModel.getDocument();
+				const internalList = doc.getInternalList();
+				const obj = dialog.transclusionModel.getPlainObject();
 
 				// We had a reference, but no template node (or wrong kind of template node)
 				if ( dialog.referenceModel && !dialog.selectedNode ) {
-					refDoc = dialog.referenceModel.getDocument();
+					const refDoc = dialog.referenceModel.getDocument();
 					// Empty the existing reference, whatever it contained. This allows the dialog to be
 					// used for arbitrary references (to replace their contents with a citation).
 					refDoc.commit(
@@ -190,7 +175,7 @@ ve.ui.MWCitationDialog.prototype.getActionProcess = function ( action ) {
 					dialog.referenceModel.insertReferenceNode( dialog.getFragment() );
 				}
 
-				item = dialog.referenceModel.findInternalItem( surfaceModel );
+				const item = dialog.referenceModel.findInternalItem( surfaceModel );
 				if ( item ) {
 					if ( dialog.selectedNode ) {
 						dialog.transclusionModel.updateTransclusionNode(

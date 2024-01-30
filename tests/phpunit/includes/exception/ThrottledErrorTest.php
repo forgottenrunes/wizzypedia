@@ -1,5 +1,7 @@
 <?php
 
+use MediaWiki\Output\OutputPage;
+
 /**
  * @covers ThrottledError
  * @author Addshore
@@ -7,9 +9,7 @@
 class ThrottledErrorTest extends MediaWikiIntegrationTestCase {
 
 	public function testExceptionSetsStatusCode() {
-		$mockOut = $this->getMockBuilder( OutputPage::class )
-			->disableOriginalConstructor()
-			->getMock();
+		$mockOut = $this->createMock( OutputPage::class );
 		$mockOut->expects( $this->once() )
 			->method( 'setStatusCode' )
 			->with( 429 );

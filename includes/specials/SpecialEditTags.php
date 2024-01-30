@@ -19,7 +19,24 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use ChangeTagsList;
+use ErrorPageError;
+use LogEventsList;
+use LogPage;
+use MediaWiki\ChangeTags\ChangeTagsStore;
+use MediaWiki\CommentStore\CommentStore;
+use MediaWiki\Html\Html;
 use MediaWiki\Permissions\PermissionManager;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\SpecialPage\UnlistedSpecialPage;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
+use RevisionDeleter;
+use UserBlockedError;
+use Xml;
+use XmlSelect;
 
 /**
  * Special page for adding and removing change tags to individual revisions.
@@ -50,18 +67,19 @@ class SpecialEditTags extends UnlistedSpecialPage {
 	/** @var string */
 	private $reason;
 
-	/** @var PermissionManager */
-	private $permissionManager;
+	private PermissionManager $permissionManager;
+	private ChangeTagsStore $changeTagsStore;
 
 	/**
 	 * @inheritDoc
 	 *
 	 * @param PermissionManager $permissionManager
 	 */
-	public function __construct( PermissionManager $permissionManager ) {
+	public function __construct( PermissionManager $permissionManager, ChangeTagsStore $changeTagsStore ) {
 		parent::__construct( 'EditTags', 'changetags' );
 
 		$this->permissionManager = $permissionManager;
+		$this->changeTagsStore = $changeTagsStore;
 	}
 
 	public function doesWrites() {
@@ -79,7 +97,7 @@ class SpecialEditTags extends UnlistedSpecialPage {
 		$this->setHeaders();
 		$this->outputHeader();
 
-		$output->addModules( [ 'mediawiki.special.edittags' ] );
+		$output->addModules( [ 'mediawiki.misc-authed-curate' ] );
 		$output->addModuleStyles( [
 			'mediawiki.interface.helpers.styles',
 			'mediawiki.special'
@@ -125,7 +143,7 @@ class SpecialEditTags extends UnlistedSpecialPage {
 			$this->ids
 		);
 
-		$this->reason = $request->getVal( 'wpReason' );
+		$this->reason = $request->getVal( 'wpReason', '' );
 		// We need a target page!
 		if ( $this->targetObj === null ) {
 			$output->addWikiMsg( 'undelete-header' );
@@ -142,6 +160,7 @@ class SpecialEditTags extends UnlistedSpecialPage {
 			)
 		) {
 			throw new UserBlockedError(
+				// @phan-suppress-next-line PhanTypeMismatchArgumentNullable Block is checked and not null
 				$user->getBlock(),
 				$user,
 				$this->getLanguage(),
@@ -367,7 +386,7 @@ class SpecialEditTags extends UnlistedSpecialPage {
 	 *
 	 * @param array $selectedTags The tags that should be preselected in the
 	 * list. Any tags in this list, but not in the list returned by
-	 * ChangeTags::listExplicitlyDefinedTags, will be appended to the <select>
+	 * ChangeTagsStore::listExplicitlyDefinedTags, will be appended to the <select>
 	 * element.
 	 * @param string $label The text of a <label> to precede the <select>
 	 * @return array HTML <label> element at index 0, HTML <select> element at
@@ -381,7 +400,7 @@ class SpecialEditTags extends UnlistedSpecialPage {
 		$select->setAttribute( 'multiple', 'multiple' );
 		$select->setAttribute( 'size', '8' );
 
-		$tags = ChangeTags::listExplicitlyDefinedTags();
+		$tags = $this->changeTagsStore->listExplicitlyDefinedTags();
 		$tags = array_unique( array_merge( $tags, $selectedTags ) );
 
 		// Values of $tags are also used as <option> labels
@@ -405,10 +424,7 @@ class SpecialEditTags extends UnlistedSpecialPage {
 		}
 
 		// Evaluate incoming request data
-		$tagList = $request->getArray( 'wpTagList' );
-		if ( $tagList === null ) {
-			$tagList = [];
-		}
+		$tagList = $request->getArray( 'wpTagList' ) ?? [];
 		$existingTags = $request->getVal( 'wpExistingTags' );
 		if ( $existingTags === null || $existingTags === '' ) {
 			$existingTags = [];
@@ -422,7 +438,7 @@ class SpecialEditTags extends UnlistedSpecialPage {
 			if ( $request->getBool( 'wpRemoveAllTags' ) ) {
 				$tagsToRemove = $existingTags;
 			} else {
-				$tagsToRemove = $request->getArray( 'wpTagsToRemove' );
+				$tagsToRemove = $request->getArray( 'wpTagsToRemove', [] );
 			}
 		} else {
 			// single revision selected
@@ -452,9 +468,11 @@ class SpecialEditTags extends UnlistedSpecialPage {
 	 * Report that the submit operation succeeded
 	 */
 	protected function success() {
-		$this->getOutput()->setPageTitle( $this->msg( 'actioncomplete' ) );
-		$this->getOutput()->wrapWikiMsg( "<div class=\"successbox\">\n$1\n</div>",
-			'tags-edit-success' );
+		$out = $this->getOutput();
+		$out->setPageTitleMsg( $this->msg( 'actioncomplete' ) );
+		$out->addHTML(
+			Html::successBox( $out->msg( 'tags-edit-success' )->parse() )
+		);
 		$this->wasSaved = true;
 		$this->revList->reloadFromPrimary();
 		$this->reason = ''; // no need to spew the reason back at the user
@@ -466,18 +484,28 @@ class SpecialEditTags extends UnlistedSpecialPage {
 	 * @param Status $status
 	 */
 	protected function failure( $status ) {
-		$this->getOutput()->setPageTitle( $this->msg( 'actionfailed' ) );
-		$this->getOutput()->wrapWikiTextAsInterface(
-			'errorbox', $status->getWikiText( 'tags-edit-failure', false, $this->getLanguage() )
+		$out = $this->getOutput();
+		$out->setPageTitleMsg( $this->msg( 'actionfailed' ) );
+		$out->addHTML(
+			Html::errorBox(
+				$out->parseAsContent(
+					$status->getWikiText( 'tags-edit-failure', false, $this->getLanguage() )
+				)
+			)
 		);
 		$this->showForm();
 	}
 
 	public function getDescription() {
-		return $this->msg( 'tags-edit-title' )->text();
+		return $this->msg( 'tags-edit-title' );
 	}
 
 	protected function getGroupName() {
 		return 'pagetools';
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialEditTags::class, 'SpecialEditTags' );

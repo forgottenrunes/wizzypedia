@@ -1,5 +1,9 @@
 <?php
 
+use MediaWiki\Html\Html;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Request\WebRequest;
+
 /**
  * Multi-select field
  *
@@ -95,7 +99,6 @@ class HTMLMultiSelectField extends HTMLFormField implements HTMLNestedFilterable
 	 * @param mixed $value
 	 *
 	 * @return string
-	 * @throws MWException
 	 */
 	public function formatOptions( $options, $value ) {
 		$html = '';
@@ -131,7 +134,7 @@ class HTMLMultiSelectField extends HTMLFormField implements HTMLNestedFilterable
 
 	protected function getOneCheckbox( $checked, $attribs, $label ) {
 		if ( $this->mParent instanceof OOUIHTMLForm ) {
-			throw new MWException( 'HTMLMultiSelectField#getOneCheckbox() is not supported' );
+			throw new RuntimeException( __METHOD__ . ' is not supported' );
 		} else {
 			$elementFunc = [ Html::class, $this->mOptionsLabelsNotFromMessage ? 'rawElement' : 'element' ];
 			$checkbox =
@@ -142,7 +145,7 @@ class HTMLMultiSelectField extends HTMLFormField implements HTMLNestedFilterable
 					[ 'for' => $attribs['id'] ],
 					$label
 				);
-			if ( $this->mParent->getConfig()->get( 'UseMediaWikiUIEverywhere' ) ) {
+			if ( $this->mParent->getConfig()->get( MainConfigNames::UseMediaWikiUIEverywhere ) ) {
 				$checkbox = Html::openElement( 'div', [ 'class' => 'mw-ui-checkbox' ] ) .
 					$checkbox .
 					Html::closeElement( 'div' );
@@ -154,12 +157,11 @@ class HTMLMultiSelectField extends HTMLFormField implements HTMLNestedFilterable
 	/**
 	 * Get options and make them into arrays suitable for OOUI.
 	 * @stable to override
-	 * @throws MWException
 	 */
 	public function getOptionsOOUI() {
 		// @phan-suppress-previous-line PhanPluginNeverReturnMethod
 		// Sections make this difficult. See getInputOOUI().
-		throw new MWException( 'HTMLMultiSelectField#getOptionsOOUI() is not supported' );
+		throw new RuntimeException( __METHOD__ . ' is not supported' );
 	}
 
 	/**
@@ -270,6 +272,7 @@ class HTMLMultiSelectField extends HTMLFormField implements HTMLNestedFilterable
 		if ( $this->isSubmitAttempt( $request ) || $fromRequest ) {
 			// Checkboxes are just not added to the request arrays if they're not checked,
 			// so it's perfectly possible for there not to be an entry at all
+			// @phan-suppress-next-line PhanTypeMismatchReturnNullable getArray does not return null
 			return $fromRequest;
 		} else {
 			// That's ok, the user has not yet submitted the form, so show the defaults

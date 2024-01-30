@@ -21,6 +21,10 @@
 ve.ui.MWGalleryItemWidget = function VeUiMWGalleryItemWidget( imageInfo, config ) {
 	this.resource = imageInfo.resource;
 	this.altText = imageInfo.altText || '';
+	this.altTextSame = imageInfo.altTextSame;
+	this.href = imageInfo.href;
+	// Keep the original value which may be null
+	this.originalAltText = imageInfo.altText;
 	this.src = imageInfo.src;
 	this.height = imageInfo.height;
 	this.width = imageInfo.width;
@@ -28,6 +32,9 @@ ve.ui.MWGalleryItemWidget = function VeUiMWGalleryItemWidget( imageInfo, config 
 	this.captionDocument = imageInfo.captionDocument;
 	this.highlighted = false;
 	this.tagName = imageInfo.tagName;
+	this.isError = imageInfo.isError;
+	this.imageClassAttr = imageInfo.imageClassAttr;
+	this.imgWrapperClassAttr = imageInfo.imgWrapperClassAttr;
 
 	// Configuration initialization
 	config = config || {};
@@ -36,7 +43,7 @@ ve.ui.MWGalleryItemWidget = function VeUiMWGalleryItemWidget( imageInfo, config 
 	ve.ui.MWGalleryItemWidget.super.call( this, config );
 
 	this.$element
-		.addClass( 've-ui-mwGalleryDialog-image-container' ) // TODO: put in new CSS file?
+		.addClass( 've-ui-mwGalleryDialog-image-container mw-no-invert' ) // TODO: put in new CSS file?
 		.addClass( config.isMobile ?
 			've-ui-mwGalleryDialog-image-container-mobile' :
 			've-ui-mwGalleryDialog-image-container-desktop'
@@ -107,6 +114,15 @@ ve.ui.MWGalleryItemWidget.prototype.setCaptionDocument = function ( captionDocum
  */
 ve.ui.MWGalleryItemWidget.prototype.setAltText = function ( altText ) {
 	this.altText = altText;
+};
+
+/**
+ * Set the altTextSame property
+ *
+ * @param {boolean} same
+ */
+ve.ui.MWGalleryItemWidget.prototype.setAltTextSame = function ( same ) {
+	this.altTextSame = same;
 };
 
 /**

@@ -20,7 +20,12 @@
  * @file
  */
 
+use MediaWiki\Html\Html;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Output\OutputPage;
+use MediaWiki\SpecialPage\SpecialPage;
+use Wikimedia\ParamValidator\ParamValidator;
 
 /**
  * This is the abstract base class for API formatters.
@@ -36,13 +41,14 @@ abstract class ApiFormatBase extends ApiBase {
 
 	/**
 	 * If $format ends with 'fm', pretty-print the output in HTML.
+	 *
 	 * @param ApiMain $main
 	 * @param string $format Format name
 	 */
 	public function __construct( ApiMain $main, $format ) {
 		parent::__construct( $main, $format );
 
-		$this->mIsHtml = ( substr( $format, -2, 2 ) === 'fm' ); // ends with 'fm'
+		$this->mIsHtml = str_ends_with( $format, 'fm' );
 		if ( $this->mIsHtml ) {
 			$this->mFormat = substr( $format, 0, -2 ); // remove ending 'fm'
 			$this->mIsWrappedHtml = $this->getMain()->getCheck( 'wrappedhtml' );
@@ -56,7 +62,7 @@ abstract class ApiFormatBase extends ApiBase {
 	 * Overriding class returns the MIME type that should be sent to the client.
 	 *
 	 * When getIsHtml() returns true, the return value here is used for syntax
-	 * highlighting but the client sees text/html.
+	 * highlighting, but the client sees text/html.
 	 *
 	 * @return string|null
 	 */
@@ -64,26 +70,30 @@ abstract class ApiFormatBase extends ApiBase {
 
 	/**
 	 * Return a filename for this module's output.
+	 *
 	 * @note If $this->getIsWrappedHtml() || $this->getIsHtml(), you'll very
 	 *  likely want to fall back to this class's version.
 	 * @since 1.27
-	 * @return string Generally this should be "api-result.$ext"
+	 * @return string Generally, this should be "api-result.$ext"
 	 */
 	public function getFilename() {
 		if ( $this->getIsWrappedHtml() ) {
 			return 'api-result-wrapped.json';
-		} elseif ( $this->getIsHtml() ) {
-			return 'api-result.html';
-		} else {
-			$mimeAnalyzer = MediaWikiServices::getInstance()->getMimeAnalyzer();
-			$ext = $mimeAnalyzer->getExtensionFromMimeTypeOrNull( $this->getMimeType() )
-				?? strtolower( $this->mFormat );
-			return "api-result.$ext";
 		}
+
+		if ( $this->getIsHtml() ) {
+			return 'api-result.html';
+		}
+
+		$mimeAnalyzer = MediaWikiServices::getInstance()->getMimeAnalyzer();
+		$ext = $mimeAnalyzer->getExtensionFromMimeTypeOrNull( $this->getMimeType() )
+			?? strtolower( $this->mFormat );
+		return "api-result.$ext";
 	}
 
 	/**
 	 * Get the internal format name
+	 *
 	 * @return string
 	 */
 	public function getFormat() {
@@ -92,8 +102,8 @@ abstract class ApiFormatBase extends ApiBase {
 
 	/**
 	 * Returns true when the HTML pretty-printer should be used.
-	 * The default implementation assumes that formats ending with 'fm'
-	 * should be formatted in HTML.
+	 * The default implementation assumes that formats ending with 'fm' should be formatted in HTML.
+	 *
 	 * @return bool
 	 */
 	public function getIsHtml() {
@@ -101,7 +111,8 @@ abstract class ApiFormatBase extends ApiBase {
 	}
 
 	/**
-	 * Returns true when the special wrapped mode is enabled.
+	 * Returns true when the special-wrapped mode is enabled.
+	 *
 	 * @since 1.27
 	 * @return bool
 	 */
@@ -119,7 +130,8 @@ abstract class ApiFormatBase extends ApiBase {
 	}
 
 	/**
-	 * Whether the printer is disabled
+	 * Whether the printer is disabled.
+	 *
 	 * @return bool
 	 */
 	public function isDisabled() {
@@ -129,8 +141,7 @@ abstract class ApiFormatBase extends ApiBase {
 	/**
 	 * Whether this formatter can handle printing API errors.
 	 *
-	 * If this returns false, then on API errors the default printer will be
-	 * instantiated.
+	 * If this returns false, then when API errors occur, the default printer will be instantiated.
 	 * @since 1.23
 	 * @return bool
 	 */
@@ -142,6 +153,7 @@ abstract class ApiFormatBase extends ApiBase {
 	 * Ignore request parameters, force a default.
 	 *
 	 * Used as a fallback if errors are being thrown.
+	 *
 	 * @since 1.26
 	 */
 	public function forceDefaultParams() {
@@ -162,7 +174,7 @@ abstract class ApiFormatBase extends ApiBase {
 			return $paramSettings;
 		}
 
-		return $paramSettings[self::PARAM_DFLT] ?? null;
+		return $paramSettings[ParamValidator::PARAM_DEFAULT] ?? null;
 	}
 
 	/**
@@ -204,7 +216,7 @@ abstract class ApiFormatBase extends ApiBase {
 		$this->getMain()->getRequest()->response()->header( "Content-Type: $mime; charset=utf-8" );
 
 		// Set X-Frame-Options API results (T41180)
-		$apiFrameOptions = $this->getConfig()->get( 'ApiFrameOptions' );
+		$apiFrameOptions = $this->getConfig()->get( MainConfigNames::ApiFrameOptions );
 		if ( $apiFrameOptions ) {
 			$this->getMain()->getRequest()->response()->header( "X-Frame-Options: $apiFrameOptions" );
 		}
@@ -255,7 +267,7 @@ abstract class ApiFormatBase extends ApiBase {
 
 			$out->setRobotPolicy( 'noindex,nofollow' );
 			$out->addModuleStyles( 'mediawiki.apipretty' );
-			$out->setPageTitle( $context->msg( 'api-format-title' ) );
+			$out->setPageTitleMsg( $context->msg( 'api-format-title' ) );
 
 			if ( !$this->getIsWrappedHtml() ) {
 				// When the format without suffix 'fm' is defined, there is a non-html version
@@ -281,7 +293,7 @@ abstract class ApiFormatBase extends ApiBase {
 
 				if ( $this->mHttpStatus && $this->mHttpStatus !== 200 ) {
 					$out->addHTML(
-						Html::rawElement( 'div', [ 'class' => 'api-pretty-header api-pretty-status' ],
+						Html::rawElement( 'div', [ 'class' => [ 'api-pretty-header', 'api-pretty-status' ] ],
 							$this->msg(
 								'api-format-prettyprint-status',
 								$this->mHttpStatus,
@@ -301,7 +313,7 @@ abstract class ApiFormatBase extends ApiBase {
 			if ( $this->getIsWrappedHtml() ) {
 				// This is a special output mode mainly intended for ApiSandbox use
 				$time = $this->getMain()->getRequest()->getElapsedTime();
-				$json = FormatJson::encode(
+				echo FormatJson::encode(
 					[
 						'status' => (int)( $this->mHttpStatus ?: 200 ),
 						'statustext' => HttpStatus::getMessage( $this->mHttpStatus ?: 200 ),
@@ -315,20 +327,9 @@ abstract class ApiFormatBase extends ApiBase {
 					],
 					false, FormatJson::ALL_OK
 				);
-
-				// T68776: OutputHandler::mangleFlashPolicy() avoids a nasty bug in
-				// Flash, but what it does isn't friendly for the API, so we need to
-				// work around it.
-				if ( preg_match( '/\<\s*cross-domain-policy\s*\>/i', $json ) ) {
-					$json = preg_replace(
-						'/\<(\s*cross-domain-policy\s*)\>/i', '\\u003C$1\\u003E', $json
-					);
-				}
-
-				echo $json;
 			} else {
 				// API handles its own clickjacking protection.
-				// Note, that $wgBreakFrames will still override $wgApiFrameOptions for format mode.
+				// Note: $wgBreakFrames will still override $wgApiFrameOptions for format mode.
 				$out->setPreventClickjacking( false );
 				$out->output();
 			}
@@ -343,6 +344,7 @@ abstract class ApiFormatBase extends ApiBase {
 
 	/**
 	 * Append text to the output buffer.
+	 *
 	 * @param string $text
 	 */
 	public function printText( $text ) {
@@ -351,6 +353,7 @@ abstract class ApiFormatBase extends ApiBase {
 
 	/**
 	 * Get the contents of the buffer.
+	 *
 	 * @return string
 	 */
 	public function getBuffer() {
@@ -361,9 +364,8 @@ abstract class ApiFormatBase extends ApiBase {
 		$ret = [];
 		if ( $this->getIsHtml() ) {
 			$ret['wrappedhtml'] = [
-				ApiBase::PARAM_DFLT => false,
+				ParamValidator::PARAM_DEFAULT => false,
 				ApiBase::PARAM_HELP_MSG => 'apihelp-format-param-wrappedhtml',
-
 			];
 		}
 		return $ret;

@@ -3,6 +3,7 @@
 namespace MediaWiki\Tidy;
 
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\MainConfigNames;
 use Wikimedia\RemexHtml\HTMLData;
 use Wikimedia\RemexHtml\Serializer\Serializer;
 use Wikimedia\RemexHtml\Serializer\SerializerWithTracer;
@@ -16,23 +17,21 @@ class RemexDriver extends TidyDriverBase {
 	private $serializerTrace;
 	private $mungerTrace;
 	private $pwrap;
+	private $enableLegacyMediaDOM;
 
 	/** @internal */
 	public const CONSTRUCTOR_OPTIONS = [
-		'TidyConfig',
+		MainConfigNames::TidyConfig,
+		MainConfigNames::ParserEnableLegacyMediaDOM,
 	];
 
 	/**
-	 * @param ServiceOptions|array $options Passing an array is deprecated.
+	 * @param ServiceOptions $options
 	 */
-	public function __construct( $options ) {
-		if ( is_array( $options ) ) {
-			wfDeprecated( __METHOD__ . " with array argument", '1.36' );
-			$config = $options;
-		} else {
-			$options->assertRequiredOptions( self::CONSTRUCTOR_OPTIONS );
-			$config = $options->get( 'TidyConfig' );
-		}
+	public function __construct( ServiceOptions $options ) {
+		$options->assertRequiredOptions( self::CONSTRUCTOR_OPTIONS );
+		$config = $options->get( MainConfigNames::TidyConfig );
+		$this->enableLegacyMediaDOM = $options->get( MainConfigNames::ParserEnableLegacyMediaDOM );
 		$config += [
 			'treeMutationTrace' => false,
 			'serializerTrace' => false,
@@ -67,7 +66,8 @@ class RemexDriver extends TidyDriverBase {
 		} else {
 			$tracer = $munger;
 		}
-		$treeBuilder = new TreeBuilder( $tracer, [
+		$treeBuilderClass = $this->enableLegacyMediaDOM ? TreeBuilder::class : RemexCompatBuilder::class;
+		$treeBuilder = new $treeBuilderClass( $tracer, [
 			'ignoreErrors' => true,
 			'ignoreNulls' => true,
 		] );

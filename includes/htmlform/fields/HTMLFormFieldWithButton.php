@@ -1,6 +1,11 @@
 <?php
+
+use MediaWiki\Html\Html;
+
 /**
  * Enables HTMLFormField elements to be build with a button.
+ *
+ * TODO This class should be a trait
  *
  * @stable to extend
  */

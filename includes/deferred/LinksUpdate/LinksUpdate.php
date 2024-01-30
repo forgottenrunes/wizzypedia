@@ -26,21 +26,21 @@ use AutoCommitUpdate;
 use BacklinkCache;
 use DataUpdate;
 use DeferredUpdates;
-use DeprecationHelper;
 use Job;
 use MediaWiki\HookContainer\ProtectedHookAccessorTrait;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Page\PageReference;
 use MediaWiki\Page\PageReferenceValue;
 use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\Title\Title;
 use MediaWiki\User\UserIdentity;
 use MWException;
 use ParserOutput;
 use RefreshLinksJob;
 use RuntimeException;
-use Title;
 use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\ScopedCallback;
 
@@ -53,9 +53,6 @@ use Wikimedia\ScopedCallback;
  */
 class LinksUpdate extends DataUpdate {
 	use ProtectedHookAccessorTrait;
-	use DeprecationHelper;
-
-	// @todo make members protected, but make sure extensions don't break
 
 	/** @var int Page ID of the article linked from */
 	protected $mId;
@@ -68,6 +65,9 @@ class LinksUpdate extends DataUpdate {
 
 	/** @var bool Whether to queue jobs for recursive updates */
 	protected $mRecursive;
+
+	/** @var bool Whether the page's redirect target may have changed in the latest revision */
+	protected $mMaybeRedirectChanged;
 
 	/** @var RevisionRecord Revision for which this update has been triggered */
 	private $mRevisionRecord;
@@ -87,87 +87,23 @@ class LinksUpdate extends DataUpdate {
 	 * @param PageIdentity $page The page we're updating
 	 * @param ParserOutput $parserOutput Output from a full parse of this page
 	 * @param bool $recursive Queue jobs for recursive updates?
+	 * @param bool $maybeRedirectChanged True if the page's redirect target may have changed in the
+	 *   latest revision. If false, this is used as a hint to skip some unnecessary updates.
 	 *
 	 * @throws MWException
 	 */
-	public function __construct( PageIdentity $page, ParserOutput $parserOutput, $recursive = true ) {
+	public function __construct(
+		PageIdentity $page,
+		ParserOutput $parserOutput,
+		$recursive = true,
+		$maybeRedirectChanged = true
+	) {
 		parent::__construct();
 
-		$this->mTitle = Title::castFromPageIdentity( $page );
+		$this->mTitle = Title::newFromPageIdentity( $page );
 		$this->mParserOutput = $parserOutput;
-
-		$this->deprecatePublicProperty( 'mId', '1.38', __CLASS__ );
-		$this->deprecatePublicProperty( 'mTitle', '1.38', __CLASS__ );
-		$this->deprecatePublicProperty( 'mParserOutput', '1.38', __CLASS__ );
-
-		$this->deprecatePublicPropertyFallback( 'mLinks', '1.38',
-			function () {
-				return $this->getParserOutput()->getLinks();
-			},
-			null, __CLASS__
-		);
-		$this->deprecatePublicPropertyFallback( 'mImages', '1.38',
-			function () {
-				return $this->getParserOutput()->getImages();
-			},
-			null, __CLASS__
-		);
-		$this->deprecatePublicPropertyFallback( 'mTemplates', '1.38',
-			function () {
-				return $this->getParserOutput()->getTemplates();
-			},
-			null, __CLASS__
-		);
-		$this->deprecatePublicPropertyFallback( 'mExternals', '1.38',
-			function () {
-				return $this->getParserOutput()->getExternalLinks();
-			},
-			null, __CLASS__
-		);
-		$this->deprecatePublicPropertyFallback( 'mCategories', '1.38',
-			function () {
-				return $this->getParserOutput()->getCategories();
-			},
-			null, __CLASS__
-		);
-		$this->deprecatePublicPropertyFallback( 'mProperties', '1.38',
-			function () {
-				return $this->getParserOutput()->getPageProperties();
-			},
-			null, __CLASS__
-		);
-		$this->deprecatePublicPropertyFallback( 'mInterwikis', '1.38',
-			function () {
-				return $this->getParserOutput()->getInterwikiLinks();
-			},
-			null, __CLASS__
-		);
-		$this->deprecatePublicPropertyFallback( 'mInterlangs', '1.38',
-			function () {
-				$ill = $this->getParserOutput()->getLanguageLinks();
-				$res = [];
-				foreach ( $ill as $link ) {
-					list( $key, $title ) = explode( ':', $link, 2 );
-					$res[$key] = $title;
-				}
-				return $res;
-			},
-			null, __CLASS__
-		);
-		$this->deprecatePublicPropertyFallback( 'mCategories', '1.38',
-			function () {
-				$cats = $this->getParserOutput()->getCategories();
-				foreach ( $cats as &$sortkey ) {
-					# If the sortkey is longer then 255 bytes, it is truncated by DB, and then doesn't match
-					# when comparing existing vs current categories, causing T27254.
-					$sortkey = mb_strcut( $sortkey, 0, 255 );
-				}
-			},
-			null, __CLASS__
-		);
-
 		$this->mRecursive = $recursive;
-		$this->deprecatePublicProperty( 'mRecursive', '1.38', __CLASS__ );
+		$this->mMaybeRedirectChanged = $maybeRedirectChanged;
 
 		$services = MediaWikiServices::getInstance();
 		$config = $services->getMainConfig();
@@ -177,16 +113,11 @@ class LinksUpdate extends DataUpdate {
 			$services->getCollationFactory(),
 			$page,
 			$services->getLinkTargetLookup(),
-			$config->get( 'UpdateRowsPerQuery' ),
-			function ( $table, $rows ) {
-				$this->getHookRunner()->onLinksUpdateAfterInsert( $this, $table, $rows );
-			},
-			$config->get( 'TempCategoryCollations' )
+			$config->get( MainConfigNames::UpdateRowsPerQuery ),
+			$config->get( MainConfigNames::TempCategoryCollations )
 		);
 		// TODO: this does not have to be called in LinksDeletionUpdate
 		$this->tableFactory->setParserOutput( $parserOutput );
-
-		$this->getHookRunner()->onLinksUpdateConstructed( $this );
 	}
 
 	public function setTransactionTicket( $ticket ) {
@@ -218,7 +149,7 @@ class LinksUpdate extends DataUpdate {
 		if ( !$this->mId ) {
 			// Probably due to concurrent deletion or renaming of the page
 			$logger = LoggerFactory::getInstance( 'SecondaryDataUpdate' );
-			$logger->notice(
+			$logger->warning(
 				'LinksUpdate: The Title object yields no ID. Perhaps the page was deleted?',
 				[
 					'page_title' => $this->mTitle->getPrefixedDBkey(),
@@ -318,8 +249,8 @@ class LinksUpdate extends DataUpdate {
 		self::queueRecursiveJobsForTable(
 			$this->mTitle, 'templatelinks', $action, $agent, $backlinkCache
 		);
-		if ( $this->mTitle->getNamespace() === NS_FILE ) {
-			// Process imagelinks in case the title is or was a redirect
+		if ( $this->mMaybeRedirectChanged && $this->mTitle->getNamespace() === NS_FILE ) {
+			// Process imagelinks in case the redirect target has changed
 			self::queueRecursiveJobsForTable(
 				$this->mTitle, 'imagelinks', $action, $agent, $backlinkCache
 			);
@@ -353,9 +284,9 @@ class LinksUpdate extends DataUpdate {
 	 * @param BacklinkCache|null $backlinkCache
 	 */
 	public static function queueRecursiveJobsForTable(
-		PageIdentity $page, $table, $action = 'unknown', $userName = 'unknown', ?BacklinkCache $backlinkCache = null
+		PageIdentity $page, $table, $action = 'LinksUpdate', $userName = 'unknown', ?BacklinkCache $backlinkCache = null
 	) {
-		$title = Title::castFromPageIdentity( $page );
+		$title = Title::newFromPageIdentity( $page );
 		if ( !$backlinkCache ) {
 			wfDeprecatedMsg( __METHOD__ . " needs a BacklinkCache object, null passed", '1.37' );
 			$backlinkCache = MediaWikiServices::getInstance()->getBacklinkCacheFactory()
@@ -595,11 +526,11 @@ class LinksUpdate extends DataUpdate {
 		if ( $this->mId ) {
 			// The link updates made here only reflect the freshness of the parser output
 			$timestamp = $this->mParserOutput->getCacheTime();
-			$this->getDB()->update( 'page',
-				[ 'page_links_updated' => $this->getDB()->timestamp( $timestamp ) ],
-				[ 'page_id' => $this->mId ],
-				__METHOD__
-			);
+			$this->getDB()->newUpdateQueryBuilder()
+				->update( 'page' )
+				->set( [ 'page_links_updated' => $this->getDB()->timestamp( $timestamp ) ] )
+				->where( [ 'page_id' => $this->mId ] )
+				->caller( __METHOD__ )->execute();
 		}
 	}
 

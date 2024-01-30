@@ -1,90 +1,79 @@
 <template>
-	<wvui-typeahead-search
+	<cdx-typeahead-search
 		:id="id"
 		ref="searchForm"
-		:client="getClient"
-		:domain="domain"
-		:suggestions-label="$i18n( 'searchresults' ).text()"
+		class="vector-typeahead-search"
+		:class="rootClasses"
+		:search-results-label="$i18n( 'searchresults' ).text()"
 		:accesskey="searchAccessKey"
+		:autocapitalize="autocapitalizeValue"
 		:title="searchTitle"
-		:article-path="articlePath"
 		:placeholder="searchPlaceholder"
 		:aria-label="searchPlaceholder"
-		:search-page-title="searchPageTitle"
 		:initial-input-value="searchQuery"
 		:button-label="$i18n( 'searchbutton' ).text()"
 		:form-action="action"
-		:search-language="language"
 		:show-thumbnail="showThumbnail"
-		:show-description="showDescription"
 		:highlight-query="highlightQuery"
 		:auto-expand-width="autoExpandWidth"
-		@fetch-start="instrumentation.onFetchStart"
-		@fetch-end="instrumentation.onFetchEnd"
-		@suggestion-click="instrumentation.onSuggestionClick"
+		:search-results="suggestions"
+		:search-footer-url="searchFooterUrl"
+		:visible-item-limit="visibleItemLimit"
+		@load-more="onLoadMore"
+		@input="onInput"
+		@search-result-click="instrumentation.onSuggestionClick"
 		@submit="onSubmit"
+		@focus="onFocus"
+		@blur="onBlur"
 	>
 		<template #default>
-			<input type="hidden"
+			<input
+				type="hidden"
 				name="title"
 				:value="searchPageTitle"
 			>
-			<input type="hidden"
+			<input
+				type="hidden"
 				name="wprov"
 				:value="wprov"
 			>
 		</template>
+		<template #search-results-pending>
+			{{ $i18n( 'vector-search-loader' ).text() }}
+		</template>
+		<!-- eslint-disable-next-line vue/no-template-shadow -->
 		<template #search-footer-text="{ searchQuery }">
 			<span v-i18n-html:vector-searchsuggest-containing="[ searchQuery ]"></span>
 		</template>
-	</wvui-typeahead-search>
+	</cdx-typeahead-search>
 </template>
 
 <script>
-/* global SubmitEvent */
-const wvui = require( 'wvui-search' ),
+const { CdxTypeaheadSearch } = require( '@wikimedia/codex-search' ),
+	{ defineComponent, nextTick } = require( 'vue' ),
 	client = require( './restSearchClient.js' ),
+	restClient = client( mw.config ),
+	urlGenerator = require( './urlGenerator.js' )( mw.config ),
 	instrumentation = require( './instrumentation.js' );
 
-module.exports = {
+// @vue/component
+module.exports = exports = defineComponent( {
 	name: 'App',
-	components: wvui,
-	mounted() {
-		// access the element associated with the wvui-typeahead-search component
-		// eslint-disable-next-line no-jquery/variable-pattern
-		const wvuiSearchForm = this.$refs.searchForm.$el;
-
-		if ( this.autofocusInput ) {
-			// TODO: The wvui-typeahead-search component does not accept an autofocus parameter
-			// or directive. This can be removed when its does.
-			wvuiSearchForm.querySelector( 'input' ).focus();
-		}
+	compatConfig: {
+		MODE: 3
 	},
-	computed: {
-		/**
-		 * @return {string}
-		 */
-		articlePath: () => mw.config.get( 'wgScript' ),
-		/**
-		 * Allow wikis eg. Hebrew Wikipedia to replace the default search API client
-		 *
-		 * @return {module:restSearchClient~SearchClient}
-		 */
-		getClient: () => {
-			return client( mw.config );
-		},
-		language: () => {
-			return mw.config.get( 'wgUserLanguage' );
-		},
-		domain: () => {
-			// It might be helpful to allow this to be configurable in future.
-			return mw.config.get( 'wgVectorSearchHost', location.host );
-		}
+	compilerOptions: {
+		whitespace: 'condense'
 	},
+	components: { CdxTypeaheadSearch },
 	props: {
 		id: {
 			type: String,
 			required: true
+		},
+		autocapitalizeValue: {
+			type: String,
+			default: undefined
 		},
 		searchPageTitle: {
 			type: String,
@@ -100,34 +89,39 @@ module.exports = {
 		},
 		/** The keyboard shortcut to focus search. */
 		searchAccessKey: {
-			type: String
+			type: String,
+			default: undefined
 		},
 		/** The access key informational tip for search. */
 		searchTitle: {
-			type: String
+			type: String,
+			default: undefined
 		},
 		/** The ghost text shown when no search query is entered. */
 		searchPlaceholder: {
-			type: String
+			type: String,
+			default: undefined
 		},
 		/**
 		 * The search query string taken from the server-side rendered input immediately before
 		 * client render.
 		 */
 		searchQuery: {
-			type: String
+			type: String,
+			default: undefined
 		},
 		showThumbnail: {
 			type: Boolean,
-			default: true
+			required: true,
+			default: false
 		},
 		showDescription: {
 			type: Boolean,
-			default: true
+			default: false
 		},
 		highlightQuery: {
 			type: Boolean,
-			default: true
+			default: false
 		},
 		autoExpandWidth: {
 			type: Boolean,
@@ -136,23 +130,146 @@ module.exports = {
 	},
 	data() {
 		return {
-			// -1 here is the default "active suggestion index" defined in the
-			// `wvui-typeahead-search` component (see
-			// https://gerrit.wikimedia.org/r/plugins/gitiles/wvui/+/c7af5d6d091ffb3beb4fd2723fdf50dc6bb2789b/src/components/typeahead-search/TypeaheadSearch.vue#167).
+			// -1 here is the default "active suggestion index".
 			wprov: instrumentation.getWprovFromResultIndex( -1 ),
 
-			instrumentation: instrumentation.listeners
+			// Suggestions to be shown in the TypeaheadSearch menu.
+			suggestions: [],
+
+			// Link to the search page for the current search query.
+			searchFooterUrl: '',
+
+			// The current search query. Used to detect whether a fetch response is stale.
+			currentSearchQuery: '',
+
+			// Whether to apply a CSS class that disables the CSS transitions on the text input
+			disableTransitions: this.autofocusInput,
+
+			instrumentation: instrumentation.listeners,
+
+			isFocused: false
 		};
+	},
+	computed: {
+		rootClasses() {
+			return {
+				'vector-search-box-disable-transitions': this.disableTransitions,
+				'vector-typeahead-search--active': this.isFocused
+			};
+		},
+		visibleItemLimit() {
+			// if the search client supports loading more results,
+			// show 7 out of 10 results at first (arbitrary number),
+			// so that scroll events are fired and trigger onLoadMore()
+			return restClient.loadMore ? 7 : null;
+		}
 	},
 	methods: {
 		/**
-		 * @param {SubmitEvent} event
+		 * Fetch suggestions when new input is received.
+		 *
+		 * @param {string} value
+		 */
+		onInput: function ( value ) {
+			const query = value.trim();
+
+			this.currentSearchQuery = query;
+
+			if ( query === '' ) {
+				this.suggestions = [];
+				this.searchFooterUrl = '';
+				return;
+			}
+
+			this.updateUIWithSearchClientResult(
+				restClient.fetchByTitle( query, 10, this.showDescription ),
+				true
+			);
+		},
+
+		/**
+		 * Fetch additional suggestions.
+		 *
+		 * This should only be called if visibleItemLimit is non-null,
+		 * i.e. if the search client supports loading more results.
+		 */
+		onLoadMore() {
+			if ( !restClient.loadMore ) {
+				mw.log.warn( 'onLoadMore() should not have been called for this search client' );
+				return;
+			}
+
+			this.updateUIWithSearchClientResult(
+				restClient.loadMore(
+					this.currentSearchQuery,
+					this.suggestions.length,
+					10,
+					this.showDescription
+				),
+				false
+			);
+		},
+
+		/**
+		 * @param {AbortableSearchFetch} search
+		 * @param {boolean} replaceResults
+		 */
+		updateUIWithSearchClientResult( search, replaceResults ) {
+			const query = this.currentSearchQuery;
+			instrumentation.listeners.onFetchStart();
+
+			search.fetch
+				.then( ( data ) => {
+					// Only use these results if they're still relevant
+					// If currentSearchQuery !== query, these results are for a previous search
+					// and we shouldn't show them.
+					if ( this.currentSearchQuery === query ) {
+						if ( replaceResults ) {
+							this.suggestions = [];
+						}
+						this.suggestions.push(
+							...instrumentation.addWprovToSearchResultUrls(
+								data.results, this.suggestions.length
+							)
+						);
+						this.searchFooterUrl = urlGenerator.generateUrl( query );
+					}
+
+					const event = {
+						numberOfResults: data.results.length,
+						query: query
+					};
+					instrumentation.listeners.onFetchEnd( event );
+				} )
+				.catch( () => {
+					// TODO: error handling
+				} );
+		},
+
+		/**
+		 * @param {SearchSubmitEvent} event
 		 */
 		onSubmit( event ) {
 			this.wprov = instrumentation.getWprovFromResultIndex( event.index );
 
 			instrumentation.listeners.onSubmit( event );
+		},
+
+		onFocus() {
+			this.isFocused = true;
+		},
+
+		onBlur() {
+			this.isFocused = false;
+		}
+	},
+	mounted() {
+		if ( this.autofocusInput ) {
+			this.$refs.searchForm.focus();
+			nextTick( () => {
+				this.disableTransitions = false;
+			} );
 		}
 	}
-};
+} );
 </script>

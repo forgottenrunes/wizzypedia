@@ -20,6 +20,7 @@
 
 /**
  * Virtual REST service for RESTBase
+ * @deprecated since 1.41, Use MultiHttpClient from the HttpRequestFactory.
  * @since 1.25
  */
 class RestbaseVirtualRESTService extends VirtualRESTService {
@@ -61,6 +62,7 @@ class RestbaseVirtualRESTService extends VirtualRESTService {
 			'fixedUrl' => false,
 		], $params );
 		// Ensure that the url parameter has a trailing slash.
+		// @phan-suppress-next-line PhanTypeMismatchArgumentNullableInternal url has default value
 		if ( substr( $mparams['url'], -1 ) !== '/' ) {
 			$mparams['url'] .= '/';
 		}
@@ -70,6 +72,7 @@ class RestbaseVirtualRESTService extends VirtualRESTService {
 		$mparams['domain'] = preg_replace(
 			'/^((https?:)?\/\/)?([^\/:]+?)(:\d+)?\/?$/',
 			'$3',
+			// @phan-suppress-next-line PhanTypeMismatchArgumentNullableInternal domain has default value
 			$mparams['domain']
 		);
 		parent::__construct( $mparams );
@@ -155,14 +158,7 @@ class RestbaseVirtualRESTService extends VirtualRESTService {
 	 */
 	public function onParsoid3Request( array $req, Closure $idGeneratorFunc ) {
 		$parts = explode( '/', $req['url'] );
-		list(
-			$targetWiki, // 'local'
-			$version, // 'v3'
-			$action, // 'transform' or 'page'
-			$format, // 'html' or 'wikitext'
-			// $title, // optional
-			// $revision, // optional
-		) = $parts;
+		[ $targetWiki, $version, ] = $parts;
 		if ( $targetWiki !== 'local' ) {
 			throw new Exception( "Only 'local' target wiki is currently supported" );
 		} elseif ( $version !== 'v3' ) {

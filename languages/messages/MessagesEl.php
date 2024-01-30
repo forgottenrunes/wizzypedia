@@ -1,11 +1,8 @@
 <?php
 /** Greek (Ελληνικά)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
- *
+ * @ingroup Languages
  */
 
 /**
@@ -128,6 +125,7 @@ $specialPageAliases = [
 	'Recentchanges'             => [ 'ΠρόσφατεςΑλλαγές' ],
 	'Recentchangeslinked'       => [ 'ΣυνδεδεμένεςΠρόσφατεςΑλλαγές', 'ΣχετικέςΑλλαγές' ],
 	'Redirect'                  => [ 'Ανακατεύθυνση' ],
+	'Renameuser'                => [ 'ΜετονομασίαΧρήστη' ],
 	'Revisiondelete'            => [ 'ΔιαγραφήΈκδοσης' ],
 	'Search'                    => [ 'Αναζήτηση' ],
 	'Shortpages'                => [ 'ΜικρέςΣελίδες' ],

@@ -35,7 +35,7 @@ final class SkinOptions {
 	public const TABS_ON_SPECIALS = 'tabsOnSpecials';
 	public const MAIN_MENU_EXPANDED = 'mainMenuExpanded';
 	public const PERSONAL_MENU = 'personalMenu';
-	public const SIMPLIFIED_TALK = 'simplifiedTalk';
+	public const SINGLE_ECHO_BUTTON = 'echo';
 
 	/**
 	 * Note stable skin options default to true for desktop-Minerva and are expected to be
@@ -61,13 +61,13 @@ final class SkinOptions {
 		/** no extension requirements */
 		self::TOOLBAR_SUBMENU => true,
 		/** Whether to show tabs on special pages */
-		self::TABS_ON_SPECIALS => false,
+		self::TABS_ON_SPECIALS => true,
 		/** whether to show a personal menu */
 		self::PERSONAL_MENU => true,
 		/** whether to show a main menu with additional items */
 		self::MAIN_MENU_EXPANDED => true,
-		/** whether the simplified talk page is eligible to be shown */
-		self::SIMPLIFIED_TALK => false,
+		/** whether Echo should be replaced with a single button */
+		self::SINGLE_ECHO_BUTTON => false,
 	];
 
 	/**

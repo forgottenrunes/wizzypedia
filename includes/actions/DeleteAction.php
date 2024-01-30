@@ -19,14 +19,22 @@
  */
 
 use MediaWiki\Cache\BacklinkCacheFactory;
+use MediaWiki\CommentStore\CommentStore;
+use MediaWiki\Html\Html;
 use MediaWiki\Linker\LinkRenderer;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\DeletePage;
 use MediaWiki\Page\DeletePageFactory;
-use MediaWiki\Permissions\PermissionStatus;
 use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\NamespaceInfo;
+use MediaWiki\Title\TitleFactory;
+use MediaWiki\Title\TitleFormatter;
 use MediaWiki\User\UserOptionsLookup;
 use MediaWiki\Watchlist\WatchlistManager;
+use Wikimedia\Rdbms\IConnectionProvider;
+use Wikimedia\Rdbms\ReadOnlyMode;
 use Wikimedia\RequestTimeout\TimeoutException;
 
 /**
@@ -34,7 +42,7 @@ use Wikimedia\RequestTimeout\TimeoutException;
  *
  * @ingroup Actions
  */
-class DeleteAction extends FormlessAction {
+class DeleteAction extends FormAction {
 
 	/**
 	 * Constants used to localize form fields
@@ -49,32 +57,24 @@ class DeleteAction extends FormlessAction {
 	protected const MSG_EDIT_REASONS = 'edit-reasons';
 	protected const MSG_EDIT_REASONS_SUPPRESS = 'edit-reasons-suppress';
 
-	/** @var WatchlistManager */
-	protected $watchlistManager;
+	protected WatchlistManager $watchlistManager;
+	protected LinkRenderer $linkRenderer;
+	private BacklinkCacheFactory $backlinkCacheFactory;
+	protected ReadOnlyMode $readOnlyMode;
+	protected UserOptionsLookup $userOptionsLookup;
+	private DeletePageFactory $deletePageFactory;
+	private int $deleteRevisionsLimit;
+	private NamespaceInfo $namespaceInfo;
+	private TitleFormatter $titleFormatter;
+	private TitleFactory $titleFactory;
 
-	/** @var LinkRenderer */
-	protected $linkRenderer;
-
-	/** @var BacklinkCacheFactory */
-	private $backlinkCacheFactory;
-
-	/** @var ReadOnlyMode */
-	protected $readOnlyMode;
-
-	/** @var UserOptionsLookup */
-	protected $userOptionsLookup;
-
-	/** @var DeletePageFactory */
-	private $deletePageFactory;
-
-	/** @var int */
-	private $deleteRevisionsLimit;
+	private IConnectionProvider $dbProvider;
 
 	/**
 	 * @inheritDoc
 	 */
-	public function __construct( Page $page, IContextSource $context = null ) {
-		parent::__construct( $page, $context );
+	public function __construct( Article $article, IContextSource $context ) {
+		parent::__construct( $article, $context );
 		$services = MediaWikiServices::getInstance();
 		$this->watchlistManager = $services->getWatchlistManager();
 		$this->linkRenderer = $services->getLinkRenderer();
@@ -82,20 +82,57 @@ class DeleteAction extends FormlessAction {
 		$this->readOnlyMode = $services->getReadOnlyMode();
 		$this->userOptionsLookup = $services->getUserOptionsLookup();
 		$this->deletePageFactory = $services->getDeletePageFactory();
-		$this->deleteRevisionsLimit = $services->getMainConfig()->get( 'DeleteRevisionsLimit' );
+		$this->deleteRevisionsLimit = $services->getMainConfig()->get( MainConfigNames::DeleteRevisionsLimit );
+		$this->namespaceInfo = $services->getNamespaceInfo();
+		$this->titleFormatter = $services->getTitleFormatter();
+		$this->titleFactory = $services->getTitleFactory();
+		$this->dbProvider = $services->getDBLoadBalancerFactory();
 	}
 
 	public function getName() {
 		return 'delete';
 	}
 
-	public function onView() {
-		return null;
+	public function onSubmit( $data ) {
+		return false;
+	}
+
+	public function onSuccess() {
+		return false;
+	}
+
+	protected function usesOOUI() {
+		return true;
+	}
+
+	protected function getPageTitle() {
+		$title = $this->getTitle();
+		return $this->msg( 'delete-confirm' )->plaintextParams( $title->getPrefixedText() );
+	}
+
+	public function getRestriction() {
+		return 'delete';
+	}
+
+	protected function alterForm( HTMLForm $form ) {
+		$title = $this->getTitle();
+		$form
+			->setAction( $this->getFormAction() )
+			->setWrapperLegendMsg( $this->getFormMsg( self::MSG_LEGEND ) )
+			->setWrapperAttributes( [ 'id' => 'mw-delete-table' ] )
+			->suppressDefaultSubmit()
+			->setId( 'deleteconfirm' )
+			->setTokenSalt( [ 'delete', $title->getPrefixedText() ] );
 	}
 
 	public function show() {
+		$this->setHeaders();
 		$this->useTransactionalTimeLimit();
 		$this->addHelpLink( 'Help:Sysop deleting and undeleting' );
+
+		// This will throw exceptions if there's a problem
+		$this->checkCanExecute( $this->getUser() );
+
 		$this->tempDelete();
 	}
 
@@ -107,15 +144,14 @@ class DeleteAction extends FormlessAction {
 		$request = $context->getRequest();
 		$outputPage = $context->getOutput();
 
-		$this->runExecuteChecks();
-		$this->prepareOutput( $context->msg( 'delete-confirm', $title->getPrefixedText() ) );
-
 		# Better double-check that it hasn't been deleted yet!
 		$article->getPage()->loadPageData(
 			$request->wasPosted() ? WikiPage::READ_LATEST : WikiPage::READ_NORMAL
 		);
 		if ( !$article->getPage()->exists() ) {
-			$outputPage->setPageTitle( $context->msg( 'cannotdelete-title', $title->getPrefixedText() ) );
+			$outputPage->setPageTitleMsg(
+				$context->msg( 'cannotdelete-title' )->plaintextParams( $title->getPrefixedText() )
+			);
 			$outputPage->wrapWikiMsg( "<div class=\"error mw-error-cannotdelete\">\n$1\n</div>",
 				[ 'cannotdelete', wfEscapeWikiText( $title->getPrefixedText() ) ]
 			);
@@ -139,29 +175,46 @@ class DeleteAction extends FormlessAction {
 			$this->getWikiPage(),
 			$context->getAuthority()
 		);
+		$shouldDeleteTalk = $request->getCheck( 'wpDeleteTalk' ) &&
+			$deletePage->canProbablyDeleteAssociatedTalk()->isGood();
+		$deletePage->setDeleteAssociatedTalk( $shouldDeleteTalk );
 		$status = $deletePage
 			->setSuppress( $suppress )
 			->deleteIfAllowed( $this->getDeleteReason() );
 
-		if ( $status->isGood() ) {
-			$deleted = $this->getTitle()->getPrefixedText();
-
-			$outputPage->setPageTitle( $this->msg( 'actioncomplete' ) );
+		if ( $status->isOK() ) {
+			$outputPage->setPageTitleMsg( $this->msg( 'actioncomplete' ) );
 			$outputPage->setRobotPolicy( 'noindex,nofollow' );
 
-			if ( !$deletePage->deletionsWereScheduled()[DeletePage::PAGE_BASE] ) {
-				$loglink = '[[Special:Log/delete|' . $this->msg( 'deletionlog' )->text() . ']]';
-				$outputPage->addWikiMsg( 'deletedtext', wfEscapeWikiText( $deleted ), $loglink );
-				$this->getHookRunner()->onArticleDeleteAfterSuccess( $this->getTitle(), $outputPage );
-			} else {
-				$outputPage->addWikiMsg( 'delete-scheduled', wfEscapeWikiText( $deleted ) );
+			if ( !$status->isGood() ) {
+				// If the page (and/or its talk) couldn't be found (e.g. because it was deleted in another request),
+				// let the user know.
+				$outputPage->addHTML(
+					Html::warningBox(
+						$outputPage->parseAsContent(
+							Status::wrap( $status )->getWikiText(
+								false,
+								false,
+								$context->getLanguage()
+							)
+						)
+					)
+				);
 			}
 
+			$this->showSuccessMessages(
+				$deletePage->getSuccessfulDeletionsIDs(),
+				$deletePage->deletionsWereScheduled()
+			);
+
+			if ( !$status->isGood() ) {
+				$this->showLogEntries();
+			}
 			$outputPage->returnToMain();
 		} else {
-			// This branch is also executed when the status is OK but not good, meaning the page couldn't be found (e.g.
-			// because it was deleted in another request)
-			$outputPage->setPageTitle( $this->msg( 'cannotdelete-title', $this->getTitle()->getPrefixedText() ) );
+			$outputPage->setPageTitleMsg(
+				$this->msg( 'cannotdelete-title' )->plaintextParams( $this->getTitle()->getPrefixedText() )
+			);
 
 			$outputPage->wrapWikiTextAsInterface(
 				'error mw-error-cannotdelete',
@@ -173,6 +226,51 @@ class DeleteAction extends FormlessAction {
 		$this->watchlistManager->setWatch( $request->getCheck( 'wpWatch' ), $context->getAuthority(), $title );
 	}
 
+	/**
+	 * Display success messages
+	 *
+	 * @param array $deleted
+	 * @param array $scheduled
+	 * @return void
+	 */
+	private function showSuccessMessages( array $deleted, array $scheduled ): void {
+		$outputPage = $this->getContext()->getOutput();
+		$loglink = '[[Special:Log/delete|' . $this->msg( 'deletionlog' )->text() . ']]';
+		$pageBaseDisplayTitle = wfEscapeWikiText( $this->getTitle()->getPrefixedText() );
+		$pageTalkDisplayTitle = wfEscapeWikiText( $this->titleFormatter->getPrefixedText(
+			$this->namespaceInfo->getTalkPage( $this->getTitle() )
+		) );
+
+		$deletedTalk = $deleted[DeletePage::PAGE_TALK] ?? false;
+		$deletedBase = $deleted[DeletePage::PAGE_BASE];
+		$scheduledTalk = $scheduled[DeletePage::PAGE_TALK] ?? false;
+		$scheduledBase = $scheduled[DeletePage::PAGE_BASE];
+
+		if ( $deletedBase && $deletedTalk ) {
+			$outputPage->addWikiMsg( 'deleted-page-and-talkpage',
+				$pageBaseDisplayTitle,
+				$pageTalkDisplayTitle,
+				$loglink );
+		} elseif ( $deletedBase ) {
+			$outputPage->addWikiMsg( 'deletedtext', $pageBaseDisplayTitle, $loglink );
+		} elseif ( $deletedTalk ) {
+			$outputPage->addWikiMsg( 'deletedtext', $pageTalkDisplayTitle, $loglink );
+		}
+
+		// run hook if article was deleted
+		if ( $deletedBase ) {
+			$this->getHookRunner()->onArticleDeleteAfterSuccess( $this->getTitle(), $outputPage );
+		}
+
+		if ( $scheduledBase ) {
+			$outputPage->addWikiMsg( 'delete-scheduled', $pageBaseDisplayTitle );
+		}
+
+		if ( $scheduledTalk ) {
+			$outputPage->addWikiMsg( 'delete-scheduled', $pageTalkDisplayTitle );
+		}
+	}
+
 	private function showHistoryWarnings(): void {
 		$context = $this->getContext();
 		$title = $this->getTitle();
@@ -182,13 +280,12 @@ class DeleteAction extends FormlessAction {
 		// This, as a side-effect, also makes sure that the following query isn't being run for
 		// pages with a larger history, unless the user has the 'bigdelete' right
 		// (and is about to delete this page).
-		$dbr = wfGetDB( DB_REPLICA );
-		$revisions = (int)$dbr->selectField(
-			'revision',
-			'COUNT(rev_page)',
-			[ 'rev_page' => $title->getArticleID() ],
-			__METHOD__
-		);
+		$revisions = (int)$this->dbProvider->getReplicaDatabase()->newSelectQueryBuilder()
+			->select( 'COUNT(rev_page)' )
+			->from( 'revision' )
+			->where( [ 'rev_page' => $title->getArticleID() ] )
+			->caller( __METHOD__ )
+			->fetchField();
 
 		// @todo i18n issue/patchwork message
 		$context->getOutput()->addHTML(
@@ -213,32 +310,46 @@ class DeleteAction extends FormlessAction {
 	}
 
 	protected function showFormWarnings(): void {
-		$title = $this->getTitle();
-		$outputPage = $this->getOutput();
+		$this->showBacklinksWarning();
+		$this->showSubpagesWarnings();
+	}
 
-		$backlinkCache = $this->backlinkCacheFactory->getBacklinkCache( $title );
+	private function showBacklinksWarning(): void {
+		$backlinkCache = $this->backlinkCacheFactory->getBacklinkCache( $this->getTitle() );
 		if ( $backlinkCache->hasLinks( 'pagelinks' ) || $backlinkCache->hasLinks( 'templatelinks' ) ) {
-			$outputPage->addHtml(
+			$this->getOutput()->addHTML(
 				Html::warningBox(
-					$outputPage->msg( 'deleting-backlinks-warning' )->parse(),
+					$this->msg( 'deleting-backlinks-warning' )->parse(),
+					'plainlinks'
+				)
+			);
+		}
+	}
+
+	protected function showSubpagesWarnings(): void {
+		$title = $this->getTitle();
+		$subpageCount = count( $title->getSubpages( 51 ) );
+		if ( $subpageCount ) {
+			$this->getOutput()->addHTML(
+				Html::warningBox(
+					$this->msg( 'deleting-subpages-warning' )->numParams( $subpageCount )->parse(),
 					'plainlinks'
 				)
 			);
 		}
 
-		$subpageQueryLimit = 51;
-		$subpages = $title->getSubpages( $subpageQueryLimit );
-		$subpageCount = count( $subpages );
-		if ( $subpageCount > 0 ) {
-			$outputPage->addHtml(
-				Html::warningBox(
-					$outputPage->msg( 'deleting-subpages-warning', Message::numParam( $subpageCount ) )->parse(),
-					'plainlinks'
-				)
-			);
+		if ( !$title->isTalkPage() ) {
+			$talkPageTitle = $this->titleFactory->newFromLinkTarget( $this->namespaceInfo->getTalkPage( $title ) );
+			$subpageCount = count( $talkPageTitle->getSubpages( 51 ) );
+			if ( $subpageCount ) {
+				$this->getOutput()->addHTML(
+					Html::warningBox(
+						$this->msg( 'deleting-talkpage-subpages-warning' )->numParams( $subpageCount )->parse(),
+						'plainlinks'
+					)
+				);
+			}
 		}
-
-		$outputPage->addWikiMsg( 'confirmdeletetext' );
 	}
 
 	private function tempConfirmDelete(): void {
@@ -254,16 +365,22 @@ class DeleteAction extends FormlessAction {
 		}
 		$this->showFormWarnings();
 
+		$outputPage->addWikiMsg( 'confirmdeletetext' );
+
 		// FIXME: Replace (or at least rename) this hook
 		$this->getHookRunner()->onArticleConfirmDelete( $this->getArticle(), $outputPage, $reason );
 
-		$this->showForm( $reason );
+		$form = $this->getForm();
+		if ( $form->show() ) {
+			$this->onSuccess();
+		}
+
 		$this->showEditReasonsLinks();
 		$this->showLogEntries();
 	}
 
 	protected function showEditReasonsLinks(): void {
-		if ( $this->getContext()->getAuthority()->isAllowed( 'editinterface' ) ) {
+		if ( $this->getAuthority()->isAllowed( 'editinterface' ) ) {
 			$link = '';
 			if ( $this->isSuppressionAllowed() ) {
 				$link .= $this->linkRenderer->makeKnownLink(
@@ -288,19 +405,15 @@ class DeleteAction extends FormlessAction {
 	 * @return bool
 	 */
 	protected function isSuppressionAllowed(): bool {
-		return $this->getContext()->getAuthority()->isAllowed( 'suppressrevision' );
+		return $this->getAuthority()->isAllowed( 'suppressrevision' );
 	}
 
 	/**
-	 * @param string $reason
+	 * @return array
 	 */
-	protected function showForm( string $reason ): void {
-		$outputPage = $this->getOutput();
+	protected function getFormFields(): array {
 		$user = $this->getUser();
 		$title = $this->getTitle();
-
-		$checkWatch = $this->userOptionsLookup->getBoolOption( $user, 'watchdeletion' ) ||
-			$this->watchlistManager->isWatched( $user, $title );
 
 		$fields = [];
 
@@ -313,131 +426,73 @@ class DeleteAction extends FormlessAction {
 
 		$options = Xml::listDropDownOptions(
 			$dropDownReason,
-			[ 'other' => $this->getFormMsg( self::MSG_REASON_DROPDOWN_OTHER )->inContentLanguage()->text() ]
+			[ 'other' => $this->getFormMsg( self::MSG_REASON_DROPDOWN_OTHER )->text() ]
 		);
-		$options = Xml::listDropDownOptionsOoui( $options );
 
-		$fields[] = new OOUI\FieldLayout(
-			new OOUI\DropdownInputWidget( [
-				'name' => 'wpDeleteReasonList',
-				'inputId' => 'wpDeleteReasonList',
-				'tabIndex' => 1,
-				'infusable' => true,
-				'value' => '',
-				'options' => $options,
-			] ),
-			[
-				'label' => $this->getFormMsg( self::MSG_COMMENT )->text(),
-				'align' => 'top',
-			]
-		);
+		$fields['DeleteReasonList'] = [
+			'type' => 'select',
+			'id' => 'wpDeleteReasonList',
+			'tabindex' => 1,
+			'infusable' => true,
+			'options' => $options,
+			'label' => $this->getFormMsg( self::MSG_COMMENT )->text(),
+		];
 
 		// HTML maxlength uses "UTF-16 code units", which means that characters outside BMP
 		// (e.g. emojis) count for two each. This limit is overridden in JS to instead count
 		// Unicode codepoints.
-		$fields[] = new OOUI\FieldLayout(
-			new OOUI\TextInputWidget( [
-				'name' => 'wpReason',
-				'inputId' => 'wpReason',
-				'tabIndex' => 2,
-				'maxLength' => CommentStore::COMMENT_CHARACTER_LIMIT,
-				'infusable' => true,
-				'value' => $reason,
-				'autofocus' => true,
-			] ),
-			[
-				'label' => $this->getFormMsg( self::MSG_REASON_OTHER )->text(),
-				'align' => 'top',
-			]
-		);
+		$fields['Reason'] = [
+			'type' => 'text',
+			'id' => 'wpReason',
+			'tabindex' => 2,
+			'maxlength' => CommentStore::COMMENT_CHARACTER_LIMIT,
+			'infusable' => true,
+			'default' => $this->getDefaultReason(),
+			'autofocus' => true,
+			'label' => $this->getFormMsg( self::MSG_REASON_OTHER )->text(),
+		];
+
+		$delPage = $this->deletePageFactory->newDeletePage( $this->getWikiPage(), $this->getAuthority() );
+		if ( $delPage->canProbablyDeleteAssociatedTalk()->isGood() ) {
+			$fields['DeleteTalk'] = [
+				'type' => 'check',
+				'id' => 'wpDeleteTalk',
+				'tabIndex' => 3,
+				'default' => false,
+				'label-message' => 'deletepage-deletetalk',
+			];
+		}
 
 		if ( $user->isRegistered() ) {
-			$fields[] = new OOUI\FieldLayout(
-				new OOUI\CheckboxInputWidget( [
-					'name' => 'wpWatch',
-					'inputId' => 'wpWatch',
-					'tabIndex' => 3,
-					'selected' => $checkWatch,
-				] ),
-				[
-					'label' => $this->msg( 'watchthis' )->text(),
-					'align' => 'inline',
-					'infusable' => true,
-				]
-			);
+			$checkWatch = $this->userOptionsLookup->getBoolOption( $user, 'watchdeletion' ) ||
+				$this->watchlistManager->isWatched( $user, $title );
+			$fields['Watch'] = [
+				'type' => 'check',
+				'id' => 'wpWatch',
+				'tabindex' => 4,
+				'default' => $checkWatch,
+				'label-message' => 'watchthis',
+			];
 		}
 		if ( $this->isSuppressionAllowed() ) {
-			$fields[] = new OOUI\FieldLayout(
-				new OOUI\CheckboxInputWidget( [
-					'name' => 'wpSuppress',
-					'inputId' => 'wpSuppress',
-					'tabIndex' => 4,
-					'selected' => false,
-				] ),
-				[
-					'label' => $this->msg( 'revdelete-suppress' )->text(),
-					'align' => 'inline',
-					'infusable' => true,
-				]
-			);
+			$fields['Suppress'] = [
+				'type' => 'check',
+				'id' => 'wpSuppress',
+				'tabindex' => 5,
+				'default' => false,
+				'label-message' => 'revdelete-suppress',
+			];
 		}
 
-		$fields[] = new OOUI\FieldLayout(
-			new OOUI\ButtonInputWidget( [
-				'name' => 'wpConfirmB',
-				'inputId' => 'wpConfirmB',
-				'tabIndex' => 5,
-				'value' => $this->getFormMsg( self::MSG_SUBMIT )->text(),
-				'label' => $this->getFormMsg( self::MSG_SUBMIT )->text(),
-				'flags' => [ 'primary', 'destructive' ],
-				'type' => 'submit',
-			] ),
-			[
-				'align' => 'top',
-			]
-		);
+		$fields['ConfirmB'] = [
+			'type' => 'submit',
+			'id' => 'wpConfirmB',
+			'tabindex' => 6,
+			'buttonlabel' => $this->getFormMsg( self::MSG_SUBMIT )->text(),
+			'flags' => [ 'primary', 'destructive' ],
+		];
 
-		$fieldset = new OOUI\FieldsetLayout( [
-			'label' => $this->getFormMsg( self::MSG_LEGEND )->text(),
-			'id' => 'mw-delete-table',
-			'items' => $fields,
-		] );
-
-		$form = new OOUI\FormLayout( [
-			'method' => 'post',
-			'action' => $this->getFormAction(),
-			'id' => 'deleteconfirm',
-		] );
-		$form->appendContent(
-			$fieldset,
-			new OOUI\HtmlSnippet(
-				Html::hidden( 'wpEditToken', $user->getEditToken( [ 'delete', $title->getPrefixedText() ] ) )
-			)
-		);
-
-		$outputPage->addHTML(
-			new OOUI\PanelLayout( [
-				'classes' => [ 'deletepage-wrapper' ],
-				'expanded' => false,
-				'padded' => true,
-				'framed' => true,
-				'content' => $form,
-			] )
-		);
-	}
-
-	/**
-	 * @todo Should use Action::checkCanExecute instead
-	 */
-	protected function runExecuteChecks(): void {
-		$permissionStatus = PermissionStatus::newEmpty();
-		if ( !$this->getContext()->getAuthority()->definitelyCan( 'delete', $this->getTitle(), $permissionStatus ) ) {
-			throw new PermissionsError( 'delete', $permissionStatus );
-		}
-
-		if ( $this->readOnlyMode->isReadOnly() ) {
-			throw new ReadOnlyError;
-		}
+		return $fields;
 	}
 
 	/**
@@ -468,19 +523,9 @@ class DeleteAction extends FormlessAction {
 		LogEventsList::showLogExtract( $outputPage, 'delete', $this->getTitle() );
 	}
 
-	/**
-	 * @param Message $pageTitle
-	 */
-	protected function prepareOutput( Message $pageTitle ): void {
-		$outputPage = $this->getOutput();
-		$outputPage->setPageTitle( $pageTitle );
-		$outputPage->addBacklinkSubtitle( $this->getTitle() );
-		$outputPage->setRobotPolicy( 'noindex,nofollow' );
-	}
-
 	protected function prepareOutputForForm(): void {
 		$outputPage = $this->getOutput();
-		$outputPage->addModules( 'mediawiki.action.delete' );
+		$outputPage->addModules( 'mediawiki.misc-authed-ooui' );
 		$outputPage->addModuleStyles( 'mediawiki.action.styles' );
 		$outputPage->enableOOUI();
 	}
@@ -553,20 +598,16 @@ class DeleteAction extends FormlessAction {
 	 */
 	private function pageHasHistory(): bool {
 		$dbr = wfGetDB( DB_REPLICA );
-		$res = $dbr->selectRowCount(
-			'revision',
-			'*',
-			[
-				'rev_page' => $this->getTitle()->getArticleID(),
-				$dbr->bitAnd( 'rev_deleted', RevisionRecord::DELETED_USER ) . ' = 0'
-			],
-			__METHOD__,
-			[ 'LIMIT' => 2 ]
-		);
-		return $res > 1;
-	}
+		$res = $dbr->newSelectQueryBuilder()
+			->select( '*' )
+			->from( 'revision' )
+			->where( [ 'rev_page' => $this->getTitle()->getArticleID() ] )
+			->andWhere(
+				[ $dbr->bitAnd( 'rev_deleted', RevisionRecord::DELETED_USER ) . ' = 0' ]
+			)->limit( 2 )
+			->caller( __METHOD__ )
+			->fetchRowCount();
 
-	public function doesWrites() {
-		return true;
+		return $res > 1;
 	}
 }

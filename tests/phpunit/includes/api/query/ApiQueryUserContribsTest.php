@@ -1,5 +1,9 @@
 <?php
 
+use MediaWiki\Title\TitleValue;
+use MediaWiki\User\User;
+use MediaWiki\User\UserRigorOptions;
+
 /**
  * @group API
  * @group Database
@@ -8,27 +12,30 @@
  */
 class ApiQueryUserContribsTest extends ApiTestCase {
 	public function addDBDataOnce() {
+		$userFactory = $this->getServiceContainer()->getUserFactory();
 		$users = [
-			User::newFromName( '192.168.2.2', false ),
-			User::newFromName( '192.168.2.1', false ),
-			User::newFromName( '192.168.2.3', false ),
+			$userFactory->newFromName( '192.168.2.2', UserRigorOptions::RIGOR_NONE ),
+			$userFactory->newFromName( '192.168.2.1', UserRigorOptions::RIGOR_NONE ),
+			$userFactory->newFromName( '192.168.2.3', UserRigorOptions::RIGOR_NONE ),
 			User::createNew( __CLASS__ . ' B' ),
 			User::createNew( __CLASS__ . ' A' ),
 			User::createNew( __CLASS__ . ' C' ),
-			User::newFromName( 'IW>' . __CLASS__, false ),
+			$userFactory->newFromName( 'IW>' . __CLASS__, UserRigorOptions::RIGOR_NONE ),
 		];
 
-		$title = Title::newFromText( __CLASS__ );
-		$page = WikiPage::factory( $title );
+		$page = $this->getServiceContainer()->getWikiPageFactory()
+			->newFromLinkTarget( new TitleValue( NS_MAIN, 'ApiQueryUserContribsTest' ) );
 		for ( $i = 0; $i < 3; $i++ ) {
 			foreach ( array_reverse( $users ) as $user ) {
-				$status = $page->doUserEditContent(
-					ContentHandler::makeContent( "Test revision $user #$i", $title ),
-					$user,
-					'Test edit'
+				$status = $this->editPage(
+					$page,
+					new WikitextContent( "Test revision $user #$i" ),
+					'Test edit',
+					NS_MAIN,
+					$user
 				);
 				if ( !$status->isOK() ) {
-					$this->fail( "Failed to edit $title: " . $status->getWikiText( false, false, 'en' ) );
+					$this->fail( 'Failed to edit: ' . $status->getWikiText( false, false, 'en' ) );
 				}
 			}
 		}
@@ -42,7 +49,15 @@ class ApiQueryUserContribsTest extends ApiTestCase {
 	 */
 	public function testSorting( $params, $reverse, $revs ) {
 		if ( isset( $params['ucuserids'] ) ) {
-			$params['ucuserids'] = implode( '|', array_map( [ User::class, 'idFromName' ], $params['ucuserids'] ) );
+			$userIdentities = $this->getServiceContainer()->getUserIdentityLookup()
+				->newSelectQueryBuilder()
+				->whereUserNames( $params['ucuserids'] )
+				->fetchUserIdentities();
+			$userIds = [];
+			foreach ( $userIdentities as $userIdentity ) {
+				$userIds[] = $userIdentity->getId();
+			}
+			$params['ucuserids'] = implode( '|', $userIds );
 		}
 		if ( isset( $params['ucuser'] ) ) {
 			$params['ucuser'] = implode( '|', $params['ucuser'] );
@@ -114,6 +129,7 @@ class ApiQueryUserContribsTest extends ApiTestCase {
 			yield "User IDs, $name" => [ [ 'ucuserids' => $users ], $reverse, 9 ];
 			yield "Users by prefix, $name" => [ [ 'ucuserprefix' => __CLASS__ ], $reverse, 9 ];
 			yield "IPs by prefix, $name" => [ [ 'ucuserprefix' => '192.168.2.' ], $reverse, 9 ];
+			yield "IPs by range, $name" => [ [ 'uciprange' => '192.168.2.0/24' ], $reverse, 9 ];
 		}
 	}
 

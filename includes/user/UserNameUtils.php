@@ -24,12 +24,14 @@ namespace MediaWiki\User;
 
 use InvalidArgumentException;
 use Language;
-use MalformedTitleException;
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Title\MalformedTitleException;
+use MediaWiki\Title\TitleParser;
+use MediaWiki\User\TempUser\TempUserConfig;
 use Psr\Log\LoggerInterface;
-use TitleParser;
 use Wikimedia\IPUtils;
 use Wikimedia\Message\ITextFormatter;
 use Wikimedia\Message\MessageValue;
@@ -45,49 +47,28 @@ class UserNameUtils implements UserRigorOptions {
 	 * @internal For use by ServiceWiring
 	 */
 	public const CONSTRUCTOR_OPTIONS = [
-		'MaxNameChars',
-		'ReservedUsernames',
-		'InvalidUsernameCharacters'
+		MainConfigNames::MaxNameChars,
+		MainConfigNames::ReservedUsernames,
+		MainConfigNames::InvalidUsernameCharacters
 	];
 
 	/**
 	 * RIGOR_* constants are inherited from UserRigorOptions
 	 */
 
-	/**
-	 * @var ServiceOptions
-	 */
-	private $options;
-
-	/**
-	 * @var Language
-	 */
-	private $contentLang;
-
-	/**
-	 * @var LoggerInterface
-	 */
-	private $logger;
-
-	/**
-	 * @var TitleParser
-	 */
-	private $titleParser;
-
-	/**
-	 * @var ITextFormatter
-	 */
-	private $textFormatter;
+	private ServiceOptions $options;
+	private Language $contentLang;
+	private LoggerInterface $logger;
+	private TitleParser $titleParser;
+	private ITextFormatter $textFormatter;
 
 	/**
 	 * @var string[]|false Cache for isUsable()
 	 */
 	private $reservedUsernames = false;
 
-	/**
-	 * @var HookRunner
-	 */
-	private $hookRunner;
+	private HookRunner $hookRunner;
+	private TempUserConfig $tempUserConfig;
 
 	/**
 	 * @param ServiceOptions $options
@@ -96,6 +77,7 @@ class UserNameUtils implements UserRigorOptions {
 	 * @param TitleParser $titleParser
 	 * @param ITextFormatter $textFormatter the text formatter for the current content language
 	 * @param HookContainer $hookContainer
+	 * @param TempUserConfig $tempUserConfig
 	 */
 	public function __construct(
 		ServiceOptions $options,
@@ -103,7 +85,8 @@ class UserNameUtils implements UserRigorOptions {
 		LoggerInterface $logger,
 		TitleParser $titleParser,
 		ITextFormatter $textFormatter,
-		HookContainer $hookContainer
+		HookContainer $hookContainer,
+		TempUserConfig $tempUserConfig
 	) {
 		$options->assertRequiredOptions( self::CONSTRUCTOR_OPTIONS );
 		$this->options = $options;
@@ -112,6 +95,7 @@ class UserNameUtils implements UserRigorOptions {
 		$this->titleParser = $titleParser;
 		$this->textFormatter = $textFormatter;
 		$this->hookRunner = new HookRunner( $hookContainer );
+		$this->tempUserConfig = $tempUserConfig;
 	}
 
 	/**
@@ -128,8 +112,8 @@ class UserNameUtils implements UserRigorOptions {
 	public function isValid( string $name ): bool {
 		if ( $name === ''
 			|| $this->isIP( $name )
-			|| strpos( $name, '/' ) !== false
-			|| strlen( $name ) > $this->options->get( 'MaxNameChars' )
+			|| str_contains( $name, '/' )
+			|| strlen( $name ) > $this->options->get( MainConfigNames::MaxNameChars )
 			|| $name !== $this->contentLang->ucfirst( $name )
 		) {
 			return false;
@@ -185,10 +169,10 @@ class UserNameUtils implements UserRigorOptions {
 		}
 
 		if ( !$this->reservedUsernames ) {
-			$reservedUsernames = $this->options->get( 'ReservedUsernames' );
+			$reservedUsernames = $this->options->get( MainConfigNames::ReservedUsernames );
 			$this->hookRunner->onUserGetReservedNames( $reservedUsernames );
 			foreach ( $reservedUsernames as &$reserved ) {
-				if ( substr( $reserved, 0, 4 ) === 'msg:' ) {
+				if ( str_starts_with( $reserved, 'msg:' ) ) {
 					$reserved = $this->textFormatter->format(
 						MessageValue::new( substr( $reserved, 4 ) )
 					);
@@ -201,6 +185,14 @@ class UserNameUtils implements UserRigorOptions {
 		if ( in_array( $name, $this->reservedUsernames, true ) ) {
 			return false;
 		}
+
+		// Check if the name is reserved by the temp user system (actual temp
+		// users are allowed). This is necessary to ensure that CentralAuth
+		// auto-creation will be denied (T342475).
+		if ( $this->isTempReserved( $name ) && !$this->isTemp( $name ) ) {
+			return false;
+		}
+
 		return true;
 	}
 
@@ -227,13 +219,20 @@ class UserNameUtils implements UserRigorOptions {
 			return false;
 		}
 
-		$invalid = $this->options->get( 'InvalidUsernameCharacters' );
+		$invalid = $this->options->get( MainConfigNames::InvalidUsernameCharacters );
 		// Preg yells if you try to give it an empty string
 		if ( $invalid !== '' &&
 			preg_match( '/[' . preg_quote( $invalid, '/' ) . ']/', $name )
 		) {
 			$this->logger->debug(
 				__METHOD__ . ": '$name' uncreatable due to wgInvalidUsernameCharacters"
+			);
+			return false;
+		}
+
+		if ( $this->isTempReserved( $name ) ) {
+			$this->logger->debug(
+				__METHOD__ . ": '$name' uncreatable due to TempUserConfig"
 			);
 			return false;
 		}
@@ -253,7 +252,7 @@ class UserNameUtils implements UserRigorOptions {
 	 *   - RIGOR_CREATABLE   Valid for batch processes, login and account creation
 	 *
 	 * @throws InvalidArgumentException
-	 * @return bool|string
+	 * @return string|false
 	 */
 	public function getCanonical( string $name, string $validate = self::RIGOR_VALID ) {
 		// Force usernames to capital
@@ -300,20 +299,11 @@ class UserNameUtils implements UserRigorOptions {
 		// RIGOR_NONE handled above
 		switch ( $validate ) {
 			case self::RIGOR_VALID:
-				if ( !$this->isValid( $name ) ) {
-					return false;
-				}
-				return $name;
+				return $this->isValid( $name ) ? $name : false;
 			case self::RIGOR_USABLE:
-				if ( !$this->isUsable( $name ) ) {
-					return false;
-				}
-				return $name;
+				return $this->isUsable( $name ) ? $name : false;
 			case self::RIGOR_CREATABLE:
-				if ( !$this->isCreatable( $name ) ) {
-					return false;
-				}
-				return $name;
+				return $this->isCreatable( $name ) ? $name : false;
 			default:
 				throw new InvalidArgumentException(
 					"Invalid parameter value for validation ($validate) in " .
@@ -356,4 +346,38 @@ class UserNameUtils implements UserRigorOptions {
 		return IPUtils::isValidRange( $range );
 	}
 
+	/**
+	 * Does the username indicate a temporary user?
+	 *
+	 * @since 1.39
+	 * @param string $name
+	 * @return bool
+	 */
+	public function isTemp( string $name ) {
+		return $this->tempUserConfig->isTempName( $name );
+	}
+
+	/**
+	 * Is the username uncreatable due to it being reserved by the temp username
+	 * system? Note that unlike isTemp(), this does not imply that a user having
+	 * this name is an actual temp account. This should only be used to deny
+	 * account creation.
+	 *
+	 * @since 1.41
+	 * @param string $name
+	 * @return bool
+	 */
+	public function isTempReserved( string $name ) {
+		return $this->tempUserConfig->isReservedName( $name );
+	}
+
+	/**
+	 * Get a placeholder name for a temporary user before serial acquisition
+	 *
+	 * @since 1.39
+	 * @return string
+	 */
+	public function getTempPlaceholder() {
+		return $this->tempUserConfig->getPlaceholderName();
+	}
 }

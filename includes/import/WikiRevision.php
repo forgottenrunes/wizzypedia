@@ -23,10 +23,14 @@
  * @file
  * @ingroup SpecialPage
  */
-use MediaWiki\Logger\LoggerFactory;
+
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\MutableRevisionSlots;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Title\Title;
+use MediaWiki\User\ExternalUserNames;
+use MediaWiki\User\User;
+use MediaWiki\User\UserIdentityValue;
 
 /**
  * Represents a revision, log entry or upload during the import process.
@@ -52,7 +56,7 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 
 	/**
 	 * @since 1.2
-	 * @var string
+	 * @var string TS_MW timestamp, a string with 14 digits
 	 */
 	public $timestamp = "20010115000000";
 
@@ -63,8 +67,9 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 	public $user_text = "";
 
 	/**
+	 * @deprecated since 1.39, use {@see $user_text} instead
 	 * @since 1.27
-	 * @var User
+	 * @var User|null
 	 */
 	public $userObj = null;
 
@@ -150,10 +155,9 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 	public $fileSrc = '';
 
 	/**
-	 * @since 1.17
-	 * @var bool|string
+	 * @var string|null
 	 */
-	public $sha1base36 = false;
+	private $sha1base36;
 
 	/**
 	 * @since 1.34
@@ -186,46 +190,18 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 	 */
 	public $isTemp = false;
 
-	/**
-	 * @since 1.18
-	 * @deprecated since 1.29 use Wikirevision::isTempSrc()
-	 * First written to in 43d5d3b682cc1733ad01a837d11af4a402d57e6a
-	 * Actually introduced in 52cd34acf590e5be946b7885ffdc13a157c1c6cf
-	 */
-	public $fileIsTemp;
-
 	/** @var bool */
 	private $mNoUpdates = false;
 
-	/**
-	 * @deprecated since 1.31, along with self::downloadSource()
-	 * @var Config
-	 */
-	private $config;
-
-	/**
-	 * @param Config $config Deprecated since 1.31, along with self::downloadSource(). Just pass an
-	 *  empty HashConfig.
-	 */
-	public function __construct( Config $config ) {
-		$this->config = $config;
+	public function __construct() {
 		$this->slots = new MutableRevisionSlots();
 	}
 
 	/**
-	 * @since 1.7 taking a Title object (string before)
 	 * @param Title $title
-	 * @throws MWException
 	 */
-	public function setTitle( $title ) {
-		if ( is_object( $title ) ) {
-			$this->title = $title;
-		} elseif ( $title === null ) {
-			throw new MWException( "WikiRevision given a null title in import. "
-				. "You may need to adjust \$wgLegalTitleChars." );
-		} else {
-			throw new MWException( "WikiRevision given non-object title in import." );
-		}
+	public function setTitle( Title $title ) {
+		$this->title = $title;
 	}
 
 	/**
@@ -254,14 +230,20 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 	}
 
 	/**
+	 * @deprecated since 1.39, use {@see setUsername} instead
 	 * @since 1.27
 	 * @param User $user
 	 */
 	public function setUserObj( $user ) {
-		$this->userObj = $user;
+		// Not officially supported, but some callers pass false from e.g. User::newFromName()
+		$this->userObj = $user ?: null;
+		if ( $this->user_text === '' && $user ) {
+			$this->user_text = $user->getName();
+		}
 	}
 
 	/**
+	 * @deprecated since 1.39, use {@see setUsername} instead, it does the same anyway
 	 * @since 1.2
 	 * @param string $ip
 	 */
@@ -346,7 +328,6 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 	 */
 	public function setFileSrc( $src, $isTemp ) {
 		$this->fileSrc = $src;
-		$this->fileIsTemp = $isTemp;
 		$this->isTemp = $isTemp;
 	}
 
@@ -355,7 +336,7 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 	 * @param string $sha1base36
 	 */
 	public function setSha1Base36( $sha1base36 ) {
-		$this->sha1base36 = $sha1base36;
+		$this->sha1base36 = $sha1base36 ?: null;
 	}
 
 	/**
@@ -440,7 +421,7 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 
 	/**
 	 * @since 1.2
-	 * @return string
+	 * @return string TS_MW timestamp, a string with 14 digits
 	 */
 	public function getTimestamp() {
 		return $this->timestamp;
@@ -455,8 +436,9 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 	}
 
 	/**
+	 * @deprecated since 1.39, use {@see getUser} instead; this is almost always null anyway
 	 * @since 1.27
-	 * @return User
+	 * @return User|null Typically null, use {@see getUser} instead
 	 */
 	public function getUserObj() {
 		return $this->userObj;
@@ -477,11 +459,9 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 	 * @throws MWUnknownContentModelException
 	 */
 	public function getContentHandler() {
-		if ( $this->contentHandler === null ) {
-			$this->contentHandler = MediaWikiServices::getInstance()
-				->getContentHandlerFactory()
-				->getContentHandler( $this->getModel() );
-		}
+		$this->contentHandler ??= MediaWikiServices::getInstance()
+			->getContentHandlerFactory()
+			->getContentHandler( $this->getModel() );
 
 		return $this->contentHandler;
 	}
@@ -518,9 +498,7 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 	 * @return string
 	 */
 	public function getModel() {
-		if ( $this->model === null ) {
-			$this->model = $this->getTitle()->getContentModel();
-		}
+		$this->model ??= $this->getTitle()->getContentModel();
 
 		return $this->model;
 	}
@@ -531,9 +509,7 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 	 * @return string
 	 */
 	public function getFormat() {
-		if ( $this->format === null ) {
-			$this->format = $this->getContentHandler()->getDefaultFormat();
-		}
+		$this->format ??= $this->getContentHandler()->getDefaultFormat();
 
 		return $this->format;
 	}
@@ -564,7 +540,7 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 
 	/**
 	 * @since 1.17
-	 * @return bool|string
+	 * @return string|false
 	 */
 	public function getSha1() {
 		if ( $this->sha1base36 ) {
@@ -575,13 +551,10 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 
 	/**
 	 * @since 1.31
-	 * @return bool|string
+	 * @return string|false
 	 */
 	public function getSha1Base36() {
-		if ( $this->sha1base36 ) {
-			return $this->sha1base36;
-		}
-		return false;
+		return $this->sha1base36 ?? false;
 	}
 
 	/**
@@ -677,7 +650,13 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 	public function importLogItem() {
 		$dbw = wfGetDB( DB_PRIMARY );
 
-		$user = $this->getUserObj() ?: User::newFromName( $this->getUser(), false );
+		$userName = $this->getUser();
+		if ( ExternalUserNames::isExternal( $userName ) ) {
+			// Use newAnonymous() since the user name is already prefixed.
+			$user = UserIdentityValue::newAnonymous( $userName );
+		} else {
+			$user = $this->getUserObj() ?: User::newFromName( $userName, false );
+		}
 
 		# @todo FIXME: This will not record autoblocks
 		if ( !$this->getTitle() ) {
@@ -687,15 +666,18 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 		}
 		# Check if it exists already
 		// @todo FIXME: Use original log ID (better for backups)
-		$prior = (bool)$dbw->selectField( 'logging', '1',
-			[ 'log_type' => $this->getType(),
+		$prior = (bool)$dbw->newSelectQueryBuilder()
+			->select( '1' )
+			->from( 'logging' )
+			->where( [
+				'log_type' => $this->getType(),
 				'log_action' => $this->getAction(),
 				'log_timestamp' => $dbw->timestamp( $this->timestamp ),
 				'log_namespace' => $this->getTitle()->getNamespace(),
 				'log_title' => $this->getTitle()->getDBkey(),
-				'log_params' => $this->params ],
-			__METHOD__
-		);
+				'log_params' => $this->params
+			] )
+			->caller( __METHOD__ )->fetchField();
 		// @todo FIXME: This could fail slightly for multiple matches :P
 		if ( $prior ) {
 			wfDebug( __METHOD__
@@ -703,8 +685,8 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 				. $this->timestamp );
 			return false;
 		}
-		$actorId = MediaWikiServices::getInstance()->getActorNormalization()
-			->acquireActorId( $user, $dbw );
+		$services = MediaWikiServices::getInstance();
+		$actorId = $services->getActorNormalization()->acquireActorId( $user, $dbw );
 		$data = [
 			'log_type' => $this->type,
 			'log_action' => $this->action,
@@ -713,36 +695,10 @@ class WikiRevision implements ImportableUploadRevision, ImportableOldRevision {
 			'log_namespace' => $this->getTitle()->getNamespace(),
 			'log_title' => $this->getTitle()->getDBkey(),
 			'log_params' => $this->params
-		] + CommentStore::getStore()->insert( $dbw, 'log_comment', $this->getComment() );
+		] + $services->getCommentStore()->insert( $dbw, 'log_comment', $this->getComment() );
 		$dbw->insert( 'logging', $data, __METHOD__ );
 
 		return true;
-	}
-
-	/**
-	 * @since 1.12.2
-	 * @deprecated in 1.31. Use UploadRevisionImporter::import
-	 * @return bool
-	 */
-	public function importUpload() {
-		wfDeprecated( __METHOD__, '1.31' );
-
-		$importer = MediaWikiServices::getInstance()->getWikiRevisionUploadImporter();
-		$statusValue = $importer->import( $this );
-		return $statusValue->isGood();
-	}
-
-	/**
-	 * @since 1.12.2
-	 * @deprecated in 1.31. No replacement
-	 * @return bool|string
-	 */
-	public function downloadSource() {
-		$importer = new ImportableUploadRevisionImporter(
-			$this->config->get( 'EnableUploads' ),
-			LoggerFactory::getInstance( 'UploadRevisionImporter' )
-		);
-		return $importer->downloadSource( $this );
 	}
 
 }

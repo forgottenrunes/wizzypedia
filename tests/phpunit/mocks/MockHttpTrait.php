@@ -18,6 +18,8 @@
 
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\Http\HttpRequestFactory;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Status\Status;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
@@ -82,12 +84,12 @@ trait MockHttpTrait {
 	 */
 	private function makeMockHttpRequestFactory( $request = null ) {
 		$options = new ServiceOptions( HttpRequestFactory::CONSTRUCTOR_OPTIONS, [
-			'HTTPTimeout' => 1,
-			'HTTPConnectTimeout' => 1,
-			'HTTPMaxTimeout' => 1,
-			'HTTPMaxConnectTimeout' => 1,
-			'LocalVirtualHosts' => [],
-			'LocalHTTPProxy' => false,
+			MainConfigNames::HTTPTimeout => 1,
+			MainConfigNames::HTTPConnectTimeout => 1,
+			MainConfigNames::HTTPMaxTimeout => 1,
+			MainConfigNames::HTTPMaxConnectTimeout => 1,
+			MainConfigNames::LocalVirtualHosts => [],
+			MainConfigNames::LocalHTTPProxy => false,
 		] );
 
 		$failCallback = static function ( /* discard any arguments */ ) {

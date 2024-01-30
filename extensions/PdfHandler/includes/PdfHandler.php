@@ -168,7 +168,6 @@ class PdfHandler extends ImageHandler {
 			return new TransformParameterError( $params );
 		}
 
-		// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset
 		$width = (int)$params['width'];
 		$height = (int)$params['height'];
 		$page = (int)$params['page'];
@@ -218,6 +217,8 @@ class PdfHandler extends ImageHandler {
 			"-dLastPage={$page}",
 			"-dSAFER",
 			"-r{$wgPdfHandlerDpi}",
+			// CropBox defines the region that the PDF viewer application is expected to display or print.
+			"-dUseCropBox",
 			"-dBATCH",
 			"-dNOPAUSE",
 			"-q",
@@ -394,8 +395,8 @@ class PdfHandler extends ImageHandler {
 		if ( !$info ) {
 			$cache = MediaWikiServices::getInstance()->getMainWANObjectCache();
 			$info = $cache->getWithSetCallback(
-				$cache->makeKey( 'file-pdf', 'dimensions', $file->getSha1() ),
-				$cache::TTL_INDEFINITE,
+				$cache->makeKey( 'file-pdf-dimensions', $file->getSha1() ),
+				$cache::TTL_MONTH,
 				static function () use ( $file ) {
 					$data = $file->getMetadataItems( PdfImage::ITEMS_FOR_PAGE_SIZE );
 					if ( !$data || !isset( $data['Pages'] ) ) {

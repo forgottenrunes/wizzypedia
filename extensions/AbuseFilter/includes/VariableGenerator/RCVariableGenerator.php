@@ -7,12 +7,11 @@ use MediaWiki\Extension\AbuseFilter\Hooks\AbuseFilterHookRunner;
 use MediaWiki\Extension\AbuseFilter\Variables\VariableHolder;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\Page\WikiPageFactory;
+use MediaWiki\Title\Title;
 use MimeAnalyzer;
 use MWFileProps;
-use MWTimestamp;
 use RecentChange;
 use RepoGroup;
-use Title;
 use User;
 
 /**
@@ -23,7 +22,7 @@ class RCVariableGenerator extends VariableGenerator {
 	/**
 	 * @var RecentChange
 	 */
-	protected $rc;
+	private $rc;
 
 	/** @var User */
 	private $contextUser;
@@ -84,7 +83,7 @@ class RCVariableGenerator extends VariableGenerator {
 					return null;
 			}
 		} elseif ( $this->rc->getAttribute( 'rc_this_oldid' ) ) {
-			// It's an edit.
+			// It's an edit (or a page creation).
 			$this->addEditVarsForRow();
 		} elseif (
 			!$this->hookRunner->onAbuseFilterGenerateVarsForRecentChange(
@@ -95,11 +94,7 @@ class RCVariableGenerator extends VariableGenerator {
 			// @codeCoverageIgnoreEnd
 		}
 
-		$this->addGenericVars();
-		$this->vars->setVar(
-			'timestamp',
-			MWTimestamp::convert( TS_UNIX, $this->rc->getAttribute( 'rc_timestamp' ) )
-		);
+		$this->addGenericVars( $this->rc );
 
 		return $this->vars;
 	}
@@ -217,24 +212,29 @@ class RCVariableGenerator extends VariableGenerator {
 		$this->addUserVars( $userIdentity, $this->rc )
 			->addTitleVars( $title, 'page', $this->rc );
 
-		// @todo Set old_content_model and new_content_model
 		$this->vars->setVar( 'action', 'edit' );
 		$this->vars->setVar( 'summary', $this->rc->getAttribute( 'rc_comment' ) );
 
 		$this->vars->setLazyLoadVar( 'new_wikitext', 'revision-text-by-id',
 			[ 'revid' => $this->rc->getAttribute( 'rc_this_oldid' ), 'contextUser' => $this->contextUser ] );
+		$this->vars->setLazyLoadVar( 'new_content_model', 'content-model-by-id',
+			[ 'revid' => $this->rc->getAttribute( 'rc_this_oldid' ) ] );
 
 		$parentId = $this->rc->getAttribute( 'rc_last_oldid' );
 		if ( $parentId ) {
 			$this->vars->setLazyLoadVar( 'old_wikitext', 'revision-text-by-id',
 				[ 'revid' => $parentId, 'contextUser' => $this->contextUser ] );
+			$this->vars->setLazyLoadVar( 'old_content_model', 'content-model-by-id',
+				[ 'revid' => $parentId ] );
 		} else {
 			$this->vars->setVar( 'old_wikitext', '' );
+			$this->vars->setVar( 'old_content_model', '' );
 		}
 
 		$this->addEditVars(
 			$this->wikiPageFactory->newFromTitle( $title ),
-			$this->contextUser
+			$this->contextUser,
+			false
 		);
 
 		return $this;

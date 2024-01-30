@@ -2,12 +2,12 @@
 
 namespace MediaWiki\ResourceLoader;
 
+use MediaWiki\Config\Config;
 use MediaWiki\HookContainer\HookContainer;
-use ResourceLoader;
-use ResourceLoaderContext;
 
 /**
  * @internal
+ * @codeCoverageIgnore
  * @ingroup ResourceLoader
  */
 class HookRunner implements
@@ -16,7 +16,8 @@ class HookRunner implements
 	\MediaWiki\ResourceLoader\Hook\ResourceLoaderRegisterModulesHook,
 	\MediaWiki\ResourceLoader\Hook\ResourceLoaderSiteModulePagesHook,
 	\MediaWiki\ResourceLoader\Hook\ResourceLoaderSiteStylesModulePagesHook,
-	\MediaWiki\ResourceLoader\Hook\ResourceLoaderTestModulesHook
+	\MediaWiki\ResourceLoader\Hook\ResourceLoaderGetConfigVarsHook,
+	\MediaWiki\ResourceLoader\Hook\ResourceLoaderJqueryMsgModuleMagicWordsHook
 {
 	/** @var HookContainer */
 	private $container;
@@ -25,7 +26,7 @@ class HookRunner implements
 		$this->container = $container;
 	}
 
-	public function onResourceLoaderExcludeUserOptions( array &$keysToExclude, ResourceLoaderContext $context ): void {
+	public function onResourceLoaderExcludeUserOptions( array &$keysToExclude, Context $context ): void {
 		$this->container->run(
 			'ResourceLoaderExcludeUserOptions',
 			[ &$keysToExclude, $context ],
@@ -65,10 +66,20 @@ class HookRunner implements
 		);
 	}
 
-	public function onResourceLoaderTestModules( array &$testModules, ResourceLoader $rl ): void {
+	public function onResourceLoaderGetConfigVars( array &$vars, $skin, Config $config ): void {
 		$this->container->run(
-			'ResourceLoaderTestModules',
-			[ &$testModules, $rl ],
+			'ResourceLoaderGetConfigVars',
+			[ &$vars, $skin, $config ],
+			[ 'abortable' => false ]
+		);
+	}
+
+	public function onResourceLoaderJqueryMsgModuleMagicWords( Context $context,
+		array &$magicWords
+	): void {
+		$this->container->run(
+			'ResourceLoaderJqueryMsgModuleMagicWords',
+			[ $context, &$magicWords ],
 			[ 'abortable' => false ]
 		);
 	}

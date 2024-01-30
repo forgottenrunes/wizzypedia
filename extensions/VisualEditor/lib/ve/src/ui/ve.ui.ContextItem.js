@@ -11,8 +11,8 @@
  * @extends OO.ui.Widget
  *
  * @constructor
- * @param {ve.ui.Context} context Context item is in
- * @param {ve.dm.Model} [model] Model item is related to
+ * @param {ve.ui.LinearContext} context Context the item is in
+ * @param {ve.dm.Model} [model] Model the item is related to
  * @param {Object} [config] Configuration options
  */
 ve.ui.ContextItem = function VeUiContextItem( context, model, config ) {
@@ -67,6 +67,17 @@ ve.ui.ContextItem.static.exclusive = true;
 ve.ui.ContextItem.static.commandName = null;
 
 /**
+ * Sort order of the context item within the context
+ *
+ * Items are sorted top to bottom in ascending order. Negative values are allowed.
+ *
+ * @static
+ * @property {number}
+ * @inheritable
+ */
+ve.ui.ContextItem.static.sortOrder = 0;
+
+/**
  * Annotation or node models this item is related to.
  *
  * Used by #isCompatibleWith.
@@ -76,6 +87,17 @@ ve.ui.ContextItem.static.commandName = null;
  * @inheritable
  */
 ve.ui.ContextItem.static.modelClasses = [];
+
+/**
+ * Context items (by name) which this context item suppresses.
+ *
+ * See ve.ui.ModeledFactory.
+ *
+ * @static
+ * @property {string[]}
+ * @inheritable
+ */
+ve.ui.ContextItem.static.suppresses = [];
 
 /* Methods */
 

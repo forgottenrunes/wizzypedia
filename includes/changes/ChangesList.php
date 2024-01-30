@@ -23,12 +23,20 @@
  */
 
 use MediaWiki\CommentFormatter\RowCommentFormatter;
+use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\HookContainer\ProtectedHookAccessorTrait;
+use MediaWiki\Html\Html;
+use MediaWiki\Linker\Linker;
 use MediaWiki\Linker\LinkRenderer;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Pager\PagerTools;
+use MediaWiki\Parser\Sanitizer;
 use MediaWiki\Permissions\Authority;
 use MediaWiki\Revision\MutableRevisionRecord;
 use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 use MediaWiki\User\UserIdentityValue;
 use OOUI\IconWidget;
 use Wikimedia\Rdbms\IResultWrapper;
@@ -73,6 +81,16 @@ class ChangesList extends ContextSource {
 	protected $filterGroups;
 
 	/**
+	 * @var MapCacheLRU
+	 */
+	protected $tagsCache;
+
+	/**
+	 * @var MapCacheLRU
+	 */
+	protected $userLinkCache;
+
+	/**
 	 * @param IContextSource $context
 	 * @param ChangesListFilterGroup[] $filterGroups Array of ChangesListFilterGroup objects (currently optional)
 	 */
@@ -85,6 +103,8 @@ class ChangesList extends ContextSource {
 		$services = MediaWikiServices::getInstance();
 		$this->linkRenderer = $services->getLinkRenderer();
 		$this->commentFormatter = $services->getRowCommentFormatter();
+		$this->tagsCache = new MapCacheLRU( 50 );
+		$this->userLinkCache = new MapCacheLRU( 50 );
 	}
 
 	/**
@@ -98,9 +118,14 @@ class ChangesList extends ContextSource {
 	public static function newFromContext( IContextSource $context, array $groups = [] ) {
 		$user = $context->getUser();
 		$sk = $context->getSkin();
+		$services = MediaWikiServices::getInstance();
 		$list = null;
-		if ( Hooks::runner()->onFetchChangesList( $user, $sk, $list, $groups ) ) {
-			$new = $context->getRequest()->getBool( 'enhanced', $user->getOption( 'usenewrc' ) );
+		if ( ( new HookRunner( $services->getHookContainer() ) )->onFetchChangesList( $user, $sk, $list, $groups ) ) {
+			$userOptionsLookup = $services->getUserOptionsLookup();
+			$new = $context->getRequest()->getBool(
+				'enhanced',
+				$userOptionsLookup->getBoolOption( $user, 'usenewrc' )
+			);
 
 			return $new ?
 				new EnhancedChangesList( $context, $groups ) :
@@ -175,7 +200,7 @@ class ChangesList extends ContextSource {
 			$this->message = [];
 			foreach ( [
 				'cur', 'diff', 'hist', 'enhancedrc-history', 'last', 'blocklink', 'history',
-				'semicolon-separator', 'pipe-separator' ] as $msg
+				'semicolon-separator', 'pipe-separator', 'word-separator' ] as $msg
 			) {
 				$this->message[$msg] = $this->msg( $msg )->escaped();
 			}
@@ -190,7 +215,9 @@ class ChangesList extends ContextSource {
 	 */
 	public function recentChangesFlags( $flags, $nothing = "\u{00A0}" ) {
 		$f = '';
-		foreach ( array_keys( $this->getConfig()->get( 'RecentChangesFlags' ) ) as $flag ) {
+		foreach (
+			$this->getConfig()->get( MainConfigNames::RecentChangesFlags ) as $flag => $_
+		) {
 			$f .= isset( $flags[$flag] ) && $flags[$flag]
 				? self::flag( $flag, $this->getContext() )
 				: $nothing;
@@ -275,7 +302,8 @@ class ChangesList extends ContextSource {
 		static $flagInfos = null;
 
 		if ( $flagInfos === null ) {
-			$recentChangesFlags = MediaWikiServices::getInstance()->getMainConfig()->get( 'RecentChangesFlags' );
+			$recentChangesFlags = MediaWikiServices::getInstance()->getMainConfig()
+				->get( MainConfigNames::RecentChangesFlags );
 			$flagInfos = [];
 			foreach ( $recentChangesFlags as $key => $value ) {
 				$flagInfos[$key]['letter'] = $value['letter'];
@@ -358,7 +386,7 @@ class ChangesList extends ContextSource {
 		$code = $lang->getCode();
 		static $fastCharDiff = [];
 		if ( !isset( $fastCharDiff[$code] ) ) {
-			$fastCharDiff[$code] = $config->get( 'MiserMode' )
+			$fastCharDiff[$code] = $config->get( MainConfigNames::MiserMode )
 				|| $context->msg( 'rc-change-size' )->plain() === '$1';
 		}
 
@@ -368,7 +396,7 @@ class ChangesList extends ContextSource {
 			$formattedSize = $context->msg( 'rc-change-size', $formattedSize )->text();
 		}
 
-		if ( abs( $szdiff ) > abs( $config->get( 'RCChangedSizeThreshold' ) ) ) {
+		if ( abs( $szdiff ) > abs( $config->get( MainConfigNames::RCChangedSizeThreshold ) ) ) {
 			$tag = 'strong';
 		} else {
 			$tag = 'span';
@@ -685,14 +713,25 @@ class ChangesList extends ContextSource {
 			$s .= ' <span class="' . $deletedClass . '">' .
 				$this->msg( 'rev-deleted-user' )->escaped() . '</span>';
 		} else {
-			$s .= $this->getLanguage()->getDirMark() . Linker::userLink( $rc->mAttribs['rc_user'],
-				$rc->mAttribs['rc_user_text'] );
-			$s .= Linker::userToolLinks(
-				$rc->mAttribs['rc_user'], $rc->mAttribs['rc_user_text'],
-				false, 0, null,
-				// The text content of tools is not wrapped with parentheses or "piped".
-				// This will be handled in CSS (T205581).
-				false
+			$s .= $this->getLanguage()->getDirMark();
+			$s .= $this->userLinkCache->getWithSetCallback(
+				$this->userLinkCache->makeKey(
+					$rc->mAttribs['rc_user_text'],
+					$this->getUser()->getName(),
+					$this->getLanguage()->getCode()
+				),
+				static function () use ( $rc ) {
+					return Linker::userLink(
+						$rc->mAttribs['rc_user'],
+						$rc->mAttribs['rc_user_text']
+					) . Linker::userToolLinks(
+						$rc->mAttribs['rc_user'], $rc->mAttribs['rc_user_text'],
+						false, 0, null,
+						// The text content of tools is not wrapped with parentheses or "piped".
+						// This will be handled in CSS (T205581).
+						false
+					);
+				}
 			);
 		}
 	}
@@ -710,7 +749,11 @@ class ChangesList extends ContextSource {
 		$mark = $this->getLanguage()->getDirMark();
 
 		return Html::openElement( 'span', [ 'class' => 'mw-changeslist-log-entry' ] )
-			. $formatter->getActionText() . " $mark" . $formatter->getComment()
+			. $formatter->getActionText()
+			. " $mark"
+			. $formatter->getComment()
+			. $this->message['word-separator']
+			. $formatter->getActionLinks()
 			. Html::closeElement( 'span' );
 	}
 
@@ -756,7 +799,12 @@ class ChangesList extends ContextSource {
 		}
 
 		return $this->watchMsgCache->getWithSetCallback(
-			"watching-users-msg:$count",
+			$this->watchMsgCache->makeKey(
+				'watching-users-msg',
+				strval( $count ),
+				$this->getUser()->getName(),
+				$this->getLanguage()->getCode()
+			),
 			function () use ( $count ) {
 				return $this->msg( 'number-of-watching-users-for-recent-changes' )
 					->numParams( $count )->escaped();
@@ -784,9 +832,7 @@ class ChangesList extends ContextSource {
 	 * @return bool
 	 */
 	public static function userCan( $rc, $field, Authority $performer = null ) {
-		if ( $performer === null ) {
-			$performer = RequestContext::getMain()->getAuthority();
-		}
+		$performer ??= RequestContext::getMain()->getAuthority();
 
 		if ( $rc->mAttribs['rc_type'] == RC_LOG ) {
 			return LogEventsList::userCanBitfield( $rc->mAttribs['rc_deleted'], $field, $performer );
@@ -815,33 +861,52 @@ class ChangesList extends ContextSource {
 	 * @param RecentChange &$rc
 	 */
 	public function insertRollback( &$s, &$rc ) {
-		if ( $rc->mAttribs['rc_type'] == RC_EDIT
-			&& $rc->mAttribs['rc_this_oldid']
-			&& $rc->mAttribs['rc_cur_id']
-			&& $rc->getAttribute( 'page_latest' ) == $rc->mAttribs['rc_this_oldid']
-		) {
-			$title = $rc->getTitle();
-			/** Check for rollback permissions, disallow special pages, and only
-			 * show a link on the top-most revision
-			 */
-			if ( $this->getAuthority()->probablyCan( 'rollback', $title ) ) {
-				$revRecord = new MutableRevisionRecord( $title );
-				$revRecord->setId( (int)$rc->mAttribs['rc_this_oldid'] );
-				$revRecord->setVisibility( (int)$rc->mAttribs['rc_deleted'] );
-				$user = new UserIdentityValue(
-					(int)$rc->mAttribs['rc_user'],
-					$rc->mAttribs['rc_user_text']
-				);
-				$revRecord->setUser( $user );
+		$this->insertPageTools( $s, $rc );
+	}
 
-				$s .= ' ';
-				$s .= Linker::generateRollback(
-					$revRecord,
-					$this->getContext(),
-					[ 'noBrackets' ]
-				);
-			}
+	/**
+	 * Insert an extensible set of page tools into the changelist row
+	 * which includes a rollback link and undo link if applicable.
+	 *
+	 * @param string &$s
+	 * @param RecentChange &$rc
+	 *
+	 */
+	private function insertPageTools( &$s, &$rc ) {
+		// FIXME Some page tools (e.g. thanks) might make sense for log entries.
+		if ( !in_array( $rc->mAttribs['rc_type'], [ RC_EDIT, RC_NEW ] )
+			// FIXME When would either of these not exist when type is RC_EDIT? Document.
+			|| !$rc->mAttribs['rc_this_oldid']
+			|| !$rc->mAttribs['rc_cur_id']
+		) {
+			return;
 		}
+
+		// Construct a fake revision for PagerTools. FIXME can't we just obtain the real one?
+		$title = $rc->getTitle();
+		$revRecord = new MutableRevisionRecord( $title );
+		$revRecord->setId( (int)$rc->mAttribs['rc_this_oldid'] );
+		$revRecord->setVisibility( (int)$rc->mAttribs['rc_deleted'] );
+		$user = new UserIdentityValue(
+			(int)$rc->mAttribs['rc_user'],
+			$rc->mAttribs['rc_user_text']
+		);
+		$revRecord->setUser( $user );
+
+		$tools = new PagerTools(
+			$revRecord,
+			null,
+			// only show a rollback link on the top-most revision
+			$rc->getAttribute( 'page_latest' ) == $rc->mAttribs['rc_this_oldid']
+				&& $rc->mAttribs['rc_type'] != RC_NEW,
+			$this->getHookRunner(),
+			$title,
+			$this->getContext(),
+			// @todo: Inject
+			MediaWikiServices::getInstance()->getLinkRenderer()
+		);
+
+		$s .= $tools->toHTML();
 	}
 
 	/**
@@ -865,10 +930,22 @@ class ChangesList extends ContextSource {
 			return;
 		}
 
-		list( $tagSummary, $newClasses ) = ChangeTags::formatSummaryRow(
-			$rc->mAttribs['ts_tags'],
-			'changeslist',
-			$this->getContext()
+		/**
+		 * Tags are repeated for a lot of the records, so during single run of RecentChanges, we
+		 * should cache those that were already processed as doing that for each record takes
+		 * significant amount of time.
+		 */
+		[ $tagSummary, $newClasses ] = $this->tagsCache->getWithSetCallback(
+			$this->tagsCache->makeKey(
+				$rc->mAttribs['ts_tags'],
+				$this->getUser()->getName(),
+				$this->getLanguage()->getCode()
+			),
+			fn () => ChangeTags::formatSummaryRow(
+				$rc->mAttribs['ts_tags'],
+				'changeslist',
+				$this->getContext()
+			)
 		);
 		$classes = array_merge( $classes, $newClasses );
 		$s .= ' ' . $tagSummary;
@@ -910,19 +987,13 @@ class ChangesList extends ContextSource {
 			$rcLogType = $rc->rc_log_type;
 		}
 
-		if ( !$isPatrolled ) {
-			if ( $user->useRCPatrol() ) {
-				return true;
-			}
-			if ( $user->useNPPatrol() && $rcType == RC_NEW ) {
-				return true;
-			}
-			if ( $user->useFilePatrol() && $rcLogType == 'upload' ) {
-				return true;
-			}
+		if ( $isPatrolled ) {
+			return false;
 		}
 
-		return false;
+		return $user->useRCPatrol() ||
+			( $rcType == RC_NEW && $user->useNPPatrol() ) ||
+			( $rcLogType === 'upload' && $user->useFilePatrol() );
 	}
 
 	/**
@@ -957,6 +1028,9 @@ class ChangesList extends ContextSource {
 				$attrs['data-mw-logid'] = $rc->mAttribs['rc_logid'];
 				$attrs['data-mw-logaction'] =
 					$rc->mAttribs['rc_log_type'] . '/' . $rc->mAttribs['rc_log_action'];
+				break;
+			case RecentChange::SRC_CATEGORIZE:
+				$attrs['data-mw-revid'] = $rc->mAttribs['rc_this_oldid'];
 				break;
 		}
 

@@ -1,11 +1,8 @@
 <?php
 /** German (Deutsch)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
- *
+ * @ingroup Languages
  */
 
 $namespaceNames = [
@@ -118,6 +115,7 @@ $specialPageAliases = [
 	'Recentchanges'             => [ 'Letzte_Änderungen' ],
 	'Recentchangeslinked'       => [ 'Änderungen_an_verlinkten_Seiten' ],
 	'Redirect'                  => [ 'Weiterleitung' ],
+	'Renameuser'                => [ 'Benutzer_umbenennen' ],
 	'ResetTokens'               => [ 'Tokens_zurücksetzen' ],
 	'Revisiondelete'            => [ 'Versionslöschung' ],
 	'RunJobs'                   => [ 'Aufträge_ausführen' ],

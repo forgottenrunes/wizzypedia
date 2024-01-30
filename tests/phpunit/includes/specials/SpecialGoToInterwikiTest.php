@@ -1,9 +1,10 @@
 <?php
 
 use MediaWiki\Interwiki\InterwikiLookupAdapter;
+use MediaWiki\Title\Title;
 
 /**
- * @covers SpecialGoToInterwiki
+ * @covers \MediaWiki\Specials\SpecialGoToInterwiki
  */
 class SpecialGoToInterwikiTest extends MediaWikiIntegrationTestCase {
 

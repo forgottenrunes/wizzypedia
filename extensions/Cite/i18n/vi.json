@@ -3,14 +3,15 @@
 		"authors": [
 			"Minh Nguyen",
 			"NguoiDungKhongDinhDanh",
+			"NguyenHung",
 			"Vinhtantran"
 		]
 	},
-	"cite-desc": "Thêm các thẻ <code>&lt;ref[ name=id]&gt;</code> và <code>&lt;references/&gt;</code> để ghi chú thích hoặc nguồn tham khảo",
+	"cite-desc": "Thêm các thẻ <code>&lt;ref&gt;</code> và <code>&lt;references&gt;</code> để ghi chú thích hoặc nguồn tham khảo",
 	"cite_error": "Lỗi chú thích: $1",
 	"cite_error_ref_numeric_key": "Thẻ <code>&lt;ref&gt;</code> sai; tên không thể chỉ là số nguyên, hãy dùng tựa đề có tính miêu tả",
 	"cite_error_ref_no_key": "Thẻ mở <code>&lt;ref&gt;</code> bị hỏng hoặc có tên sai",
-	"cite_error_ref_too_many_keys": "Thẻ <code>&lt;ref&gt;</code> sai; thông số tên sai, như, nhiều thông số tên quá",
+	"cite_error_ref_too_many_keys": "Thẻ <code>&lt;ref&gt;</code> không hợp lệ, chẳng hạn thông số tên không hợp lệ, quá nhiều thông số, …",
 	"cite_error_ref_no_input": "Mã <code>&lt;ref&gt;</code> sai; thẻ ref không có tên thì phải có nội dung",
 	"cite_error_references_duplicate_key": "Thẻ <code>&lt;ref&gt;</code> không hợp lệ: tên “$1” được định rõ nhiều lần, mỗi lần có nội dung khác",
 	"cite_error_references_invalid_parameters": "Thông số không hợp lệ trong thẻ <code>&lt;references&gt;</code>",
@@ -31,5 +32,11 @@
 	"cite_references_link_many_accessibility_label": "Bước lên tới:",
 	"cite_section_preview_references": "Xem trước chú thích",
 	"cite_warning": "Cảnh báo chú thích: $1",
-	"cite_warning_sectionpreview_no_text": "Không thể xem truớc thẻ <code>&lt;ref&gt;</code> có tên <code>$1</code> vì nó được định rõ bên ngoài phần trang này hoặc không được định rõ."
+	"cite_warning_sectionpreview_no_text": "Không thể xem truớc thẻ <code>&lt;ref&gt;</code> có tên <code>$1</code> vì nó được định rõ bên ngoài phần trang này hoặc không được định rõ.",
+	"cite-wikieditor-tool-reference": "Chú thích tham khảo",
+	"cite-wikieditor-help-page-references": "Tham khảo",
+	"cite-wikieditor-help-content-reference-description": "Tham khảo",
+	"cite-wikieditor-help-content-named-reference-description": "Tham chiếu có tên",
+	"cite-wikieditor-help-content-rereference-description": "Sử dụng lại cùng chú thích",
+	"cite-wikieditor-help-content-showreferences-description": "Liệt kê các chú thích"
 }

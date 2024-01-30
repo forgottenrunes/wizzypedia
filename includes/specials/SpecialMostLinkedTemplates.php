@@ -22,9 +22,19 @@
  * @author Rob Church <robchur@gmail.com>
  */
 
+namespace MediaWiki\Specials;
+
 use MediaWiki\Cache\LinkBatchFactory;
+use MediaWiki\Html\Html;
+use MediaWiki\Linker\Linker;
+use MediaWiki\Linker\LinksMigration;
+use MediaWiki\SpecialPage\QueryPage;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
+use Skin;
+use stdClass;
+use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IDatabase;
-use Wikimedia\Rdbms\ILoadBalancer;
 use Wikimedia\Rdbms\IResultWrapper;
 
 /**
@@ -35,17 +45,22 @@ use Wikimedia\Rdbms\IResultWrapper;
  */
 class SpecialMostLinkedTemplates extends QueryPage {
 
+	private LinksMigration $linksMigration;
+
 	/**
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param LinkBatchFactory $linkBatchFactory
+	 * @param LinksMigration $linksMigration
 	 */
 	public function __construct(
-		ILoadBalancer $loadBalancer,
-		LinkBatchFactory $linkBatchFactory
+		IConnectionProvider $dbProvider,
+		LinkBatchFactory $linkBatchFactory,
+		LinksMigration $linksMigration
 	) {
 		parent::__construct( 'Mostlinkedtemplates' );
-		$this->setDBLoadBalancer( $loadBalancer );
+		$this->setDatabaseProvider( $dbProvider );
 		$this->setLinkBatchFactory( $linkBatchFactory );
+		$this->linksMigration = $linksMigration;
 	}
 
 	/**
@@ -76,14 +91,17 @@ class SpecialMostLinkedTemplates extends QueryPage {
 	}
 
 	public function getQueryInfo() {
+		$queryInfo = $this->linksMigration->getQueryInfo( 'templatelinks' );
+		[ $ns, $title ] = $this->linksMigration->getTitleFields( 'templatelinks' );
 		return [
-			'tables' => [ 'templatelinks' ],
+			'tables' => $queryInfo['tables'],
 			'fields' => [
-				'namespace' => 'tl_namespace',
-				'title' => 'tl_title',
+				'namespace' => $ns,
+				'title' => $title,
 				'value' => 'COUNT(*)'
 			],
-			'options' => [ 'GROUP BY' => [ 'tl_namespace', 'tl_title' ] ]
+			'options' => [ 'GROUP BY' => [ $ns, $title ] ],
+			'join_conds' => $queryInfo['joins']
 		];
 	}
 
@@ -142,3 +160,9 @@ class SpecialMostLinkedTemplates extends QueryPage {
 		return 'highuse';
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialMostLinkedTemplates::class, 'SpecialMostLinkedTemplates' );

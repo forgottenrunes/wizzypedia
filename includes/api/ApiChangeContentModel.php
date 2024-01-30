@@ -2,6 +2,8 @@
 
 use MediaWiki\Content\IContentHandlerFactory;
 use MediaWiki\Page\ContentModelChangeFactory;
+use MediaWiki\Title\Title;
+use Wikimedia\ParamValidator\ParamValidator;
 
 /**
  * Api module to change the content model of existing pages
@@ -14,11 +16,8 @@ use MediaWiki\Page\ContentModelChangeFactory;
  */
 class ApiChangeContentModel extends ApiBase {
 
-	/** @var IContentHandlerFactory */
-	private $contentHandlerFactory;
-
-	/** @var ContentModelChangeFactory */
-	private $contentModelChangeFactory;
+	private IContentHandlerFactory $contentHandlerFactory;
+	private ContentModelChangeFactory $contentModelChangeFactory;
 
 	/**
 	 * @param ApiMain $main
@@ -73,15 +72,11 @@ class ApiChangeContentModel extends ApiBase {
 		}
 
 		// Everything passed, make the conversion
-		try {
-			$status = $changer->doContentModelChange(
-				$this->getContext(),
-				$params['summary'],
-				$params['bot']
-			);
-		} catch ( ThrottledError $te ) {
-			$this->dieWithError( 'apierror-ratelimited' );
-		}
+		$status = $changer->doContentModelChange(
+			$this->getContext(),
+			$params['summary'] ?? '',
+			$params['bot']
+		);
 
 		if ( !$status->isGood() ) {
 			// Failed
@@ -114,19 +109,21 @@ class ApiChangeContentModel extends ApiBase {
 
 		return [
 			'title' => [
-				ApiBase::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_TYPE => 'string',
 			],
 			'pageid' => [
-				ApiBase::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_TYPE => 'integer',
 			],
-			'summary' => null,
+			'summary' => [
+				ParamValidator::PARAM_TYPE => 'string',
+			],
 			'tags' => [
-				ApiBase::PARAM_TYPE => 'tags',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'tags',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'model' => [
-				ApiBase::PARAM_TYPE => $modelOptions,
-				ApiBase::PARAM_REQUIRED => true,
+				ParamValidator::PARAM_TYPE => $modelOptions,
+				ParamValidator::PARAM_REQUIRED => true,
 			],
 			'bot' => false,
 		];

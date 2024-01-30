@@ -21,7 +21,11 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use MediaWiki\SpecialPage\UnlistedSpecialPage;
 use MediaWiki\User\UserFactory;
+use Profiler;
 use Wikimedia\ScopedCallback;
 
 /**
@@ -32,8 +36,7 @@ use Wikimedia\ScopedCallback;
  */
 class SpecialEmailInvalidate extends UnlistedSpecialPage {
 
-	/** @var UserFactory */
-	private $userFactory;
+	private UserFactory $userFactory;
 
 	/**
 	 * @param UserFactory $userFactory
@@ -57,7 +60,7 @@ class SpecialEmailInvalidate extends UnlistedSpecialPage {
 		$this->checkReadOnly();
 		$this->checkPermissions();
 
-		$scope = $trxProfiler->silenceForScope();
+		$scope = $trxProfiler->silenceForScope( $trxProfiler::EXPECTATION_REPLICAS_ONLY );
 		$this->attemptInvalidate( $code );
 		ScopedCallback::consume( $scope );
 	}
@@ -89,3 +92,8 @@ class SpecialEmailInvalidate extends UnlistedSpecialPage {
 		}
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialEmailInvalidate::class, 'SpecialEmailInvalidate' );

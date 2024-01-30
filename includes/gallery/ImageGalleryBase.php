@@ -20,7 +20,10 @@
  * @file
  */
 
+use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
 
 /**
  * Image gallery
@@ -119,7 +122,7 @@ abstract class ImageGalleryBase extends ContextSource {
 			$context = RequestContext::getMainAndWarn( __METHOD__ );
 		}
 		if ( !$mode ) {
-			$galleryOptions = $context->getConfig()->get( 'GalleryOptions' );
+			$galleryOptions = $context->getConfig()->get( MainConfigNames::GalleryOptions );
 			$mode = $galleryOptions['mode'];
 		}
 
@@ -144,7 +147,8 @@ abstract class ImageGalleryBase extends ContextSource {
 				'slideshow' => SlideshowImageGallery::class,
 			];
 			// Allow extensions to make a new gallery format.
-			Hooks::runner()->onGalleryGetModes( self::$modeMapping );
+			( new HookRunner( MediaWikiServices::getInstance()->getHookContainer() ) )
+				->onGalleryGetModes( self::$modeMapping );
 		}
 	}
 
@@ -166,7 +170,7 @@ abstract class ImageGalleryBase extends ContextSource {
 			$this->setContext( $context );
 		}
 
-		$galleryOptions = $this->getConfig()->get( 'GalleryOptions' );
+		$galleryOptions = $this->getConfig()->get( MainConfigNames::GalleryOptions );
 		$this->mImages = [];
 		$this->mShowBytes = $galleryOptions['showBytes'];
 		$this->mShowDimensions = $galleryOptions['showDimensions'];
@@ -275,10 +279,11 @@ abstract class ImageGalleryBase extends ContextSource {
 	 * @param Title $title Title object of the image that is added to the gallery
 	 * @param string $html Additional HTML text to be shown. The name and size
 	 *   of the image are always shown.
-	 * @param string $alt Alt text for the image
+	 * @param string|null $alt Alt text for the image, or null to omit
 	 * @param string $link Override image link (optional)
 	 * @param array $handlerOpts Array of options for image handler (aka page number)
 	 * @param int $loading Sets loading attribute of the underlying <img> (optional)
+	 * @param ?array $imageOptions To supercede the $link param
 	 */
 	public function add(
 			$title,
@@ -286,13 +291,14 @@ abstract class ImageGalleryBase extends ContextSource {
 			$alt = '',
 			$link = '',
 			$handlerOpts = [],
-			$loading = self::LOADING_DEFAULT
+			$loading = self::LOADING_DEFAULT,
+			?array $imageOptions = null
 		) {
 		if ( $title instanceof File ) {
 			// Old calling convention
 			$title = $title->getTitle();
 		}
-		$this->mImages[] = [ $title, $html, $alt, $link, $handlerOpts, $loading ];
+		$this->mImages[] = [ $title, $html, $alt, $link, $handlerOpts, $loading, $imageOptions ];
 		wfDebug( 'ImageGallery::add ' . $title->getText() );
 	}
 
@@ -306,6 +312,7 @@ abstract class ImageGalleryBase extends ContextSource {
 	 * @param string $link Override image link (optional)
 	 * @param array $handlerOpts Array of options for image handler (aka page number)
 	 * @param int $loading Sets loading attribute of the underlying <img> (optional)
+	 * @param ?array $imageOptions To supercede the $link param
 	 */
 	public function insert(
 			$title,
@@ -313,13 +320,14 @@ abstract class ImageGalleryBase extends ContextSource {
 			$alt = '',
 			$link = '',
 			$handlerOpts = [],
-			$loading = self::LOADING_DEFAULT
+			$loading = self::LOADING_DEFAULT,
+			?array $imageOptions = null
 		) {
 		if ( $title instanceof File ) {
 			// Old calling convention
 			$title = $title->getTitle();
 		}
-		array_unshift( $this->mImages, [ &$title, $html, $alt, $link, $handlerOpts, $loading ] );
+		array_unshift( $this->mImages, [ &$title, $html, $alt, $link, $handlerOpts, $loading, $imageOptions ] );
 	}
 
 	/**
@@ -336,7 +344,7 @@ abstract class ImageGalleryBase extends ContextSource {
 	 * @return bool
 	 */
 	public function isEmpty() {
-		return empty( $this->mImages );
+		return $this->mImages === [];
 	}
 
 	/**

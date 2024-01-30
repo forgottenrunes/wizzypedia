@@ -14,13 +14,13 @@
 			"Waihorace",
 			"Wbxshiori",
 			"Winston Sung",
-			"Xiplus"
+			"Xiplus",
+			"捍粵者"
 		]
 	},
 	"captcha-edit": "要編輯這篇文章，請完成以下項目，然後在框內輸入  ([[Special:Captcha/help|更多資料]]) :",
 	"captcha-edit-fail": "錯誤或未輸入 CAPTCHA",
 	"captcha-desc": "提供 CAPTCHA 技術來阻止垃圾訊息和密碼猜解",
-	"captcha-label": "CAPTCHA",
 	"captcha-help": "驗證碼答案。",
 	"captcha-info-help": "驗證碼的描述。",
 	"captcha-id-label": "驗證碼ID",
@@ -30,7 +30,7 @@
 	"captcha-createaccount": "為防止程式自動註冊，請完成以下項目，然後在框內輸入  ([[Special:Captcha/help|更多資料]]) :",
 	"captcha-createaccount-fail": "驗證碼錯誤或遺失。",
 	"captcha-create": "要建立頁面，請完成以下項目，然後在框內輸入  ([[Special:Captcha/help|更多資料]]) :",
-	"captcha-sendemail": "為防止程式進行破壞，請完成以下項目，然後在框內輸入  ([[Special:Captcha/help|更多資料]]) :",
+	"captcha-sendemail": "為防程式破壞，請完成以下項目，然後在框內輸入（[[Special:Captcha/help|更多資料]]）：",
 	"captcha-sendemail-fail": "CAPTCHA 錯誤或遺失。",
 	"captcha-disabledinapi": "此操作需要使用 CAPTCHA 驗証，因此無法透過 API 執行。",
 	"captcha-error": "由於內部錯誤，驗證碼確認失敗：$1",

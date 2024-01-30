@@ -1,13 +1,14 @@
 {
 	"@metadata": {
 		"authors": [
+			"Amire80",
 			"Har-wradim",
 			"Imre",
 			"Jiddisch",
 			"Matma Rex",
+			"Pacha Tchernof",
 			"פוילישער",
-			"පසිඳු කාවින්ද",
-			"Pacha Tchernof"
+			"පසිඳු කාවින්ද"
 		]
 	},
 	"abusefilter-desc": "ווענדט אויטאמאטישע הייריסטיק צו רעדאקטירונגען",
@@ -15,7 +16,7 @@
 	"abuselog": "פֿילטער לאגבוך",
 	"abusefilter-warning": "'''ווארענונג''': די פעולה איז געווארן אויטאמאַטיש אידענטיציפירט אלס שעדלעך.\nאומקאנסטרוקטיווע אַקציעס וועלן גיך ווערן צוריקגעשטעלט,\nאון גראבע אדער איבערגעחזרטע אומקאנסטרוקטיווע רעדאַקטירונג וועלן ברענגען צו בלאקירן אײַער קאנטע אדער IP אדרעס.\nווען איר האַלט אַז די רעדאַקטירונג איז יא קאנסטרוקטיוו, מעגט איר קליקן \"אויפהיטן\" נאכאַמאָל צו באַשטעטיגן זי.\nא קורצע באַשרייבונג פונעם כלל וואס איז געבראכן: $1",
 	"abusefilter-disallowed": "די אקציע האט מען אידענטיפֿיצירט אויטאמאטיש ווי שעדלעך, און דעריבער גע'אַסרט.\nווען איר האַלט אַז די רעדאַקטירונג איז יא קאנסטרוקטיוו, מעגט איר קליקן \"אויפהיטן\" נאכאַמאָל צו באַשטעטיגן זי.\nא קורצע באַשרייבונג פונעם כלל וואס איז געבראכן: $1",
-	"abusefilter-blocked-display": "די פעולה ווערט גערעכנט שעדלעך,\nאון מען האט אײַך פארמײַדט פון אויספירן זי.\nדערצו, כדי שיצן {{SITENAME}}, אײַער באניצער קאנטע און אלע אסאציאירטע  IP אדרעסן זענען געווארן בלאקירט פון רעדאקטירן.\nIf this has occurred in error, please contact an administrator.\nA brief description of the abuse rule which your action matched is: $1",
+	"abusefilter-blocked-display": "די פעולה ווערט גערעכנט שעדלעך,\nאון מען האט אײַך פארמײַדט פון אויספירן זי.\nדערצו, כדי שיצן {{SITENAME}}, אײַער באניצער קאנטע און אלע אסאציאירטע IP אדרעסן זענען געווארן בלאקירט פון רעדאקטירן.\nIf this has occurred in error, please contact an administrator.\nA brief description of the abuse rule which your action matched is: $1",
 	"abusefilter-blocker": "פֿילטער",
 	"abusefilter-accountreserved": "דער באניצער נאמען איז רעזערווירט פארן קרומבאניץ־פילטער.",
 	"right-abusefilter-modify": "ענדערן שעדיקן פֿילטערס",
@@ -66,6 +67,7 @@
 	"abusefilter-log-cannot-see-details": "איר האט נישט ערלויבניש צו זען פרטים פון דעם ווערט.",
 	"abusefilter-log-hide-legend": "באהאלטן לאגבוך איינגאב",
 	"abusefilter-log-hide-reason": "אורזאַך:",
+	"abusefilter-log-hide-hide": "באַהאַלטן",
 	"abusefilter-list": "אלע פֿילטערס",
 	"abusefilter-list-id": "פֿילטער נומער",
 	"abusefilter-list-status": "סטאַטוס",
@@ -128,9 +130,10 @@
 	"abusefilter-edit-action-tag": "מארקירן די רעדאקטירורונג פאר שפעטערער רעצענסיע",
 	"abusefilter-edit-throttle-count": "צאל ערלויבטע אקציעס:",
 	"abusefilter-edit-throttle-period": "תקופה פון צײַט (אין סעקונדן):",
+	"abusefilter-throttle-page": "בלאַט",
 	"abusefilter-edit-warn-message": "סיסטעם־מעלדונג פאר ווארענונג:",
 	"abusefilter-edit-warn-other": "אנדער מעלדונג",
-	"abusefilter-edit-warn-other-label": "בלאטנאמען  פון אנדער מעלדונג:\n:''(אן \"מעדיעוויקי:\" פרעפיקס)''",
+	"abusefilter-edit-warn-other-label": "בלאטנאמען פון אנדער מעלדונג:\n:''(אן \"מעדיעוויקי:\" פרעפיקס)''",
 	"abusefilter-edit-warn-actions": "אַקציעס:",
 	"abusefilter-edit-warn-preview": "ווייזן/באהאלטן פאראויסקוק פון געקליבענער מעלדונג",
 	"abusefilter-edit-warn-edit": "שאפן/רעדאקטירן געקליבענע מעלדונג",
@@ -257,6 +260,7 @@
 	"abusefilter-topnav-recentchanges": "לעצטע פֿילטער־ענדערונגען",
 	"abusefilter-topnav-log": "שלעכט־באניצן לאג",
 	"abusefilter-log-name": "פֿילטער לאגבוך",
+	"abusefilter-logentry-create": "$1 {{GENDER:$2|געשאַפֿן}} $4 ($5)",
 	"abusefilter-log-noresults": "קיין רעזולטאטן",
 	"abusefilter-diff-title": "אונטערשייד צווישן ווערסיעס",
 	"abusefilter-diff-item": "איינהייט",

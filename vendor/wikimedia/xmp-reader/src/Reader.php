@@ -23,6 +23,7 @@
 
 namespace Wikimedia\XMPReader;
 
+use Exception;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
 use Psr\Log\LoggerInterface;
@@ -38,7 +39,7 @@ use XMLReader;
  *
  * Note, this is not meant to recognize every possible thing you can
  * encode in XMP. It should recognize all the properties we want.
- * For example it doesn't have support for structures with multiple
+ * For example, it doesn't have support for structures with multiple
  * nesting levels, as none of the properties we're supporting use that
  * feature. If it comes across properties it doesn't recognize, it should
  * ignore them.
@@ -60,10 +61,10 @@ class Reader implements LoggerAwareInterface {
 	use LoggerAwareTrait;
 
 	/** @var array XMP item configuration array */
-	protected $items;
+	protected array $items;
 
 	/** @var array Array to hold the current element (and previous element, and so on) */
-	private $curItem = [];
+	private array $curItem = [];
 
 	/** @var bool|string The structure name when processing nested structures. */
 	private $ancestorStruct = false;
@@ -72,36 +73,36 @@ class Reader implements LoggerAwareInterface {
 	private $charContent = false;
 
 	/** @var array Stores the state the xmpreader is in (see MODE_FOO constants) */
-	private $mode = [];
+	private array $mode = [];
 
 	/** @var array Array to hold results */
-	private $results = [];
+	private array $results = [];
 
 	/** @var bool If we're doing a seq or bag. */
-	private $processingArray = false;
+	private bool $processingArray = false;
 
 	/** @var bool|string Used for lang alts only */
 	private $itemLang = false;
 
-	/** @var resource A resource handle for the XML parser */
+	/** @var resource|null A resource handle for the XML parser */
 	private $xmlParser;
 
 	/** @var bool|string Character set like 'UTF-8' */
 	private $charset = false;
 
 	/** @var int */
-	private $extendedXMPOffset = 0;
+	private int $extendedXMPOffset = 0;
 
 	/** @var int Flag determining if the XMP is safe to parse */
-	private $parsable = 0;
+	private int $parsable = 0;
 
 	/** @var string Buffer of XML to parse */
-	private $xmlParsableBuffer = '';
+	private string $xmlParsableBuffer = '';
 
 	/**
 	 * @var string
 	 */
-	private $filename;
+	private string $filename;
 
 	/**
 	 * These are various mode constants.
@@ -168,7 +169,7 @@ class Reader implements LoggerAwareInterface {
 	 *  or if php garbage collection will automatically free the xmlParser
 	 *  when it is no longer needed.
 	 */
-	private function destroyXMLParser() {
+	private function destroyXMLParser(): void {
 		if ( $this->xmlParser ) {
 			xml_parser_free( $this->xmlParser );
 			$this->xmlParser = null;
@@ -179,7 +180,7 @@ class Reader implements LoggerAwareInterface {
 	 * Main use is if a single item has multiple xmp documents describing it.
 	 * For example in jpeg's with extendedXMP
 	 */
-	private function resetXMLParser() {
+	private function resetXMLParser(): void {
 		$this->destroyXMLParser();
 
 		$this->xmlParser = xml_parser_create_ns( 'UTF-8', ' ' );
@@ -201,17 +202,18 @@ class Reader implements LoggerAwareInterface {
 	 *
 	 * @return bool
 	 */
-	public static function isSupported() {
+	public static function isSupported(): bool {
 		return function_exists( 'xml_parser_create_ns' ) && class_exists( XMLReader::class );
 	}
 
-	/** Get the result array. Do some post-processing before returning
+	/**
+	 * Get the result array. Do some post-processing before returning
 	 * the array, and transform any metadata that is special-cased.
 	 *
 	 * @return array Array of results as an array of arrays suitable for
 	 *    FormatMetadata::getFormattedData().
 	 */
-	public function getResults() {
+	public function getResults(): array {
 		// xmp-special is for metadata that affects how stuff
 		// is extracted. For example xmpNote:HasExtendedXMP.
 
@@ -237,10 +239,11 @@ class Reader implements LoggerAwareInterface {
 		}
 
 		// Go through the LocationShown and LocationCreated
-		// changing it to the non-hierarchal form used by
+		// changing it to the non-hierarchical form used by
 		// the other location fields.
 
 		if ( isset( $data['xmp-special']['LocationShown'][0] )
+			// @phan-suppress-next-line PhanTypeArraySuspiciousNull, PhanTypeInvalidDimOffset
 			&& is_array( $data['xmp-special']['LocationShown'][0] )
 		) {
 			// the is_array is just paranoia. It should always
@@ -256,6 +259,7 @@ class Reader implements LoggerAwareInterface {
 			}
 		}
 		if ( isset( $data['xmp-special']['LocationCreated'][0] )
+			// @phan-suppress-next-line PhanTypeArraySuspiciousNull, PhanTypeInvalidDimOffset
 			&& is_array( $data['xmp-special']['LocationCreated'][0] )
 		) {
 			// the is_array is just paranoia. It should always
@@ -281,9 +285,11 @@ class Reader implements LoggerAwareInterface {
 		) {
 			// Must convert to a real before multiplying by -1
 			// Validate guarantees there will always be a '/' in this value.
-			list( $nom, $denom ) = explode( '/', $data['xmp-exif']['GPSAltitude'] );
+			[ $nom, $denom ] = explode( '/', $data['xmp-exif']['GPSAltitude'] );
+			// @phan-suppress-next-line PhanTypeInvalidLeftOperandOfNumericOp, PhanTypeInvalidRightOperandOfNumericOp
 			$data['xmp-exif']['GPSAltitude'] = $nom / $denom;
 
+			// @phan-suppress-next-line PhanTypeInvalidDimOffset
 			if ( $data['xmp-exif']['GPSAltitudeRef'] == '1' ) {
 				$data['xmp-exif']['GPSAltitude'] *= -1;
 			}
@@ -301,11 +307,11 @@ class Reader implements LoggerAwareInterface {
 	 * debug log, blanks result array and returns false.
 	 *
 	 * @param string $content XMP data
-	 * @param bool $allOfIt If this is all the data (true) or if its split up (false). Default true
+	 * @param bool $allOfIt If this is all the data (true) or if it's split up (false). Default true
 	 * @throws RuntimeException
 	 * @return bool Success.
 	 */
-	public function parse( $content, $allOfIt = true ) {
+	public function parse( $content, $allOfIt = true ): bool {
 		if ( !$this->xmlParser ) {
 			$this->resetXMLParser();
 		}
@@ -349,6 +355,9 @@ class Reader implements LoggerAwareInterface {
 				$content = iconv( $this->charset, 'UTF-8//IGNORE', $content );
 				AtEase::restoreWarnings();
 			}
+
+			// Replace any null bytes with the replacement character (T320282)
+			$content = str_replace( "\0", "\u{FFFD}", $content );
 
 			// Ensure the XMP block does not have an xml doctype declaration, which
 			// could declare entities unsafe to parse with xml_parse (T85848/T71210).
@@ -398,7 +407,7 @@ class Reader implements LoggerAwareInterface {
 				$this->destroyXMLParser();
 				return false;
 			}
-		} catch ( \Exception $e ) {
+		} catch ( Exception $e ) {
 			$this->logger->warning(
 				'{method} {message}',
 				[
@@ -426,7 +435,7 @@ class Reader implements LoggerAwareInterface {
 	 * @param string $content XMPExtended block minus the namespace signature
 	 * @return bool If it succeeded.
 	 */
-	public function parseExtended( $content ) {
+	public function parseExtended( $content ): bool {
 		// @todo FIXME: This is untested. Hard to find example files
 		// or programs that make such files..
 		$guid = substr( $content, 0, 32 );
@@ -512,7 +521,7 @@ class Reader implements LoggerAwareInterface {
 	 * @param string $data Character data
 	 * @throws RuntimeException On invalid data
 	 */
-	public function char( $parser, $data ) {
+	public function char( $parser, $data ): void {
 		$data = trim( $data );
 		if ( trim( $data ) === "" ) {
 			return;
@@ -548,7 +557,7 @@ class Reader implements LoggerAwareInterface {
 	 * @param string $content xml string to check for parse safety
 	 * @return bool true if the xml is safe to parse, false otherwise
 	 */
-	private function checkParseSafety( $content ) {
+	private function checkParseSafety( $content ): bool {
 		$reader = new XMLReader();
 		$result = null;
 
@@ -562,11 +571,13 @@ class Reader implements LoggerAwareInterface {
 
 		// For XMLReader to parse incomplete/invalid XML, it has to be open()'ed
 		// instead of using XML().
-		$reader->open(
+		if ( !$reader->open(
 			$dataUri,
 			null,
 			LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NONET
-		);
+		) ) {
+			return false;
+		}
 
 		if ( LIBXML_VERSION < 20900 ) {
 			$oldDisable = libxml_disable_entity_loader( true );
@@ -614,7 +625,7 @@ class Reader implements LoggerAwareInterface {
 	 *
 	 * @param string $elm Namespace of element followed by a space and then tag name of element.
 	 */
-	private function endElementModeIgnore( $elm ) {
+	private function endElementModeIgnore( $elm ): void {
 		if ( $this->curItem[0] === $elm ) {
 			array_shift( $this->curItem );
 			array_shift( $this->mode );
@@ -636,14 +647,14 @@ class Reader implements LoggerAwareInterface {
 	 *
 	 * @param string $elm Namespace, space, and tag name.
 	 */
-	private function endElementModeSimple( $elm ) {
+	private function endElementModeSimple( $elm ): void {
 		if ( $this->charContent !== false ) {
 			if ( $this->processingArray ) {
 				// if we're processing an array, use the original element
 				// name instead of rdf:li.
-				list( $ns, $tag ) = explode( ' ', $this->curItem[0], 2 );
+				[ $ns, $tag ] = explode( ' ', $this->curItem[0], 2 );
 			} else {
-				list( $ns, $tag ) = explode( ' ', $elm, 2 );
+				[ $ns, $tag ] = explode( ' ', $elm, 2 );
 			}
 			$this->saveValue( $ns, $tag, $this->charContent );
 
@@ -672,7 +683,7 @@ class Reader implements LoggerAwareInterface {
 	 * @param string $elm Namespace . space . tag name.
 	 * @throws RuntimeException
 	 */
-	private function endElementNested( $elm ) {
+	private function endElementNested( $elm ): void {
 		/* cur item must be the same as $elm, unless if in MODE_STRUCT
 		 * in which case it could also be rdf:Description */
 		if ( $this->curItem[0] !== $elm
@@ -684,11 +695,10 @@ class Reader implements LoggerAwareInterface {
 		}
 
 		// Validate structures.
-		list( $ns, $tag ) = explode( ' ', $elm, 2 );
+		[ $ns, $tag ] = explode( ' ', $elm, 2 );
 		if ( isset( $this->items[$ns][$tag]['validate'] ) ) {
 			$info =& $this->items[$ns][$tag];
-			$finalName = isset( $info['map_name'] )
-				? $info['map_name'] : $tag;
+			$finalName = $info['map_name'] ?? $tag;
 
 			if ( is_array( $info['validate'] ) ) {
 				$validate = $info['validate'];
@@ -718,7 +728,7 @@ class Reader implements LoggerAwareInterface {
 			} else {
 				$this->logger->warning(
 					__METHOD__ . " Validation function for $finalName (" .
-					$validate[0] . '::' . $validate[1] . '()) is not callable.',
+					get_class( $validate[0] ) . '::' . $validate[1] . '()) is not callable.',
 					[ 'file' => $this->filename ]
 				);
 			}
@@ -750,17 +760,16 @@ class Reader implements LoggerAwareInterface {
 	 * @param string $elm Namespace . ' ' . element name
 	 * @throws RuntimeException
 	 */
-	private function endElementModeLi( $elm ) {
-		list( $ns, $tag ) = explode( ' ', $this->curItem[0], 2 );
+	private function endElementModeLi( $elm ): void {
+		[ $ns, $tag ] = explode( ' ', $this->curItem[0], 2 );
 		$info = $this->items[$ns][$tag];
-		$finalName = isset( $info['map_name'] )
-			? $info['map_name'] : $tag;
+		$finalName = $info['map_name'] ?? $tag;
 
 		array_shift( $this->mode );
 
 		if ( !isset( $this->results['xmp-' . $info['map_group']][$finalName] ) ) {
 			$this->logger->debug(
-				__METHOD__ . " Empty compund element $finalName.",
+				__METHOD__ . " Empty compound element $finalName.",
 				[ 'file' => $this->filename ]
 			);
 
@@ -793,9 +802,9 @@ class Reader implements LoggerAwareInterface {
 	 *
 	 * @param string $elm Namespace and element
 	 */
-	private function endElementModeQDesc( $elm ) {
+	private function endElementModeQDesc( $elm ): void {
 		if ( $elm === self::NS_RDF . ' value' ) {
-			list( $ns, $tag ) = explode( ' ', $this->curItem[0], 2 );
+			[ $ns, $tag ] = explode( ' ', $this->curItem[0], 2 );
 			$this->saveValue( $ns, $tag, $this->charContent );
 
 			return;
@@ -818,7 +827,7 @@ class Reader implements LoggerAwareInterface {
 	 * @param string $elm Namespace . ' ' . element name
 	 * @throws RuntimeException
 	 */
-	public function endElement( $parser, $elm ) {
+	public function endElement( $parser, $elm ): void {
 		if ( $elm === ( self::NS_RDF . ' RDF' )
 			|| $elm === 'adobe:ns:meta/ xmpmeta'
 			|| $elm === 'adobe:ns:meta/ xapmeta'
@@ -855,9 +864,9 @@ class Reader implements LoggerAwareInterface {
 			throw new RuntimeException( 'Encountered end element with no mode' );
 		}
 
-		if ( count( $this->curItem ) == 0 && $this->mode[0] !== self::MODE_INITIAL ) {
+		if ( count( $this->curItem ) === 0 && $this->mode[0] !== self::MODE_INITIAL ) {
 			// just to be paranoid. Should always have a curItem, except for initially
-			// (aka during MODE_INITAL).
+			// (aka during MODE_INITIAL).
 			throw new RuntimeException( "Hit end element </$elm> but no curItem" );
 		}
 
@@ -909,7 +918,7 @@ class Reader implements LoggerAwareInterface {
 	 *
 	 * @param string $elm Namespace . ' ' . tag name
 	 */
-	private function startElementModeIgnore( $elm ) {
+	private function startElementModeIgnore( $elm ): void {
 		if ( $elm === $this->curItem[0] ) {
 			array_unshift( $this->curItem, $elm );
 			array_unshift( $this->mode, self::MODE_IGNORE );
@@ -923,7 +932,7 @@ class Reader implements LoggerAwareInterface {
 	 * @param string $elm Namespace . ' ' . tag
 	 * @throws RuntimeException If we have an element that's not <rdf:Bag>
 	 */
-	private function startElementModeBag( $elm ) {
+	private function startElementModeBag( $elm ): void {
 		if ( $elm === self::NS_RDF . ' Bag' ) {
 			array_unshift( $this->mode, self::MODE_LI );
 		} else {
@@ -938,7 +947,7 @@ class Reader implements LoggerAwareInterface {
 	 * @param string $elm Namespace . ' ' . tag
 	 * @throws RuntimeException If we have an element that's not <rdf:Seq>
 	 */
-	private function startElementModeSeq( $elm ) {
+	private function startElementModeSeq( $elm ): void {
 		if ( $elm === self::NS_RDF . ' Seq' ) {
 			array_unshift( $this->mode, self::MODE_LI );
 		} elseif ( $elm === self::NS_RDF . ' Bag' ) {
@@ -968,7 +977,7 @@ class Reader implements LoggerAwareInterface {
 	 * @param string $elm Namespace . ' ' . tag
 	 * @throws RuntimeException If we have an element that's not <rdf:Alt>
 	 */
-	private function startElementModeLang( $elm ) {
+	private function startElementModeLang( $elm ): void {
 		if ( $elm === self::NS_RDF . ' Alt' ) {
 			array_unshift( $this->mode, self::MODE_LI_LANG );
 		} else {
@@ -994,14 +1003,14 @@ class Reader implements LoggerAwareInterface {
 	 * @param array $attribs Attributes of the element.
 	 * @throws RuntimeException
 	 */
-	private function startElementModeSimple( $elm, $attribs ) {
+	private function startElementModeSimple( $elm, $attribs ): void {
 		if ( $elm === self::NS_RDF . ' Description' ) {
 			// If this value has qualifiers
 			array_unshift( $this->mode, self::MODE_QDESC );
 			array_unshift( $this->curItem, $this->curItem[0] );
 
 			if ( isset( $attribs[self::NS_RDF . ' value'] ) ) {
-				list( $ns, $tag ) = explode( ' ', $this->curItem[0], 2 );
+				[ $ns, $tag ] = explode( ' ', $this->curItem[0], 2 );
 				$this->saveValue( $ns, $tag, $attribs[self::NS_RDF . ' value'] );
 			}
 		} elseif ( $elm === self::NS_RDF . ' value' ) {
@@ -1035,7 +1044,7 @@ class Reader implements LoggerAwareInterface {
 	 *
 	 * @param string $elm Namespace and tag name separated by a space.
 	 */
-	private function startElementModeQDesc( $elm ) {
+	private function startElementModeQDesc( $elm ): void {
 		if ( $elm === self::NS_RDF . ' value' ) {
 			// do nothing
 			return;
@@ -1058,7 +1067,7 @@ class Reader implements LoggerAwareInterface {
 	 * @param array $attribs Array of attributes
 	 * @throws RuntimeException
 	 */
-	private function startElementModeInitial( $ns, $tag, $attribs ) {
+	private function startElementModeInitial( $ns, $tag, $attribs ): void {
 		if ( $ns !== self::NS_RDF ) {
 			if ( isset( $this->items[$ns][$tag] ) ) {
 				if ( isset( $this->items[$ns][$tag]['structPart'] ) ) {
@@ -1081,8 +1090,7 @@ class Reader implements LoggerAwareInterface {
 				array_unshift( $this->mode, $mode );
 				array_unshift( $this->curItem, $ns . ' ' . $tag );
 				if ( $mode === self::MODE_STRUCT ) {
-					$this->ancestorStruct = isset( $this->items[$ns][$tag]['map_name'] )
-						? $this->items[$ns][$tag]['map_name'] : $tag;
+					$this->ancestorStruct = $this->items[$ns][$tag]['map_name'] ?? $tag;
 				}
 				if ( $this->charContent !== false ) {
 					// Something weird.
@@ -1122,7 +1130,7 @@ class Reader implements LoggerAwareInterface {
 	 * @param array $attribs Array of attribs w/ values.
 	 * @throws RuntimeException
 	 */
-	private function startElementModeStruct( $ns, $tag, $attribs ) {
+	private function startElementModeStruct( $ns, $tag, $attribs ): void {
 		if ( $ns !== self::NS_RDF ) {
 			if ( isset( $this->items[$ns][$tag] ) ) {
 				if ( isset( $this->items[$ns][$this->ancestorStruct]['children'] )
@@ -1167,9 +1175,9 @@ class Reader implements LoggerAwareInterface {
 	 *
 	 * @param string $elm Namespace . ' ' . tagname
 	 * @param array $attribs Attributes. (needed for BAGSTRUCTS)
-	 * @throws RuntimeException If gets a tag other than <rdf:li>
+	 * @throws RuntimeException If it gets a tag other than <rdf:li>
 	 */
-	private function startElementModeLi( $elm, $attribs ) {
+	private function startElementModeLi( $elm, $attribs ): void {
 		if ( ( $elm ) !== self::NS_RDF . ' li' ) {
 			throw new RuntimeException( "<rdf:li> expected but got $elm." );
 		}
@@ -1190,9 +1198,8 @@ class Reader implements LoggerAwareInterface {
 				// be paranoid.
 				throw new RuntimeException( 'Can not find parent of BAGSTRUCT.' );
 			}
-			list( $curNS, $curTag ) = explode( ' ', $this->curItem[1] );
-			$this->ancestorStruct = isset( $this->items[$curNS][$curTag]['map_name'] )
-				? $this->items[$curNS][$curTag]['map_name'] : $curTag;
+			[ $curNS, $curTag ] = explode( ' ', $this->curItem[1] );
+			$this->ancestorStruct = $this->items[$curNS][$curTag]['map_name'] ?? $curTag;
 
 			$this->doAttribs( $attribs );
 		} else {
@@ -1217,9 +1224,9 @@ class Reader implements LoggerAwareInterface {
 	 *
 	 * @param string $elm Namespace . ' ' . tag
 	 * @param array $attribs Array of elements (most importantly xml:lang)
-	 * @throws RuntimeException If gets a tag other than <rdf:li> or if no xml:lang
+	 * @throws RuntimeException If it gets a tag other than <rdf:li> or if no xml:lang
 	 */
-	private function startElementModeLiLang( $elm, $attribs ) {
+	private function startElementModeLiLang( $elm, $attribs ): void {
 		if ( $elm !== self::NS_RDF . ' li' ) {
 			throw new RuntimeException( __METHOD__ . " <rdf:li> expected but got $elm." );
 		}
@@ -1250,7 +1257,7 @@ class Reader implements LoggerAwareInterface {
 	 * @param array $attribs Attribute name => value
 	 * @throws RuntimeException
 	 */
-	public function startElement( $parser, $elm, $attribs ) {
+	public function startElement( $parser, $elm, $attribs ): void {
 		if ( $elm === self::NS_RDF . ' RDF'
 			|| $elm === 'adobe:ns:meta/ xmpmeta'
 			|| $elm === 'adobe:ns:meta/ xapmeta'
@@ -1266,10 +1273,10 @@ class Reader implements LoggerAwareInterface {
 			}
 		} elseif ( $elm === self::NS_RDF . ' type' ) {
 			// This doesn't support rdf:type properly.
-			// In practise I have yet to see a file that
+			// In practise, I have yet to see a file that
 			// uses this element, however it is mentioned
 			// on page 25 of part 1 of the xmp standard.
-			// Also it seems as if exiv2 and exiftool do not support
+			// Also, it seems as if exiv2 and exiftool do not support
 			// this either (That or I misunderstand the standard)
 			$this->logger->info(
 				__METHOD__ . ' Encountered <rdf:type> which isn\'t currently supported',
@@ -1287,7 +1294,7 @@ class Reader implements LoggerAwareInterface {
 			return;
 		}
 
-		list( $ns, $tag ) = explode( ' ', $elm, 2 );
+		[ $ns, $tag ] = explode( ' ', $elm, 2 );
 
 		if ( count( $this->mode ) === 0 ) {
 			// This should not happen.
@@ -1348,9 +1355,9 @@ class Reader implements LoggerAwareInterface {
 	 * @param array $attribs Array attribute=>value
 	 * @throws RuntimeException
 	 */
-	private function doAttribs( $attribs ) {
+	private function doAttribs( $attribs ): void {
 		// first check for rdf:parseType attribute, as that can change
-		// how the attributes are interperted.
+		// how the attributes are interpreted.
 
 		if ( isset( $attribs[self::NS_RDF . ' parseType'] )
 			&& $attribs[self::NS_RDF . ' parseType'] === 'Resource'
@@ -1370,7 +1377,7 @@ class Reader implements LoggerAwareInterface {
 				);
 				continue;
 			}
-			list( $ns, $tag ) = explode( ' ', $name, 2 );
+			[ $ns, $tag ] = explode( ' ', $name, 2 );
 			if ( $ns === self::NS_RDF ) {
 				if ( $tag === 'value' || $tag === 'resource' ) {
 					// resource is for url.
@@ -1403,10 +1410,9 @@ class Reader implements LoggerAwareInterface {
 	 * @param string $tag Tag name
 	 * @param string $val Value to save
 	 */
-	private function saveValue( $ns, $tag, $val ) {
+	private function saveValue( $ns, $tag, $val ): void {
 		$info =& $this->items[$ns][$tag];
-		$finalName = isset( $info['map_name'] )
-			? $info['map_name'] : $tag;
+		$finalName = $info['map_name'] ?? $tag;
 		if ( isset( $info['validate'] ) ) {
 			if ( is_array( $info['validate'] ) ) {
 				$validate = $info['validate'];
@@ -1430,7 +1436,7 @@ class Reader implements LoggerAwareInterface {
 			} else {
 				$this->logger->warning(
 					__METHOD__ . " Validation function for $finalName (" .
-					$validate[0] . '::' . $validate[1] . '()) is not callable.',
+					get_class( $validate[0] ) . '::' . $validate[1] . '()) is not callable.',
 					[ 'file' => $this->filename ]
 				);
 			}

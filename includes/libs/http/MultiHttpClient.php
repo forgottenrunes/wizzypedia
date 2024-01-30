@@ -24,6 +24,7 @@ use MediaWiki\MediaWikiServices;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Wikimedia\Http\TelemetryHeadersInterface;
 
 /**
  * Class to handle multiple HTTP requests
@@ -55,8 +56,11 @@ use Psr\Log\NullLogger;
 class MultiHttpClient implements LoggerAwareInterface {
 	/** Regex for headers likely to contain tokens, etc. that we want to redact from logs */
 	private const SENSITIVE_HEADERS = '/(^|-|_)(authorization|auth|password|cookie)($|-|_)/';
-	/** @var resource curl_multi_init() handle */
-	protected $cmh;
+	/**
+	 * @phpcs:ignore MediaWiki.Commenting.PropertyDocumentation.ObjectTypeHintVar
+	 * @var resource|object|null curl_multi_init() handle, initialized in getCurlMulti()
+	 */
+	protected $cmh = null;
 	/** @var string|null SSL certificates path */
 	protected $caBundlePath;
 	/** @var float */
@@ -73,19 +77,23 @@ class MultiHttpClient implements LoggerAwareInterface {
 	protected $maxConnsPerHost = 50;
 	/** @var string|null proxy */
 	protected $proxy;
-	/** @var string|bool */
+	/** @var string|false */
 	protected $localProxy = false;
 	/** @var string[] */
 	protected $localVirtualHosts = [];
 	/** @var string */
-	protected $userAgent = 'wikimedia/multi-http-client v1.0';
+	protected $userAgent = 'wikimedia/multi-http-client v1.1';
 	/** @var LoggerInterface */
 	protected $logger;
+	/** @var array */
+	protected array $headers = [];
 
 	// In PHP 7 due to https://bugs.php.net/bug.php?id=76480 the request/connect
 	// timeouts are periodically polled instead of being accurately respected.
 	// The select timeout is set to the minimum timeout multiplied by this factor.
 	private const TIMEOUT_ACCURACY_FACTOR = 0.1;
+
+	private ?TelemetryHeadersInterface $telemetry = null;
 
 	/**
 	 * Since 1.35, callers should use HttpRequestFactory::createMultiClient() to get
@@ -105,6 +113,8 @@ class MultiHttpClient implements LoggerAwareInterface {
 	 *   - userAgent         : The User-Agent header value to send
 	 *   - logger            : a \Psr\Log\LoggerInterface instance for debug logging
 	 *   - caBundlePath      : path to specific Certificate Authority bundle (if any)
+	 *   - headers           : an array of default headers to send with every request
+	 *   - telemetry         : a \Wikimedia\Http\RequestTelemetry instance to track telemetry data
 	 * @throws Exception
 	 */
 	public function __construct( array $options ) {
@@ -117,16 +127,14 @@ class MultiHttpClient implements LoggerAwareInterface {
 		static $opts = [
 			'connTimeout', 'maxConnTimeout', 'reqTimeout', 'maxReqTimeout',
 			'usePipelining', 'maxConnsPerHost', 'proxy', 'userAgent', 'logger',
-			'localProxy', 'localVirtualHosts',
+			'localProxy', 'localVirtualHosts', 'headers', 'telemetry'
 		];
 		foreach ( $opts as $key ) {
 			if ( isset( $options[$key] ) ) {
 				$this->$key = $options[$key];
 			}
 		}
-		if ( $this->logger === null ) {
-			$this->logger = new NullLogger;
-		}
+		$this->logger ??= new NullLogger;
 	}
 
 	/**
@@ -140,7 +148,7 @@ class MultiHttpClient implements LoggerAwareInterface {
 	 *   - error     : Any error string
 	 * The map also stores integer-indexed copies of these values. This lets callers do:
 	 * @code
-	 * 		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $http->run( $req );
+	 * 		[ $rcode, $rdesc, $rhdrs, $rbody, $rerr ] = $http->run( $req );
 	 * @endcode
 	 * @param array $req HTTP request array
 	 * @param array $opts
@@ -170,7 +178,7 @@ class MultiHttpClient implements LoggerAwareInterface {
 	 *   - error   : Any error string
 	 * The map also stores integer-indexed copies of these values. This lets callers do:
 	 * @code
-	 *        list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $req['response'];
+	 *        [ $rcode, $rdesc, $rhdrs, $rbody, $rerr ] = $req['response'];
 	 * @endcode
 	 * All headers in the 'headers' field are normalized to use lower case names.
 	 * This is true for the request headers and the response headers. Integer-indexed
@@ -320,7 +328,7 @@ class MultiHttpClient implements LoggerAwareInterface {
 				$req['response']['error'] = "(curl error: no status set)";
 			}
 
-			// For convenience with the list() operator
+			// For convenience with array destructuring
 			$req['response'][0] = $req['response']['code'];
 			$req['response'][1] = $req['response']['reason'];
 			$req['response'][2] = $req['response']['headers'];
@@ -341,12 +349,13 @@ class MultiHttpClient implements LoggerAwareInterface {
 	/**
 	 * @param array &$req HTTP request map
 	 * @phpcs:ignore Generic.Files.LineLength
-	 * @phan-param array{url:string,proxy?:?string,query:mixed,method:string,body:string|resource,headers:string[],stream?:resource,flags:array} $req
+	 * @phan-param array{url:string,proxy?:?string,query:mixed,method:string,body:string|resource,headers:array<string,string>,stream?:resource,flags:array} $req
 	 * @param array $opts
 	 *   - connTimeout : default connection timeout
 	 *   - reqTimeout : default request timeout
 	 *   - httpVersion: default HTTP version
-	 * @return resource
+	 * @phpcs:ignore MediaWiki.Commenting.FunctionComment.ObjectTypeHintReturn
+	 * @return resource|object
 	 * @throws Exception
 	 */
 	protected function getCurlHandle( array &$req, array $opts ) {
@@ -420,8 +429,8 @@ class MultiHttpClient implements LoggerAwareInterface {
 
 		$headers = [];
 		foreach ( $req['headers'] as $name => $value ) {
-			if ( strpos( $name, ': ' ) ) {
-				throw new Exception( "Headers cannot have ':' in the name." );
+			if ( strpos( $name, ':' ) !== false ) {
+				throw new Exception( "Header name must not contain colon-space." );
 			}
 			$headers[] = $name . ': ' . trim( $value );
 		}
@@ -445,7 +454,7 @@ class MultiHttpClient implements LoggerAwareInterface {
 				if ( strpos( $header, ":" ) === false ) {
 					return $length;
 				}
-				list( $name, $value ) = explode( ":", $header, 2 );
+				[ $name, $value ] = explode( ":", $header, 2 );
 				$name = strtolower( $name );
 				$value = trim( $value );
 				if ( isset( $req['response']['headers'][$name] ) ) {
@@ -462,6 +471,7 @@ class MultiHttpClient implements LoggerAwareInterface {
 		curl_setopt( $ch, CURLOPT_WRITEFUNCTION,
 			static function ( $ch, $data ) use ( &$req, $hasOutputStream ) {
 				if ( $hasOutputStream ) {
+					// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
 					return fwrite( $req['stream'], $data );
 				} else {
 					// @phan-suppress-next-line PhanTypeArraySuspiciousNullable
@@ -477,7 +487,8 @@ class MultiHttpClient implements LoggerAwareInterface {
 
 	/**
 	 * @param array $opts
-	 * @return resource
+	 * @phpcs:ignore MediaWiki.Commenting.FunctionComment.ObjectTypeHintReturn
+	 * @return resource|object
 	 * @throws Exception
 	 */
 	protected function getCurlMulti( array $opts ) {
@@ -521,14 +532,15 @@ class MultiHttpClient implements LoggerAwareInterface {
 	 * Get a time in seconds, formatted with microsecond resolution, or fall back to second
 	 * resolution on PHP 7.2
 	 *
-	 * @param resource $ch
+	 * @phpcs:ignore MediaWiki.Commenting.FunctionComment.ObjectTypeHintParam
+	 * @param resource|object $ch
 	 * @param int $oldOption
 	 * @param string $newConstName
 	 * @return string
 	 */
 	private function getCurlTime( $ch, $oldOption, $newConstName ): string {
 		if ( defined( $newConstName ) ) {
-			return sprintf( "%.6f", curl_getinfo( $ch, constant( $newConstName ) ) / 1e6 );
+			return sprintf( "%.6F", curl_getinfo( $ch, constant( $newConstName ) ) / 1e6 );
 		} else {
 			return (string)curl_getinfo( $ch, $oldOption );
 		}
@@ -541,7 +553,7 @@ class MultiHttpClient implements LoggerAwareInterface {
 	 * @todo Remove dependency on MediaWikiServices: rewrite using Guzzle T202352
 	 * @param array $reqs Map of HTTP request arrays
 	 * @phpcs:ignore Generic.Files.LineLength
-	 * @phan-param array<int,array{url:string,query:array,method:string,body:string,proxy?:?string,headers?:string[]}> $reqs
+	 * @phan-param array<int,array{url:string,query:array,method:string,body:string,headers:array<string,string>,proxy?:?string}> $reqs
 	 * @param array $opts
 	 *   - connTimeout     : connection timeout per request (seconds)
 	 *   - reqTimeout      : post-connection timeout per request (seconds)
@@ -573,6 +585,9 @@ class MultiHttpClient implements LoggerAwareInterface {
 			$httpRequest = MediaWikiServices::getInstance()->getHttpRequestFactory()->create(
 				$url, $reqOptions, __METHOD__ );
 			$httpRequest->setLogger( $this->logger );
+			foreach ( $req['headers'] as $header => $value ) {
+				$httpRequest->setHeader( $header, $value );
+			}
 			$sv = $httpRequest->execute()->getStatusValue();
 
 			$respHeaders = array_map(
@@ -619,6 +634,19 @@ class MultiHttpClient implements LoggerAwareInterface {
 	}
 
 	/**
+	 * Normalize headers array
+	 * @param array $headers
+	 * @return array
+	 */
+	private function normalizeHeaders( array $headers ): array {
+		$normalized = [];
+		foreach ( $headers as $name => $value ) {
+			$normalized[strtolower( $name )] = $value;
+		}
+		return $normalized;
+	}
+
+	/**
 	 * Normalize request information
 	 *
 	 * @param array[] &$reqs the requests to normalize
@@ -648,14 +676,15 @@ class MultiHttpClient implements LoggerAwareInterface {
 			if ( $this->localProxy !== false && $this->isLocalURL( $req['url'] ) ) {
 				$this->useReverseProxy( $req, $this->localProxy );
 			}
-			$req['query'] = $req['query'] ?? [];
-			$headers = []; // normalized headers
-			if ( isset( $req['headers'] ) ) {
-				foreach ( $req['headers'] as $name => $value ) {
-					$headers[strtolower( $name )] = $value;
-				}
-			}
-			$req['headers'] = $headers;
+			$req['query'] ??= [];
+			$req['headers'] = $this->normalizeHeaders(
+				array_merge(
+					$this->headers,
+					$this->telemetry ? $this->telemetry->getRequestHeaders() : [],
+					$req['headers'] ?? []
+				)
+			);
+
 			if ( !isset( $req['body'] ) ) {
 				$req['body'] = '';
 				$req['headers']['content-length'] = 0;
@@ -674,7 +703,7 @@ class MultiHttpClient implements LoggerAwareInterface {
 					'headers' => $logHeaders,
 				]
 			);
-			$req['flags'] = $req['flags'] ?? [];
+			$req['flags'] ??= [];
 		}
 	}
 
@@ -685,7 +714,7 @@ class MultiHttpClient implements LoggerAwareInterface {
 		}
 		$parsedUrl = wfParseUrl( $req['url'] );
 		if ( $parsedUrl === false ) {
-			throw new Exception( "Invalid url specified: ${req['url']}" );
+			throw new Exception( "Invalid url specified: {$req['url']}" );
 		}
 		// Set the current host in the Host header
 		$req['headers']['Host'] = $parsedUrl['host'];
@@ -778,6 +807,8 @@ class MultiHttpClient implements LoggerAwareInterface {
 	public function __destruct() {
 		if ( $this->cmh ) {
 			curl_multi_close( $this->cmh );
+			$this->cmh = null;
 		}
 	}
+
 }

@@ -1,10 +1,8 @@
 <?php
 /** Lingua Franca Nova (Lingua Franca Nova)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Cgboeree
  * @author Kaganer

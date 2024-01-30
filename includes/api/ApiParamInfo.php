@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright © 2008 Roan Kattouw "<Firstname>.<Lastname>@gmail.com"
+ * Copyright © 2008 Roan Kattouw <roan.kattouw@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,8 +20,10 @@
  * @file
  */
 
-use MediaWiki\ExtensionInfo;
+use MediaWiki\SpecialPage\SpecialPage;
 use MediaWiki\User\UserFactory;
+use MediaWiki\Utils\ExtensionInfo;
+use Wikimedia\ParamValidator\ParamValidator;
 
 /**
  * @ingroup API
@@ -65,11 +67,11 @@ class ApiParamInfo extends ApiBase {
 				if ( $path === '*' || $path === '**' ) {
 					$path = "main+$path";
 				}
-				if ( substr( $path, -2 ) === '+*' || substr( $path, -2 ) === ' *' ) {
+				if ( str_ends_with( $path, '+*' ) || str_ends_with( $path, ' *' ) ) {
 					$submodules = true;
 					$path = substr( $path, 0, -2 );
 					$recursive = false;
-				} elseif ( substr( $path, -3 ) === '+**' || substr( $path, -3 ) === ' **' ) {
+				} elseif ( str_ends_with( $path, '+**' ) || str_ends_with( $path, ' **' ) ) {
 					$submodules = true;
 					$path = substr( $path, 0, -3 );
 					$recursive = true;
@@ -86,6 +88,8 @@ class ApiParamInfo extends ApiBase {
 						}
 						continue;
 					}
+					// @phan-suppress-next-next-line PhanTypeMismatchArgumentNullable,PhanPossiblyUndeclaredVariable
+					// recursive is set when used
 					$submodules = $this->listAllSubmodules( $module, $recursive );
 					if ( $submodules ) {
 						$modules = array_merge( $modules, $submodules );
@@ -296,6 +300,7 @@ class ApiParamInfo extends ApiBase {
 		if ( isset( $ret['helpurls'][0] ) && $ret['helpurls'][0] === false ) {
 			$ret['helpurls'] = [];
 		}
+		// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
 		ApiResult::setIndexedTagName( $ret['helpurls'], 'helpurl' );
 
 		if ( $this->helpFormat !== 'none' ) {
@@ -421,28 +426,28 @@ class ApiParamInfo extends ApiBase {
 
 		return [
 			'modules' => [
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'helpformat' => [
-				ApiBase::PARAM_DFLT => 'none',
-				ApiBase::PARAM_TYPE => [ 'html', 'wikitext', 'raw', 'none' ],
+				ParamValidator::PARAM_DEFAULT => 'none',
+				ParamValidator::PARAM_TYPE => [ 'html', 'wikitext', 'raw', 'none' ],
 			],
 
 			'querymodules' => [
-				ApiBase::PARAM_DEPRECATED => true,
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_TYPE => $querymodules,
+				ParamValidator::PARAM_DEPRECATED => true,
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => $querymodules,
 			],
 			'mainmodule' => [
-				ApiBase::PARAM_DEPRECATED => true,
+				ParamValidator::PARAM_DEPRECATED => true,
 			],
 			'pagesetmodule' => [
-				ApiBase::PARAM_DEPRECATED => true,
+				ParamValidator::PARAM_DEPRECATED => true,
 			],
 			'formatmodules' => [
-				ApiBase::PARAM_DEPRECATED => true,
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_TYPE => $formatmodules,
+				ParamValidator::PARAM_DEPRECATED => true,
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => $formatmodules,
 			]
 		];
 	}

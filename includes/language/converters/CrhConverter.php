@@ -1,9 +1,5 @@
 <?php
 /**
- * Crimean Tatar (Qırımtatarca) specific code.
- *
- * Adapted from https://crh.wikipedia.org/wiki/Qullan%C4%B1c%C4%B1:Don_Alessandro/Translit
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -20,13 +16,17 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
 
+use MediaWiki\Languages\Data\CrhExceptions;
+use MediaWiki\StubObject\StubUserLang;
+
 /**
- * Crimean Tatar (Qırımtatarca) converter routines
+ * Crimean Tatar (Qırımtatarca) converter routines.
  *
- * @ingroup Language
+ * Adapted from https://crh.wikipedia.org/wiki/Qullan%C4%B1c%C4%B1:Don_Alessandro/Translit
+ *
+ * @ingroup Languages
  */
 class CrhConverter extends LanguageConverterSpecific {
 	// Defines working character ranges
@@ -74,32 +74,14 @@ class CrhConverter extends LanguageConverterSpecific {
 	# Crimean Tatar Latin front vowels
 	public const L_F = 'eiöüEİÖÜ';
 
-	/**
-	 * Get Main language code.
-	 * @since 1.36
-	 *
-	 * @return string
-	 */
 	public function getMainCode(): string {
 		return 'crh';
 	}
 
-	/**
-	 * Get supported variants of the language.
-	 * @since 1.36
-	 *
-	 * @return array
-	 */
 	public function getLanguageVariants(): array {
 		return [ 'crh', 'crh-cyrl', 'crh-latn' ];
 	}
 
-	/**
-	 * Get language variants fallbacks.
-	 * @since 1.36
-	 *
-	 * @return array
-	 */
 	public function getVariantsFallbacks(): array {
 		return [
 			'crh' => 'crh-latn',
@@ -116,7 +98,7 @@ class CrhConverter extends LanguageConverterSpecific {
 
 		// No point delaying this since they're in code.
 		// Waiting until loadDefaultTables() means they never get loaded
-		// when the tables themselves are loaded from cache.
+		// when the tables themselves are loaded from the cache.
 		$this->loadExceptions();
 	}
 
@@ -185,8 +167,11 @@ class CrhConverter extends LanguageConverterSpecific {
 
 	public $mExceptionsLoaded = false;
 
-	protected function loadDefaultTables() {
-		$this->mTables = [
+	/**
+	 * @inheritDoc
+	 */
+	protected function loadDefaultTables(): array {
+		return [
 			'crh-latn' => new ReplacementArray( $this->mCyrillicToLatin ),
 			'crh-cyrl' => new ReplacementArray( $this->mLatinToCyrillic ),
 			'crh' => new ReplacementArray()
@@ -199,9 +184,9 @@ class CrhConverter extends LanguageConverterSpecific {
 		}
 
 		$this->mExceptionsLoaded = true;
-		$crhExceptions = new MediaWiki\Languages\Data\CrhExceptions();
-		list( $this->mCyrl2LatnExceptions, $this->mLatn2CyrlExceptions,
-			$this->mCyrl2LatnPatterns, $this->mLatn2CyrlPatterns, $this->mCyrlCleanUpRegexes ) =
+		$crhExceptions = new CrhExceptions();
+		[ $this->mCyrl2LatnExceptions, $this->mLatn2CyrlExceptions,
+			$this->mCyrl2LatnPatterns, $this->mLatn2CyrlPatterns, $this->mCyrlCleanUpRegexes ] =
 			$crhExceptions->loadExceptions( self::L_LC . self::C_LC, self::L_UC . self::C_UC );
 	}
 
@@ -235,7 +220,7 @@ class CrhConverter extends LanguageConverterSpecific {
 				/* Check for roman numbers like VII, XIX...
 				 * Only need to split on Roman numerals when converting to Cyrillic
 				 * Lookahead assertion ensures $roman doesn't match the empty string, and
-				 * non-period after first "Roman" character allows initials to be converted
+				 * non-period after the first "Roman" character allows initials to be converted
 				 */
 				$roman = '(?=[MDCLXVI]([^.]|$))M{0,4}(C[DM]|D?C{0,3})(X[LC]|L?X{0,3})(I[VX]|V?I{0,3})';
 
@@ -261,6 +246,7 @@ class CrhConverter extends LanguageConverterSpecific {
 				}
 
 				return $ret;
+
 			default:
 				// Just process the whole string in one go
 				return $this->regsConverter( $text, $toVariant );
@@ -272,8 +258,6 @@ class CrhConverter extends LanguageConverterSpecific {
 			return $text;
 		}
 
-		$pat = [];
-		$rep = [];
 		switch ( $toVariant ) {
 			case 'crh-latn':
 				$text = strtr( $text, $this->mCyrl2LatnExceptions );
@@ -281,8 +265,8 @@ class CrhConverter extends LanguageConverterSpecific {
 					$text = preg_replace( $pat, $rep, $text );
 				}
 				$text = parent::translate( $text, $toVariant );
-				$text = strtr( $text, [ '«' => '"', '»' => '"', ] );
-				return $text;
+				return strtr( $text, [ '«' => '"', '»' => '"', ] );
+
 			case 'crh-cyrl':
 				$text = strtr( $text, $this->mLatn2CyrlExceptions );
 				foreach ( $this->mLatn2CyrlPatterns as $pat => $rep ) {
@@ -294,6 +278,7 @@ class CrhConverter extends LanguageConverterSpecific {
 					$text = preg_replace( $pat, $rep, $text );
 				}
 				return $text;
+
 			default:
 				return $text;
 		}

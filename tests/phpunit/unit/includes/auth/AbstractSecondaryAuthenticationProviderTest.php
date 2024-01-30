@@ -6,6 +6,7 @@ use MediaWiki\Auth\AbstractSecondaryAuthenticationProvider;
 use MediaWiki\Auth\AuthenticationRequest;
 use MediaWiki\Auth\AuthenticationResponse;
 use MediaWiki\Auth\AuthManager;
+use MediaWiki\User\User;
 
 /**
  * @group AuthManager
@@ -13,7 +14,7 @@ use MediaWiki\Auth\AuthManager;
  */
 class AbstractSecondaryAuthenticationProviderTest extends \MediaWikiUnitTestCase {
 	public function testAbstractSecondaryAuthenticationProvider() {
-		$user = $this->createMock( \User::class );
+		$user = $this->createMock( User::class );
 
 		$provider = $this->getMockForAbstractClass( AbstractSecondaryAuthenticationProvider::class );
 
@@ -61,8 +62,8 @@ class AbstractSecondaryAuthenticationProviderTest extends \MediaWikiUnitTestCase
 		$reqs = [];
 		for ( $i = 0; $i < 3; $i++ ) {
 			$reqs[$i] = $this->createMock( AuthenticationRequest::class );
-			$reqs[$i]->done = false;
 		}
+		$userName = 'TestProviderRevokeAccessForUser';
 
 		$provider = $this->getMockBuilder( AbstractSecondaryAuthenticationProvider::class )
 			->onlyMethods( [ 'providerChangeAuthenticationData' ] )
@@ -70,20 +71,18 @@ class AbstractSecondaryAuthenticationProviderTest extends \MediaWikiUnitTestCase
 		$provider->expects( $this->once() )->method( 'getAuthenticationRequests' )
 			->with(
 				$this->identicalTo( AuthManager::ACTION_REMOVE ),
-				$this->identicalTo( [ 'username' => 'UTSysop' ] )
+				$this->identicalTo( [ 'username' => $userName ] )
 			)
 			->willReturn( $reqs );
 		$provider->expects( $this->exactly( 3 ) )->method( 'providerChangeAuthenticationData' )
-			->will( $this->returnCallback( function ( $req ) {
-				$this->assertSame( 'UTSysop', $req->username );
-				$this->assertFalse( $req->done );
-				$req->done = true;
-			} ) );
+			->willReturnCallback( function ( $req ) use ( $userName ) {
+				$this->assertSame( $userName, $req->username );
+			} );
 
-		$provider->providerRevokeAccessForUser( 'UTSysop' );
+		$provider->providerRevokeAccessForUser( $userName );
 
 		foreach ( $reqs as $i => $req ) {
-			$this->assertTrue( $req->done, "#$i" );
+			$this->assertNotNull( $req->username, "#$i" );
 		}
 	}
 }

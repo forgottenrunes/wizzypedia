@@ -22,7 +22,6 @@ namespace MediaWiki\Minerva\Menu;
 
 use DomainException;
 use MediaWiki\Minerva\Menu\Entries\IMenuEntry;
-use MediaWiki\Minerva\Menu\Entries\MenuEntry;
 
 /**
  * Model for a menu that can be presented in a skin.
@@ -97,7 +96,17 @@ final class Group {
 		} catch ( DomainException $exception ) {
 			return;
 		}
-		throw new DomainException( "The \"${name}\" entry already exists." );
+		throw new DomainException( "The \"{$name}\" entry already exists." );
+	}
+
+	/**
+	 * Prepend new menu entry
+	 * @param IMenuEntry $entry
+	 * @throws DomainException When the entry already exists
+	 */
+	public function prependEntry( IMenuEntry $entry ) {
+		$this->throwIfNotUnique( $entry->getName() );
+		array_unshift( $this->entries, $entry );
 	}
 
 	/**
@@ -108,21 +117,6 @@ final class Group {
 	public function insertEntry( IMenuEntry $entry ) {
 		$this->throwIfNotUnique( $entry->getName() );
 		$this->entries[] = $entry;
-	}
-
-	/**
-	 * Insert an entry into the menu.
-	 *
-	 * @param string $name A unique name identifying the menu entry
-	 * @param bool $isJSOnly Whether the menu entry works without JS
-	 * @throws DomainException When the entry already exists
-	 * @return MenuEntry
-	 */
-	public function insert( $name, $isJSOnly = false ) {
-		$this->throwIfNotUnique( $name );
-		$this->entries[] = $entry = new MenuEntry( $name, $isJSOnly );
-
-		return $entry;
 	}
 
 	/**
@@ -141,26 +135,6 @@ final class Group {
 			}
 		}
 		throw new DomainException( "The \"{$name}\" entry doesn't exist." );
-	}
-
-	/**
-	 * Insert an entry after an existing one.
-	 *
-	 * @param string $targetName The name of the existing entry to insert
-	 *  the new entry after
-	 * @param string $name The name of the new entry
-	 * @param bool $isJSOnly Whether the entry works without JS
-	 * @throws DomainException When the existing entry doesn't exist
-	 * @return MenuEntry
-	 */
-	public function insertAfter( $targetName, $name, $isJSOnly = false ) {
-		$this->throwIfNotUnique( $name );
-		$index = $this->search( $targetName );
-
-		$entry = new MenuEntry( $name, $isJSOnly );
-		array_splice( $this->entries, $index + 1, 0, [ $entry ] );
-
-		return $entry;
 	}
 
 	/**

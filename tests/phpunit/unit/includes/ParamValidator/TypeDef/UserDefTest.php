@@ -10,13 +10,12 @@ use MediaWiki\User\UserIdentityValue;
 use Wikimedia\Message\DataMessageValue;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\ParamValidator\SimpleCallbacks;
-use Wikimedia\ParamValidator\TypeDef\TypeDefTestCase;
 use Wikimedia\ParamValidator\ValidationException;
 
 /**
- * @covers MediaWiki\ParamValidator\TypeDef\UserDef
+ * @covers \MediaWiki\ParamValidator\TypeDef\UserDef
  */
-class UserDefTest extends TypeDefTestCase {
+class UserDefTest extends TypeDefUnitTestCase {
 	use DummyServicesTrait;
 
 	protected function getInstance( SimpleCallbacks $callbacks, array $options ) {
@@ -411,7 +410,7 @@ class UserDefTest extends TypeDefTestCase {
 		$this->assertUserIdentity( $res, 0, "Unknown user" );
 	}
 
-	public function provideMissingId() {
+	public static function provideMissingId() {
 		yield "0 no longer matches request ip" => [ 0 ];
 		yield "Id with no user" => [ 6 ];
 	}
@@ -437,6 +436,23 @@ class UserDefTest extends TypeDefTestCase {
 		// Already in the canonical form
 		// See our mock UserIdentityLookup for which ids and names exist
 		$userName = 'UserDefTest-processUser-missing';
+
+		$userDef = $this->getInstance( new SimpleCallbacks( [] ), [] );
+		$res = $userDef->validate(
+			'', // $name, unused here
+			$userName,
+			[
+				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name' ],
+				UserDef::PARAM_RETURN_OBJECT => true,
+			], // $settings
+			[] // $options, unused here
+		);
+
+		$this->assertUserIdentity( $res, 0, $userName );
+	}
+
+	public function testProcessUser_0() {
+		$userName = '0';
 
 		$userDef = $this->getInstance( new SimpleCallbacks( [] ), [] );
 		$res = $userDef->validate(

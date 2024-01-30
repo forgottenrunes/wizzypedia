@@ -1,7 +1,5 @@
 <?php
 /**
- * Inuktitut specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,10 +16,11 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
 
 /**
+ * Inuktitut specific code.
+ *
  * Conversion script between Latin and Syllabics for Inuktitut.
  * - Syllabics -> lowercase Latin
  * - lowercase/uppercase Latin -> Syllabics
@@ -31,7 +30,7 @@
  *   - https://commons.wikimedia.org/wiki/Image:Inuktitut.png
  *   - LanguageSr.php
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class IuConverter extends LanguageConverterSpecific {
 	public $mToLatin = [
@@ -56,11 +55,11 @@ class IuConverter extends LanguageConverterSpecific {
 	];
 
 	public $mUpperToLowerCaseLatin = [
-		'A' => 'a',	'B' => 'b',	'C' => 'c',	'D' => 'd',	'E' => 'e',
-		'F' => 'f',	'G' => 'g',	'H' => 'h',	'I' => 'i',	'J' => 'j',
-		'K' => 'k',	'L' => 'l',	'M' => 'm',	'N' => 'n',	'O' => 'o',
-		'P' => 'p',	'Q' => 'q',	'R' => 'r',	'S' => 's',	'T' => 't',
-		'U' => 'u',	'V' => 'v',	'W' => 'w',	'X' => 'x',	'Y' => 'y',
+		'A' => 'a', 'B' => 'b', 'C' => 'c', 'D' => 'd', 'E' => 'e',
+		'F' => 'f', 'G' => 'g', 'H' => 'h', 'I' => 'i', 'J' => 'j',
+		'K' => 'k', 'L' => 'l', 'M' => 'm', 'N' => 'n', 'O' => 'o',
+		'P' => 'p', 'Q' => 'q', 'R' => 'r', 'S' => 's', 'T' => 't',
+		'U' => 'u', 'V' => 'v', 'W' => 'w', 'X' => 'x', 'Y' => 'y',
 		'Z' => 'z',
 	];
 
@@ -85,32 +84,14 @@ class IuConverter extends LanguageConverterSpecific {
 		'ɫii' => 'ᖡ', 'ɫu' => 'ᖢ', 'ɫuu' => 'ᖣ', 'ɫa' => 'ᖤ', 'ɫaa' => 'ᖥ',
 	];
 
-	/**
-	 * Get Main language code.
-	 * @since 1.36
-	 *
-	 * @return string
-	 */
 	public function getMainCode(): string {
 		return 'iu';
 	}
 
-	/**
-	 * Get supported variants of the language.
-	 * @since 1.36
-	 *
-	 * @return array
-	 */
 	public function getLanguageVariants(): array {
 		return [ 'iu', 'ike-cans', 'ike-latn' ];
 	}
 
-	/**
-	 * Get language variants fallbacks.
-	 * @since 1.36
-	 *
-	 * @return array
-	 */
 	public function getVariantsFallbacks(): array {
 		return [
 			'iu' => 'ike-cans',
@@ -119,8 +100,8 @@ class IuConverter extends LanguageConverterSpecific {
 		];
 	}
 
-	protected function loadDefaultTables() {
-		$this->mTables = [
+	protected function loadDefaultTables(): array {
+		return [
 			'lowercase' => new ReplacementArray( $this->mUpperToLowerCaseLatin ),
 			'ike-cans' => new ReplacementArray( $this->mToSyllabics ),
 			'ike-latn' => new ReplacementArray( $this->mToLatin ),
@@ -128,14 +109,6 @@ class IuConverter extends LanguageConverterSpecific {
 		];
 	}
 
-	/**
-	 * It translates text into variant
-	 *
-	 * @param string $text
-	 * @param string $toVariant
-	 *
-	 * @return string
-	 */
 	public function translate( $text, $toVariant ) {
 		// If $text is empty or only includes spaces, do nothing
 		// Otherwise translate it

@@ -22,6 +22,9 @@
  * @since 1.25
  */
 
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
+
 /**
  * This class formats merge log entries.
  *

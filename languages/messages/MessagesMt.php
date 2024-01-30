@@ -1,10 +1,8 @@
 <?php
 /** Maltese (Malti)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Chrisportelli
  * @author Giangian15
@@ -109,6 +107,7 @@ $specialPageAliases = [
 	'Randomredirect'            => [ 'RiindirizzKwalunkwe' ],
 	'Recentchanges'             => [ 'TibdilRiċenti' ],
 	'Recentchangeslinked'       => [ 'TibdilRelatat' ],
+	'Renameuser'                => [ 'BiddelIsemUtent' ],
 	'Revisiondelete'            => [ 'ĦassarReviżjoni' ],
 	'Search'                    => [ 'Fittex' ],
 	'Shortpages'                => [ 'PaġniQosra' ],

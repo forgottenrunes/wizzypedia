@@ -22,15 +22,28 @@
  * @author Brian Wolff
  */
 
+namespace MediaWiki\Specials;
+
+use LogicException;
 use MediaWiki\Cache\LinkBatchFactory;
+use MediaWiki\Html\Html;
+use MediaWiki\Output\OutputPage;
+use MediaWiki\SpecialPage\QueryPage;
+use MediaWiki\SpecialPage\SpecialPage;
+use MimeAnalyzer;
+use Skin;
+use stdClass;
+use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IDatabase;
-use Wikimedia\Rdbms\ILoadBalancer;
 use Wikimedia\Rdbms\IResultWrapper;
 
 /**
  * @ingroup SpecialPage
  */
 class SpecialMediaStatistics extends QueryPage {
+
+	public const MAX_LIMIT = 5000;
+
 	protected $totalCount = 0, $totalBytes = 0;
 
 	/**
@@ -48,26 +61,25 @@ class SpecialMediaStatistics extends QueryPage {
 	 */
 	protected $totalSize = 0;
 
-	/** @var MimeAnalyzer */
-	private $mimeAnalyzer;
+	private MimeAnalyzer $mimeAnalyzer;
 
 	/**
 	 * @param MimeAnalyzer $mimeAnalyzer
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param LinkBatchFactory $linkBatchFactory
 	 */
 	public function __construct(
 		MimeAnalyzer $mimeAnalyzer,
-		ILoadBalancer $loadBalancer,
+		IConnectionProvider $dbProvider,
 		LinkBatchFactory $linkBatchFactory
 	) {
 		parent::__construct( 'MediaStatistics' );
 		// Generally speaking there is only a small number of file types,
 		// so just show all of them.
-		$this->limit = 5000;
+		$this->limit = self::MAX_LIMIT;
 		$this->shownavigation = false;
 		$this->mimeAnalyzer = $mimeAnalyzer;
-		$this->setDBLoadBalancer( $loadBalancer );
+		$this->setDatabaseProvider( $dbProvider );
 		$this->setLinkBatchFactory( $linkBatchFactory );
 	}
 
@@ -90,7 +102,7 @@ class SpecialMediaStatistics extends QueryPage {
 	 * @return array
 	 */
 	public function getQueryInfo() {
-		$dbr = $this->getDBLoadBalancer()->getConnectionRef( ILoadBalancer::DB_REPLICA );
+		$dbr = $this->getDatabaseProvider()->getReplicaDatabase();
 		$fakeTitle = $dbr->buildConcat( [
 			'img_media_type',
 			$dbr->addQuotes( ';' ),
@@ -147,7 +159,7 @@ class SpecialMediaStatistics extends QueryPage {
 			if ( count( $mediaStats ) < 4 ) {
 				continue;
 			}
-			list( $mediaType, $mime, $totalCount, $totalBytes ) = $mediaStats;
+			[ $mediaType, $mime, $totalCount, $totalBytes ] = $mediaStats;
 			if ( $prevMediaType !== $mediaType ) {
 				if ( $prevMediaType !== null ) {
 					// We're not at beginning, so we have to
@@ -317,7 +329,7 @@ class SpecialMediaStatistics extends QueryPage {
 				[],
 				// for grep:
 				// mediastatistics-table-mimetype, mediastatistics-table-extensions
-				// tatistics-table-count, mediastatistics-table-totalbytes
+				// mediastatistics-table-count, mediastatistics-table-totalbytes
 				$this->msg( 'mediastatistics-table-' . $header )->parse()
 			);
 		}
@@ -377,11 +389,10 @@ class SpecialMediaStatistics extends QueryPage {
 	 * @param Skin $skin
 	 * @param stdClass $result Result row
 	 * @return bool|string|void
-	 * @throws MWException
 	 * @suppress PhanPluginNeverReturnMethod
 	 */
 	public function formatResult( $skin, $result ) {
-		throw new MWException( "unimplemented" );
+		throw new LogicException( "unimplemented" );
 	}
 
 	/**
@@ -401,3 +412,9 @@ class SpecialMediaStatistics extends QueryPage {
 		$res->seek( 0 );
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialMediaStatistics::class, 'SpecialMediaStatistics' );

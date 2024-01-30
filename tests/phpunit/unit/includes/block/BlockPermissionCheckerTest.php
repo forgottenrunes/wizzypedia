@@ -5,6 +5,7 @@ use MediaWiki\Block\BlockPermissionChecker;
 use MediaWiki\Block\BlockUtils;
 use MediaWiki\Block\DatabaseBlock;
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Permissions\Authority;
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
 use MediaWiki\User\UserIdentity;
@@ -32,7 +33,7 @@ class BlockPermissionCheckerTest extends MediaWikiUnitTestCase {
 	) {
 		$options = new ServiceOptions(
 			BlockPermissionChecker::CONSTRUCTOR_OPTIONS,
-			[ 'EnableUserEmail' => $enableUserEmail ]
+			[ MainConfigNames::EnableUserEmail => $enableUserEmail ]
 		);
 
 		// We don't care about how BlockUtils::parseBlockTarget actually works, just
@@ -67,7 +68,7 @@ class BlockPermissionCheckerTest extends MediaWikiUnitTestCase {
 		return $block;
 	}
 
-	public function provideCheckBasePermissions() {
+	public static function provideCheckBasePermissions() {
 		// $rights, $checkHideuser, $expect
 		yield 'need block' => [ [], false, 'badaccess-group0' ];
 		yield 'block enough for not hiding' => [ [ 'block' ], false, true ];
@@ -125,7 +126,7 @@ class BlockPermissionCheckerTest extends MediaWikiUnitTestCase {
 		);
 	}
 
-	public function provideCheckBlockPermissions() {
+	public static function provideCheckBlockPermissions() {
 		// Blocked admin changing own block
 		yield 'Self blocked' => [ 'blocker', 1, 'blocker', false, true ];
 		yield 'unblockself' => [ 'another admin', 1, 'blocker', true, true ];
@@ -173,7 +174,7 @@ class BlockPermissionCheckerTest extends MediaWikiUnitTestCase {
 		);
 	}
 
-	public function provideCheckEmailPermissions() {
+	public static function provideCheckEmailPermissions() {
 		// $enableEmail, $rights, $expect
 		yield 'Email not enabled, without permissions' => [ false, [], false ];
 		yield 'Email not enabled, with permissions' => [ false, [ 'blockemail' ], false ];

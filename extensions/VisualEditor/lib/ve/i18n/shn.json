@@ -6,7 +6,6 @@
 		]
 	},
 	"visualeditor": "တူဝ်ထတ်းတႃႁၼ်",
-	"visualeditor-aliencontextitem-title": "ဢၼ်",
 	"visualeditor-aliennode-tooltip": "ၵဵင်ၸႂ်ၸွမ်းယူႇ၊ ဢၼ်ၼႆႉၼႆ့ မၼ်းတေၸၢင်ႈ မႄးထတ်းၼင်ႇ လွၵ်းလၢႆးထတ်း ငဝ်ႈငႃႇ ၼၼ်ႉၵူၺ်းယၢမ်းလဵဝ်။",
 	"visualeditor-align-widget-center": "ၼႂ်းၵၢင်",
 	"visualeditor-align-widget-left": "သၢႆႉ",
@@ -28,7 +27,7 @@
 	"visualeditor-clipboard-cut": "တတ်း",
 	"visualeditor-clipboard-paste": "တမ်း",
 	"visualeditor-clipboard-paste-special": "တမ်းၼင်ႇ တူဝ်ႇလိၵ်ႈ လွၼ်ႉလွၼ်ႉ",
-	"visualeditor-commentinspector-edit": "မႄးထတ်း ၶေႃႈႁၼ်ထိုင်",
+	"visualeditor-command-dialog-cancel": "ႁပ်း / ယုၵ်ႉလိူၵ်ႈ လွင်ႈလႅၵ်ႈလၢႆႈ",
 	"visualeditor-commentinspector-title": "ၶေႃႈႁၼ်ထိုင်",
 	"visualeditor-commentinspector-tooltip": "ၶေႃႈႁၼ်ထိုင်",
 	"visualeditor-content-select-all": "လိူၵ်ႈမူတ်း",
@@ -55,5 +54,8 @@
 	"visualeditor-find-and-replace-previous-button": "ႁႃၶိုၼ်း ၽၢႆႇလင်",
 	"visualeditor-find-and-replace-replace-all-button": "တႅၼ်းတီႈ တင်းမူတ်း",
 	"visualeditor-find-and-replace-replace-button": "တႅၼ်းတီႈ",
-	"visualeditor-find-and-replace-replace-text": "တႅၼ်းတီႈ"
+	"visualeditor-find-and-replace-replace-text": "တႅၼ်းတီႈ",
+	"visualeditor-specialcharacter-button-tooltip": "ဢၵ်ႉၶရႃႇၶိုၵ်ႉတွၼ်း",
+	"visualeditor-specialcharacterinspector-title": "ဢၵ်ႉၶရႃႇၶိုၵ်ႉတွၼ်း",
+	"visualeditor-toolbar-paragraph-format": "လွင်ႈၸတ်းပိူင်"
 }

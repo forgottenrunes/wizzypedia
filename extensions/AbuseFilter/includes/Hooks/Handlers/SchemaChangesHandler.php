@@ -4,13 +4,13 @@ namespace MediaWiki\Extension\AbuseFilter\Hooks\Handlers;
 
 use DatabaseUpdater;
 use MediaWiki\Extension\AbuseFilter\Maintenance\FixOldLogEntries;
+use MediaWiki\Extension\AbuseFilter\Maintenance\MigrateActorsAF;
 use MediaWiki\Extension\AbuseFilter\Maintenance\NormalizeThrottleParameters;
 use MediaWiki\Extension\AbuseFilter\Maintenance\UpdateVarDumps;
 use MediaWiki\Installer\Hook\LoadExtensionSchemaUpdatesHook;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\User\UserGroupManager;
 use MessageLocalizer;
-use MWException;
 use RequestContext;
 use User;
 
@@ -45,15 +45,16 @@ class SchemaChangesHandler implements LoadExtensionSchemaUpdatesHook {
 	/**
 	 * @codeCoverageIgnore This is tested by installing or updating MediaWiki
 	 * @param DatabaseUpdater $updater
-	 * @throws MWException
 	 */
 	public function onLoadExtensionSchemaUpdates( $updater ) {
+		global $wgAbuseFilterActorTableSchemaMigrationStage;
+
 		$dbType = $updater->getDB()->getType();
 		$dir = __DIR__ . "/../../../db_patches";
 
 		$updater->addExtensionTable(
 			'abuse_filter',
-			"$dir/$dbType/abusefilter.sql"
+			"$dir/$dbType/tables-generated.sql"
 		);
 
 		if ( $dbType === 'mysql' || $dbType === 'sqlite' ) {
@@ -128,12 +129,80 @@ class SchemaChangesHandler implements LoadExtensionSchemaUpdatesHook {
 			$updater->addExtensionUpdate( [
 				'dropDefault', 'abuse_filter_log', 'afl_global'
 			] );
+			$updater->addExtensionUpdate( [
+				'renameIndex', 'abuse_filter', 'abuse_filter_user', 'af_user'
+			] );
+			$updater->addExtensionUpdate( [
+				'renameIndex', 'abuse_filter', 'abuse_filter_group_enabled_id', 'af_group_enabled'
+			] );
+			$updater->addExtensionUpdate( [
+				'renameIndex', 'abuse_filter_action', 'abuse_filter_action_consequence', 'afa_consequence'
+			] );
+			$updater->addExtensionUpdate( [
+				'renameIndex', 'abuse_filter_log', 'abuse_filter_log_filter_timestamp_full', 'afl_filter_timestamp_full'
+			] );
+			$updater->addExtensionUpdate( [
+				'renameIndex', 'abuse_filter_log', 'abuse_filter_log_user_timestamp', 'afl_user_timestamp'
+			] );
+			$updater->addExtensionUpdate( [
+				'renameIndex', 'abuse_filter_log', 'abuse_filter_log_timestamp', 'afl_timestamp'
+			] );
+			$updater->addExtensionUpdate( [
+				'renameIndex', 'abuse_filter_log', 'abuse_filter_log_page_timestamp', 'afl_page_timestamp'
+			] );
+			$updater->addExtensionUpdate( [
+				'renameIndex', 'abuse_filter_log', 'abuse_filter_log_ip_timestamp', 'afl_ip_timestamp'
+			] );
+			$updater->addExtensionUpdate( [
+				'renameIndex', 'abuse_filter_log', 'abuse_filter_log_rev_id', 'afl_rev_id'
+			] );
+			$updater->addExtensionUpdate( [
+				'renameIndex', 'abuse_filter_log', 'abuse_filter_log_wiki_timestamp', 'afl_wiki_timestamp'
+			] );
+			$updater->addExtensionUpdate( [
+				'renameIndex', 'abuse_filter_history', 'abuse_filter_history_filter', 'afh_filter'
+			] );
+			$updater->addExtensionUpdate( [
+				'renameIndex', 'abuse_filter_history', 'abuse_filter_history_user', 'afh_user'
+			] );
+			$updater->addExtensionUpdate( [
+				'renameIndex', 'abuse_filter_history', 'abuse_filter_history_user_text', 'afh_user_text'
+			] );
+			$updater->addExtensionUpdate( [
+				'renameIndex', 'abuse_filter_history', 'abuse_filter_history_timestamp', 'afh_timestamp'
+			] );
+			$updater->addExtensionUpdate( [
+				'changeNullableField', ' abuse_filter_history', 'afh_public_comments', 'NULL', true
+			] );
+			$updater->addExtensionUpdate( [
+				'changeNullableField', ' abuse_filter_history', 'afh_actions', 'NULL', true
+			] );
 		}
+
+		$updater->addExtensionUpdate( [
+			'addField', 'abuse_filter', 'af_actor',
+			"$dir/$dbType/patch-add-af_actor.sql", true
+		] );
+
+		$updater->addExtensionUpdate( [
+			'addField', 'abuse_filter_history', 'afh_actor',
+			"$dir/$dbType/patch-add-afh_actor.sql", true
+		] );
 
 		$updater->addExtensionUpdate( [ [ $this, 'createAbuseFilterUser' ] ] );
 		$updater->addPostDatabaseUpdateMaintenance( NormalizeThrottleParameters::class );
 		$updater->addPostDatabaseUpdateMaintenance( FixOldLogEntries::class );
 		$updater->addPostDatabaseUpdateMaintenance( UpdateVarDumps::class );
+		// Don't launch the script on update.php if the migration stage is not high enough.
+		// This would throw an exception.
+		// Also check if the global is set.
+		// If globals aren't loaded, it's install.php, and not update.php. This is intentional,
+		// see for instance T193855 or T198331.
+		if ( isset( $wgAbuseFilterActorTableSchemaMigrationStage ) &&
+			( $wgAbuseFilterActorTableSchemaMigrationStage & SCHEMA_COMPAT_WRITE_NEW )
+		) {
+			$updater->addPostDatabaseUpdateMaintenance( MigrateActorsAF::class );
+		}
 	}
 
 	/**

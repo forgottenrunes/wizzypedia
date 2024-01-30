@@ -1,9 +1,12 @@
 <?php
 
-use MediaWiki\Actions\ActionFactory;
 use MediaWiki\Block\DatabaseBlock;
 use MediaWiki\DAO\WikiAwareEntity;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Permissions\PermissionManager;
+use MediaWiki\Request\FauxRequest;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 
 /**
  * @covers Action
@@ -20,33 +23,25 @@ class ActionTest extends MediaWikiIntegrationTestCase {
 		parent::setUp();
 
 		$context = $this->getContext();
-		$this->setMwGlobals( 'wgActions', [
-			'null' => null,
-			'disabled' => false,
-			'view' => true,
-			'edit' => true,
-			'revisiondelete' => [
-				'class' => SpecialPageAction::class,
-				'services' => [
-					'SpecialPageFactory',
-				],
-				'args' => [
-					// SpecialPageAction is used for both 'editchangetags' and
-					// 'revisiondelete' actions, tell it which one this is
-					'revisiondelete',
-				],
-			],
-			'dummy' => true,
-			'access' => 'ControlledAccessDummyAction',
-			'unblock' => 'RequiresUnblockDummyAction',
-			'string' => 'NamedDummyAction',
-			'declared' => 'NonExistingClassName',
-			'callable' => [ $this, 'dummyActionCallback' ],
-			'object' => new InstantiatedDummyAction(
-				$this->getArticle(),
-				$context
-			),
-		] );
+		$this->overrideConfigValue(
+			MainConfigNames::Actions,
+			[
+				'null' => null,
+				'disabled' => false,
+				'view' => true,
+				'edit' => true,
+				'dummy' => true,
+				'access' => 'ControlledAccessDummyAction',
+				'unblock' => 'RequiresUnblockDummyAction',
+				'string' => 'NamedDummyAction',
+				'declared' => 'NonExistingClassName',
+				'callable' => [ $this, 'dummyActionCallback' ],
+				'object' => new InstantiatedDummyAction(
+					$this->getArticle(),
+					$context
+				),
+			]
+		);
 	}
 
 	/**
@@ -76,7 +71,7 @@ class ActionTest extends MediaWikiIntegrationTestCase {
 		WikiPage $wikiPage = null,
 		IContextSource $context = null
 	): Article {
-		$context = $context ?? $this->getContext();
+		$context ??= $this->getContext();
 		if ( $wikiPage !== null ) {
 			$context->setWikiPage( $wikiPage );
 			$context->setTitle( $wikiPage->getTitle() );
@@ -88,11 +83,8 @@ class ActionTest extends MediaWikiIntegrationTestCase {
 	}
 
 	private function getPage(): WikiPage {
-		return WikiPage::factory( $this->getTitle() );
-	}
-
-	private function getTitle(): Title {
-		return Title::makeTitle( 0, 'Title' );
+		$title = Title::makeTitle( 0, 'Title' );
+		return $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( $title );
 	}
 
 	/**
@@ -111,7 +103,7 @@ class ActionTest extends MediaWikiIntegrationTestCase {
 		return $context;
 	}
 
-	public function actionProvider() {
+	public static function provideActions() {
 		return [
 			[ 'dummy', 'DummyAction' ],
 			[ 'string', 'NamedDummyAction' ],
@@ -126,83 +118,50 @@ class ActionTest extends MediaWikiIntegrationTestCase {
 			[ 'null', null ],
 			[ 'undeclared', null ],
 			[ '', null ],
+
+			// disabled action exists but cannot be created
+			[ 'disabled', false ],
+		];
+	}
+
+	public static function provideGetActionName() {
+		return [
+			'dummy' => [ 'dummy', 'DummyAction' ],
+			'string' => [ 'string', 'NamedDummyAction' ],
+			'callable' => [ 'callable', 'CalledDummyAction' ],
+			'object' => [ 'object', 'InstantiatedDummyAction' ],
+
+			// Capitalization is ignored
+			'dummy (caps)' => [ 'DUMMY', 'DummyAction' ],
+			'string (caps)' => [ 'STRING', 'NamedDummyAction' ],
+
+			// non-existing values
+			'null (string)' => [ 'null', 'nosuchaction' ],
+			'undeclared' => [ 'undeclared', 'nosuchaction' ],
+			'empty' => [ '', 'nosuchaction' ],
+
+			// impossible
+			'null (value)' => [ null, 'view' ],
+			'false' => [ false, 'nosuchaction' ],
+
+			// Compatibility with old URLs
+			'editredlink' => [ 'editredlink', 'edit' ],
+			'historysubmit' => [ 'historysubmit', 'view' ],
+
+			'disabled not resolvable' => [ 'disabled', 'nosuchaction' ],
 		];
 	}
 
 	/**
-	 * @dataProvider actionProvider
+	 * @dataProvider provideGetActionName
 	 * @param string $requestedAction
-	 * @param string|null $expected
-	 */
-	public function testActionExists( string $requestedAction, $expected ) {
-		$this->hideDeprecated( ActionFactory::class . '::actionExists' );
-		$this->hideDeprecated( Action::class . '::exists' );
-		$exists = Action::exists( $requestedAction );
-
-		$this->assertSame( $expected !== null, $exists );
-	}
-
-	public function testActionExists_doesNotRequireInstantiation() {
-		$this->hideDeprecated( ActionFactory::class . '::actionExists' );
-		$this->hideDeprecated( Action::class . '::exists' );
-		// The method is not supposed to check if the action can be instantiated.
-		$exists = Action::exists( 'declared' );
-
-		$this->assertTrue( $exists );
-	}
-
-	/**
-	 * @dataProvider actionProvider
-	 * @param string $requestedAction
-	 * @param string|null $expected
+	 * @param string $expected
 	 */
 	public function testGetActionName( $requestedAction, $expected ) {
-		$context = $this->getContext( $requestedAction );
-		$actionName = Action::getActionName( $context );
-
-		$this->assertEquals( $expected ?: 'nosuchaction', $actionName );
-	}
-
-	public function provideGetActionNameNotPossible() {
-		return [
-			'null' => [ null, 'view' ],
-			'false' => [ false, 'nosuchaction' ],
-		];
-	}
-
-	/**
-	 * @dataProvider provideGetActionNameNotPossible
-	 */
-	public function testGetActionNameNotPossible( $requestedAction, string $expected ) {
 		$actionName = Action::getActionName(
 			$this->getContext( $requestedAction )
 		);
 		$this->assertEquals( $expected, $actionName );
-	}
-
-	public function testGetActionName_editredlinkWorkaround() {
-		// See https://phabricator.wikimedia.org/T22966
-		$context = $this->getContext( 'editredlink' );
-		$actionName = Action::getActionName( $context );
-
-		$this->assertEquals( 'edit', $actionName );
-	}
-
-	public function testGetActionName_historysubmitWorkaround() {
-		// See https://phabricator.wikimedia.org/T22966
-		$context = $this->getContext( 'historysubmit' );
-		$actionName = Action::getActionName( $context );
-
-		$this->assertEquals( 'view', $actionName );
-	}
-
-	public function testGetActionName_revisiondeleteWorkaround() {
-		// See https://phabricator.wikimedia.org/T22966
-		$context = $this->getContext( 'historysubmit' );
-		$context->getRequest()->setVal( 'revisiondelete', true );
-		$actionName = Action::getActionName( $context );
-
-		$this->assertEquals( 'revisiondelete', $actionName );
 	}
 
 	public function testGetActionName_whenCanNotUseWikiPage_defaultsToView() {
@@ -217,46 +176,18 @@ class ActionTest extends MediaWikiIntegrationTestCase {
 	/**
 	 * @covers \Action::factory
 	 *
-	 * @dataProvider actionProvider
+	 * @dataProvider provideActions
 	 * @param string $requestedAction
-	 * @param string|null $expected
+	 * @param string|false|null $expected
 	 */
 	public function testActionFactory( string $requestedAction, $expected ) {
 		$action = $this->getAction( $requestedAction );
 
-		if ( $expected === null ) {
-			$this->assertNull( $action );
-		} else {
+		if ( is_string( $expected ) ) {
 			$this->assertInstanceOf( $expected, $action );
+		} else {
+			$this->assertSame( $expected, $action );
 		}
-	}
-
-	public function testNull_defaultsToView() {
-		$context = $this->getContext();
-		$actionName = Action::getActionName( $context );
-
-		$this->assertEquals( 'view', $actionName );
-	}
-
-	public function testDisabledAction_exists() {
-		$this->hideDeprecated( ActionFactory::class . '::actionExists' );
-		$this->hideDeprecated( Action::class . '::exists' );
-		$exists = Action::exists( 'disabled' );
-
-		$this->assertTrue( $exists );
-	}
-
-	public function testDisabledAction_isNotResolved() {
-		$context = $this->getContext( 'disabled' );
-		$actionName = Action::getActionName( $context );
-
-		$this->assertEquals( 'nosuchaction', $actionName );
-	}
-
-	public function testDisabledAction_factoryReturnsFalse() {
-		$action = $this->getAction( 'disabled' );
-
-		$this->assertFalse( $action );
 	}
 
 	public function dummyActionCallback() {
@@ -324,7 +255,7 @@ class DummyAction extends Action {
 	}
 
 	public function canExecute( User $user ) {
-		return $this->checkCanExecute( $user );
+		$this->checkCanExecute( $user );
 	}
 }
 

@@ -1,26 +1,27 @@
 <?php
+
 namespace MediaWiki\Page;
 
 /**
  * Data record representing a page that is (or used to be, or could be)
  * an editable page on a wiki.
  *
- * @note For compatibility with the WikiPage class, PageIdentity instances may
- *   represent non-existing pages. In the future, the contract of this interface is intended
- *   to be changed to disallow this.
+ * For compatibility with the WikiPage class, PageIdentity instances may
+ * represent non-existing pages. In the future, the contract of this interface is intended
+ * to be changed to disallow this. PageIdentity instances may also
+ * be mutable, and return different values from methods such as getLatest() or isRedirect()
+ * at different times. In the future, the contract of this interface is intended
+ * to be changed to disallow this.
  *
- * @note For compatibility with the WikiPage class, PageIdentity instances may
- *   be mutable, and return different values from methods such as getLatest() or isRedirect()
- *   at different times. In the future, the contract of this interface is intended
- *   to be changed to disallow this.
+ * Only WikiPage should implement PageRecord directly, other implementations should use
+ * ExistingPageRecord instead. Once WikiPage is removed or guaranteed to be immutable and
+ * existing, ExistingPageRecord will become an alias of PageRecord.
  *
- * @note Only WikiPage should implement PageRecord directly, other implementations should use
- *   ExistingPageRecord instead. Once WikiPage is removed or guaranteed to be immutable and
- *   existing, ExistingPageRecord will become an alias of PageRecord.
+ * @see https://www.mediawiki.org/wiki/Manual:Modeling_pages
  *
  * @stable to type
- *
  * @since 1.36
+ * @ingroup Page
  */
 interface PageRecord extends ProperPageIdentity {
 

@@ -5,28 +5,34 @@ namespace MediaWiki\Tests\Unit\Permissions;
 use DatabaseTestHelper;
 use LinkCache;
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\Linker\LinksMigration;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Page\PageIdentityValue;
 use MediaWiki\Page\PageReferenceValue;
 use MediaWiki\Page\PageStore;
 use MediaWiki\Permissions\RestrictionStore;
 use MediaWiki\Tests\Unit\DummyServicesTrait;
+use MediaWiki\Title\Title;
 use MediaWikiUnitTestCase;
+use MockTitleTrait;
 use ReflectionClass;
 use ReflectionMethod;
 use RuntimeException;
-use Title;
 use UnexpectedValueException;
 use WANObjectCache;
 use Wikimedia\Assert\PreconditionException;
+use Wikimedia\Rdbms\DeleteQueryBuilder;
 use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\SelectQueryBuilder;
 
 /**
  * @coversDefaultClass \MediaWiki\Permissions\RestrictionStore
  */
 class RestrictionStoreTest extends MediaWikiUnitTestCase {
 	use DummyServicesTrait;
+	use MockTitleTrait;
 
 	private const DEFAULT_RESTRICTION_TYPES = [ 'create', 'edit', 'move', 'upload' ];
 
@@ -54,7 +60,10 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 
 		$dbs = [];
 		foreach ( $expectedCalls as $index => $calls ) {
-			$dbs[$index] = $this->createNoOpMock( IDatabase::class, array_keys( $calls ) );
+			$dbs[$index] = $this->createNoOpMock(
+				IDatabase::class,
+				array_merge( array_keys( $calls ), [ 'newSelectQueryBuilder', 'newDeleteQueryBuilder' ] )
+			);
 			foreach ( $calls as $method => $callback ) {
 				$count = 1;
 				if ( is_array( $callback ) ) {
@@ -63,6 +72,16 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 				$dbs[$index]->expects( $count < 0 ? $this->any() : $this->exactly( $count ) )
 					->method( $method )->willReturnCallback( $callback );
 			}
+			$dbs[$index]
+				->method( 'newSelectQueryBuilder' )
+				->willReturnCallback( static function () use ( $dbs, $index ) {
+					return new SelectQueryBuilder( $dbs[$index] );
+				} );
+			$dbs[$index]
+				->method( 'newDeleteQueryBuilder' )
+				->willReturnCallback( static function () use ( $dbs, $index ) {
+					return new DeleteQueryBuilder( $dbs[$index] );
+				} );
 		}
 
 		$lb = $this->createMock( ILoadBalancer::class, [ 'getConnectionRef' ] );
@@ -79,15 +98,16 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 	private function newRestrictionStore( array $options = [] ): RestrictionStore {
 		return new RestrictionStore(
 			new ServiceOptions( RestrictionStore::CONSTRUCTOR_OPTIONS, $options + [
-				'NamespaceProtection' => [],
-				'RestrictionLevels' => [ '', 'autoconfirmed', 'sysop' ],
-				'RestrictionTypes' => self::DEFAULT_RESTRICTION_TYPES,
-				'SemiprotectedRestrictionLevels' => [ 'autoconfirmed' ],
+				MainConfigNames::NamespaceProtection => [],
+				MainConfigNames::RestrictionLevels => [ '', 'autoconfirmed', 'sysop' ],
+				MainConfigNames::RestrictionTypes => self::DEFAULT_RESTRICTION_TYPES,
+				MainConfigNames::SemiprotectedRestrictionLevels => [ 'autoconfirmed' ],
 			] ),
 			$this->createNoOpMock( WANObjectCache::class ),
 			$this->newMockLoadBalancer( $options['db'] ?? [] ),
 			// @todo test that these calls work correctly
 			$this->createNoOpMock( LinkCache::class, [ 'addLinkObj', 'getGoodLinkFieldObj' ] ),
+			$this->createNoOpMock( LinksMigration::class, [ 'getLinksConditions' ] ),
 			$this->getDummyCommentStore(),
 			$this->createHookContainer( isset( $options['hookFn'] )
 				? [ 'TitleGetRestrictionTypes' => $options['hookFn'] ]
@@ -130,7 +150,7 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 		$obj->$method( $page, ...$extraArgs );
 	}
 
-	public function provideNonLocalPage() {
+	public static function provideNonLocalPage() {
 		// We programmatically get all public methods whose first parameter is a PageIdentity. This
 		// way we'll make sure to include any new methods that are added in the future.
 		$ret = [];
@@ -221,7 +241,7 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 		$this->assertSame( $expected, $obj->getAllRestrictions( $page ) );
 	}
 
-	public function provideGetAllRestrictions(): array {
+	public static function provideGetAllRestrictions(): array {
 		return [
 			'Special page' => [
 				[],
@@ -257,7 +277,7 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 					(object)[ 'pr_type' => 'move', 'pr_level' => 'sysop',
 						'pr_expiry' => 'infinity', 'pr_cascade' => 0 ],
 				],
-				[ 'RestrictionTypes' => [ 'create', 'edit', 'upload' ] ],
+				[ MainConfigNames::RestrictionTypes => [ 'create', 'edit', 'upload' ] ],
 			],
 			'Expired protection' => [
 				[ 'edit' => [], 'move' => [ 'sysop' ] ],
@@ -290,7 +310,7 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 		$this->assertSame( $expected, $obj->getRestrictionExpiry( $page, $action ) );
 	}
 
-	public function provideGetRestrictionExpiry(): array {
+	public static function provideGetRestrictionExpiry(): array {
 		return [
 			'Special page' => [
 				null,
@@ -415,7 +435,7 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 		$this->assertSame( $expected, $obj->getCreateProtection( $page ) );
 	}
 
-	public function provideGetCreateProtection(): array {
+	public static function provideGetCreateProtection(): array {
 		$ret = [
 			'Special page' => [ null, self::newImproperPageIdentity( NS_SPECIAL, 'X' ), null ],
 			'Media page' => [ null, self::newImproperPageIdentity( NS_MEDIA, 'X' ), null ],
@@ -471,7 +491,7 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 		$obj->deleteCreateProtection( $page );
 	}
 
-	public function provideDeleteCreateProtection(): array {
+	public static function provideDeleteCreateProtection(): array {
 		return [
 			// Most of these don't actually make sense, but test current behavior regardless.
 			'Special page' => [ self::newImproperPageIdentity( NS_SPECIAL, 'X' ) ],
@@ -496,7 +516,7 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 		$this->assertSame( $expected, $obj->isSemiProtected( $page, 'edit' ) );
 	}
 
-	public function provideIsSemiProtected(): array {
+	public static function provideIsSemiProtected(): array {
 		return [
 			'Special page' => [ false, null,
 				[ 'page' => self::newImproperPageIdentity( NS_SPECIAL, 'X' ) ] ],
@@ -529,13 +549,13 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 				false,
 				[ (object)[ 'pr_type' => 'edit', 'pr_level' => 'autoconfirmed',
 						'pr_expiry' => 'infinity', 'pr_cascade' => '0' ] ],
-				[ 'SemiprotectedRestrictionLevels' => [] ],
+				[ MainConfigNames::SemiprotectedRestrictionLevels => [] ],
 			],
 			'Config with editsemiprotected' => [
 				true,
 				[ (object)[ 'pr_type' => 'edit', 'pr_level' => 'autoconfirmed',
 						'pr_expiry' => 'infinity', 'pr_cascade' => '0' ] ],
-				[ 'SemiprotectedRestrictionLevels' => [ 'editsemiprotected' ] ],
+				[ MainConfigNames::SemiprotectedRestrictionLevels => [ 'editsemiprotected' ] ],
 			],
 			'Data with editsemiprotected' => [
 				true,
@@ -546,20 +566,20 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 				true,
 				[ (object)[ 'pr_type' => 'edit', 'pr_level' => 'editsemiprotected',
 						'pr_expiry' => 'infinity', 'pr_cascade' => '0' ] ],
-				[ 'SemiprotectedRestrictionLevels' => [ 'editsemiprotected' ] ],
+				[ MainConfigNames::SemiprotectedRestrictionLevels => [ 'editsemiprotected' ] ],
 			],
 			'Semiprotection plus other protection level' => [
 				false,
 				[ (object)[ 'pr_type' => 'edit', 'pr_level' => 'autoconfirmed,superman',
 						'pr_expiry' => 'infinity', 'pr_cascade' => '0' ] ],
-				[ 'RestrictionLevels' => [ '', 'autoconfirmed', 'sysop', 'superman' ] ],
+				[ MainConfigNames::RestrictionLevels => [ '', 'autoconfirmed', 'sysop', 'superman' ] ],
 			],
 			'Two semiprotections' => [
 				true,
 				[ (object)[ 'pr_type' => 'edit', 'pr_level' => 'autoconfirmed,superman',
 						'pr_expiry' => 'infinity', 'pr_cascade' => '0' ] ],
-				[ 'RestrictionLevels' => [ '', 'autoconfirmed', 'sysop', 'superman' ],
-					'SemiprotectedRestrictionLevels' => [ 'autoconfirmed', 'superman' ] ],
+				[ MainConfigNames::RestrictionLevels => [ '', 'autoconfirmed', 'sysop', 'superman' ],
+					MainConfigNames::SemiprotectedRestrictionLevels => [ 'autoconfirmed', 'superman' ] ],
 			],
 		];
 	}
@@ -580,7 +600,7 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 		$this->assertSame( $expected, $obj->isProtected( $page, $action ) );
 	}
 
-	public function provideIsProtected(): array {
+	public static function provideIsProtected(): array {
 		return [
 			'Special page' => [ true, null,
 				[ 'page' => self::newImproperPageIdentity( NS_SPECIAL, 'X' ) ] ],
@@ -629,7 +649,7 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 				true,
 				[ (object)[ 'pr_type' => 'custom', 'pr_level' => 'sysop',
 					'pr_expiry' => 'infinity', 'pr_cascade' => '0' ], ],
-				[ 'action' => 'custom', 'RestrictionTypes' =>
+				[ 'action' => 'custom', MainConfigNames::RestrictionTypes =>
 					array_merge( self::DEFAULT_RESTRICTION_TYPES, [ 'custom' ] ) ],
 			],
 			'Check custom protection level' => [
@@ -719,7 +739,7 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 				PageIdentityValue::localIdentity( 1, NS_MAIN, 'X' ),
 			],
 			'Nonexistent file' => [
-				[ 'create', 'upload' ],
+				[ 'create' ],
 				PageIdentityValue::localIdentity( 0, NS_FILE, 'X' ),
 			],
 			'Existing file' => [
@@ -730,54 +750,54 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 			'Nonexistent page with no create' => [
 				[],
 				PageIdentityValue::localIdentity( 0, NS_MAIN, 'X' ),
-				[ 'RestrictionTypes' => [ 'edit', 'move', 'upload' ] ],
+				[ MainConfigNames::RestrictionTypes => [ 'edit', 'move', 'upload' ] ],
 			],
 			'Existing page with no move' => [
 				[ 'edit' ],
 				PageIdentityValue::localIdentity( 1, NS_MAIN, 'X' ),
-				[ 'RestrictionTypes' => [ 'create', 'edit', 'upload' ] ],
+				[ MainConfigNames::RestrictionTypes => [ 'create', 'edit', 'upload' ] ],
 			],
 			'Nonexistent file with no upload' => [
 				[ 'create' ],
 				PageIdentityValue::localIdentity( 0, NS_FILE, 'X' ),
-				[ 'RestrictionTypes' => [ 'create', 'edit', 'move' ] ],
+				[ MainConfigNames::RestrictionTypes => [ 'create', 'edit', 'move' ] ],
 			],
 
 			'Special page with extra type' => [
 				[],
 				self::newImproperPageIdentity( NS_SPECIAL, 'X' ),
-				[ 'RestrictionTypes' => $expandedRestrictions ],
+				[ MainConfigNames::RestrictionTypes => $expandedRestrictions ],
 			],
 			'Media page with extra type' => [
 				[],
 				self::newImproperPageIdentity( NS_MEDIA, 'X' ),
-				[ 'RestrictionTypes' => $expandedRestrictions ],
+				[ MainConfigNames::RestrictionTypes => $expandedRestrictions ],
 			],
 			'Nonexistent page with extra type' => [
 				[ 'create' ],
 				PageIdentityValue::localIdentity( 0, NS_MAIN, 'X' ),
-				[ 'RestrictionTypes' => $expandedRestrictions ],
+				[ MainConfigNames::RestrictionTypes => $expandedRestrictions ],
 			],
 			'Existing page with extra type' => [
 				[ 'edit', 'move', 'liquify' ],
 				PageIdentityValue::localIdentity( 1, NS_MAIN, 'X' ),
-				[ 'RestrictionTypes' => $expandedRestrictions ],
+				[ MainConfigNames::RestrictionTypes => $expandedRestrictions ],
 			],
 			'Nonexistent file with extra type' => [
-				[ 'create', 'upload' ],
+				[ 'create' ],
 				PageIdentityValue::localIdentity( 0, NS_FILE, 'X' ),
-				[ 'RestrictionTypes' => $expandedRestrictions ],
+				[ MainConfigNames::RestrictionTypes => $expandedRestrictions ],
 			],
 			'Existing file with extra type' => [
 				[ 'edit', 'move', 'upload', 'liquify' ],
 				PageIdentityValue::localIdentity( 1, NS_FILE, 'X' ),
-				[ 'RestrictionTypes' => $expandedRestrictions ],
+				[ MainConfigNames::RestrictionTypes => $expandedRestrictions ],
 			],
 
 			'Hook' => [
 				[ 'move', 'liquify' ],
 				PageIdentityValue::localIdentity( 1, NS_MAIN, 'X' ),
-				[ 'hookFn' => function ( Title $title, array &$types ): bool {
+				[ 'hookFn' => static function ( Title $title, array &$types ): bool {
 					self::assertEquals( Title::castFromPageIdentity(
 						PageIdentityValue::localIdentity( 1, NS_MAIN, 'X' ) ), $title );
 					self::assertSame( [ 'edit', 'move' ], $types );
@@ -815,53 +835,53 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 		$this->assertSame( $expected, $obj->listAllRestrictionTypes( ...$args ) );
 	}
 
-	public function provideListAllRestrictionTypes() {
+	public static function provideListAllRestrictionTypes() {
 		$expandedRestrictions = array_merge( self::DEFAULT_RESTRICTION_TYPES, [ 'solidify' ] );
 		return [
 			'Exists' => [ [ 'edit', 'move', 'upload' ], [ true ] ],
 			'Default is exists' => [ [ 'edit', 'move', 'upload' ], [] ],
-			'Nonexistent' => [ [ 'create', 'upload' ], [ false ] ],
+			'Nonexistent' => [ [ 'create' ], [ false ] ],
 
 			'Exists with extra restriction type' => [
 				[ 'edit', 'move', 'upload', 'solidify' ],
 				[ true ],
-				[ 'RestrictionTypes' => $expandedRestrictions ],
+				[ MainConfigNames::RestrictionTypes => $expandedRestrictions ],
 			],
 			'Default is exists with extra restriction type' => [
 				[ 'edit', 'move', 'upload', 'solidify' ],
 				[],
-				[ 'RestrictionTypes' => $expandedRestrictions ],
+				[ MainConfigNames::RestrictionTypes => $expandedRestrictions ],
 			],
 			'Nonexistent with extra restriction type' => [
-				[ 'create', 'upload' ],
+				[ 'create' ],
 				[ false ],
-				[ 'RestrictionTypes' => $expandedRestrictions ],
+				[ MainConfigNames::RestrictionTypes => $expandedRestrictions ],
 			],
 
 			'Exists with no edit' => [
 				[ 'move', 'upload' ],
 				[ true ],
-				[ 'RestrictionTypes' => [ 'create', 'move', 'upload' ] ],
+				[ MainConfigNames::RestrictionTypes => [ 'create', 'move', 'upload' ] ],
 			],
 			'Exists with only create' => [
 				[],
 				[ true ],
-				[ 'RestrictionTypes' => [ 'create' ] ],
+				[ MainConfigNames::RestrictionTypes => [ 'create' ] ],
 			],
 			'Nonexistent with no create' => [
-				[ 'upload' ],
+				[],
 				[ false ],
-				[ 'RestrictionTypes' => [ 'edit', 'move', 'upload', 'solidify' ] ],
+				[ MainConfigNames::RestrictionTypes => [ 'edit', 'move', 'upload', 'solidify' ] ],
 			],
 			'Nonexistent with no upload' => [
 				[ 'create' ],
 				[ false ],
-				[ 'RestrictionTypes' => [ 'create', 'edit', 'move', 'solidify' ] ],
+				[ MainConfigNames::RestrictionTypes => [ 'create', 'edit', 'move', 'solidify' ] ],
 			],
 			'Nonexistent with no create or upload' => [
 				[],
 				[ false ],
-				[ 'RestrictionTypes' => [ 'edit', 'move', 'solidify' ] ],
+				[ MainConfigNames::RestrictionTypes => [ 'edit', 'move', 'solidify' ] ],
 			],
 		];
 	}
@@ -881,7 +901,7 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 		$this->assertSame( $expected, $obj->areRestrictionsLoaded( $page ) );
 	}
 
-	public function provideAreRestrictionsLoaded(): array {
+	public static function provideAreRestrictionsLoaded(): array {
 		return [
 			'Special page' => [ false, self::newImproperPageIdentity( NS_SPECIAL, 'X' ) ],
 			'Media page' => [ false, self::newImproperPageIdentity( NS_MEDIA, 'X' ) ],
@@ -912,7 +932,7 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 		$this->assertSame( $expected, $obj->areRestrictionsCascading( $page ) );
 	}
 
-	public function provideAreRestrictionsCascading(): array {
+	public static function provideAreRestrictionsCascading(): array {
 		return [
 			'Special page' => [ false, self::newImproperPageIdentity( NS_SPECIAL, 'X' ), null ],
 			'Media page' => [ false, self::newImproperPageIdentity( NS_MEDIA, 'X' ), null ],
@@ -974,6 +994,24 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 		[ $sources, $restrictions ] = $obj->getCascadeProtectionSources( $page );
 		$this->assertCount( 1, $sources );
 		$this->assertArrayHasKey( 'edit', $restrictions );
+	}
+
+	/**
+	 * @covers ::getCascadeProtectionSources
+	 * @covers ::getCascadeProtectionSourcesInternal
+	 */
+	public function testGetCascadeProtectionSourcesSpecialPage() {
+		$obj = $this->newRestrictionStore( [ 'db' => [ DB_REPLICA => [ 'select' => [
+			static function () {
+				return [];
+			},
+			0
+		] ] ] ] );
+
+		$page = $this->makeMockTitle( 'Whatlinkshere', [ 'namespace' => NS_SPECIAL ] );
+		[ $sources, $restrictions ] = $obj->getCascadeProtectionSources( $page );
+		$this->assertCount( 0, $sources );
+		$this->assertCount( 0, $restrictions );
 	}
 
 }

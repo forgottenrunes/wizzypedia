@@ -1,11 +1,8 @@
 <?php
 /** Galician (galego)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
- *
+ * @ingroup Languages
  */
 
 $fallback = 'pt';
@@ -47,8 +44,8 @@ $defaultDateFormat = 'dmy';
 
 $dateFormats = [
 	'dmy time' => 'H:i',
-	'dmy date' => 'j \d\e F \d\e Y',
-	'dmy both' => 'j \d\e F \d\e Y "ás" H:i',
+	'dmy date' => 'j "de" F "de" Y',
+	'dmy both' => 'j "de" F "de" Y "ás" H:i',
 ];
 
 /** @phpcs-require-sorted-array */
@@ -124,6 +121,7 @@ $specialPageAliases = [
 	'Recentchanges'             => [ 'Cambios_recentes' ],
 	'Recentchangeslinked'       => [ 'Cambios_relacionados' ],
 	'Redirect'                  => [ 'Redirección' ],
+	'Renameuser'                => [ 'Renomear_o_usuario', 'Renomear_usuario', 'Renomear_a_usuaria', 'Renomear_usuaria' ],
 	'ResetTokens'               => [ 'Restablecer_os_pases' ],
 	'Revisiondelete'            => [ 'Revisións_borradas' ],
 	'Search'                    => [ 'Procurar', 'Buscar' ],

@@ -26,10 +26,11 @@ namespace MediaWiki\Session;
 use CachedBagOStuff;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\User\User;
 use Psr\Log\LoggerInterface;
-use User;
-use WebRequest;
 use Wikimedia\AtEase\AtEase;
 
 /**
@@ -150,7 +151,8 @@ final class SessionBackend {
 		SessionId $id, SessionInfo $info, CachedBagOStuff $store, LoggerInterface $logger,
 		HookContainer $hookContainer, $lifetime
 	) {
-		$phpSessionHandling = \RequestContext::getMain()->getConfig()->get( 'PHPSessionHandling' );
+		$phpSessionHandling = MediaWikiServices::getInstance()->getMainConfig()
+			->get( MainConfigNames::PHPSessionHandling );
 		$this->usePhpSessionHandling = $phpSessionHandling !== 'disable';
 
 		if ( $info->getUserInfo() && !$info->getUserInfo()->isVerified() ) {
@@ -299,7 +301,7 @@ final class SessionBackend {
 			$this->store->delete( $this->store->makeKey( 'MWSession', $oldId ) );
 		}
 
-		return $this->id;
+		return (string)$this->id;
 	}
 
 	/**
@@ -415,7 +417,7 @@ final class SessionBackend {
 	 * Returns the authenticated user for this session
 	 * @return User
 	 */
-	public function getUser() {
+	public function getUser(): User {
 		return $this->user;
 	}
 
@@ -681,6 +683,11 @@ final class SessionBackend {
 
 		// Ensure the user has a token
 		// @codeCoverageIgnoreStart
+		if ( !$anon && defined( 'MW_PHPUNIT_TEST' ) && MediaWikiServices::getInstance()->isStorageDisabled() ) {
+			// Avoid making DB queries in non-database tests. We don't need to save the token when using
+			// fake users, and it would probably be ignored anyway.
+			return;
+		}
 		if ( !$anon && !$this->user->getToken( false ) ) {
 			$this->logger->debug(
 				'SessionBackend "{session}" creating token for user {user} on save',
@@ -689,7 +696,7 @@ final class SessionBackend {
 					'user' => $this->user->__toString(),
 			] );
 			$this->user->setToken();
-			if ( !wfReadOnly() ) {
+			if ( !MediaWikiServices::getInstance()->getReadOnlyMode()->isReadOnly() ) {
 				// Promise that the token set here will be valid; save it at end of request
 				$user = $this->user;
 				\DeferredUpdates::addCallableUpdate( static function () use ( $user ) {
@@ -779,7 +786,6 @@ final class SessionBackend {
 		}
 
 		$flags = $this->persist ? 0 : CachedBagOStuff::WRITE_CACHE_ONLY;
-		$flags |= CachedBagOStuff::WRITE_SYNC; // write to all datacenters
 		$this->store->set(
 			$this->store->makeKey( 'MWSession', (string)$this->id ),
 			[
@@ -852,12 +858,15 @@ final class SessionBackend {
 		if ( $this->persistenceChangeData
 			&& $this->persistenceChangeData['id'] === $id
 			&& $this->persistenceChangeData['user'] === $user
+			// @phan-suppress-next-line PhanPossiblyUndeclaredVariable message always set
 			&& $this->persistenceChangeData['message'] === $message
 		) {
 			return;
 		}
+		// @phan-suppress-next-line PhanPossiblyUndeclaredVariable message always set
 		$this->persistenceChangeData = [ 'id' => $id, 'user' => $user, 'message' => $message ];
 
+		// @phan-suppress-next-line PhanTypeMismatchArgumentNullable,PhanPossiblyUndeclaredVariable message always set
 		$this->logger->info( $message, [
 			'id' => $id,
 			'provider' => get_class( $this->getProvider() ),

@@ -2,7 +2,7 @@
 
 namespace MediaWiki\Page;
 
-use Title;
+use MediaWiki\Title\Title;
 
 /**
  * Convenience trait for conversion to PageIdentity.
@@ -21,7 +21,6 @@ use Title;
  * code up the stack is guaranteed not to pass Title.
  *
  * @internal
- * @package MediaWiki\Page
  */
 trait LegacyArticleIdAccess {
 	/**

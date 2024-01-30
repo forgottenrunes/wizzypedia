@@ -19,6 +19,8 @@
  * @ingroup Installer
  */
 
+use MediaWiki\Html\Html;
+use MediaWiki\Specials\SpecialVersion;
 use Wikimedia\IPUtils;
 
 class WebInstallerOptions extends WebInstallerPage {
@@ -91,7 +93,8 @@ class WebInstallerOptions extends WebInstallerPage {
 				'data-filedrop' => wfMessage( 'config-logo-filedrop' )
 			] ) .
 			Html::closeElement( 'div' ) .
-			Html::closeElement( 'div' )
+			Html::closeElement( 'div' ) .
+			$this->getFieldsetEnd()
 		);
 	}
 
@@ -204,10 +207,9 @@ class WebInstallerOptions extends WebInstallerPage {
 				}
 				$skinHtml .=
 					'<div class="config-skins-item">' .
-					// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 					$this->parent->getCheckBox( [
 						'var' => "skin-$skin",
-						'rawtext' => $screenshotText,
+						'rawtext' => $screenshotText . $this->makeMoreInfoLink( $info ),
 						'value' => $this->getVar( "skin-$skin", true ), // all found skins enabled by default
 					] ) .
 					'<div class="config-skins-use-as-default">' . $radioButtons[strtolower( $skin )] . '</div>' .
@@ -257,16 +259,11 @@ class WebInstallerOptions extends WebInstallerPage {
 				}
 				$extHtml .= Html::element( 'h2', [], $message );
 				foreach ( $extByType[$type] as $ext => $info ) {
-					$urlText = '';
-					if ( isset( $info['url'] ) ) {
-						$urlText = ' ' . Html::element( 'a', [ 'href' => $info['url'] ], '(more information)' );
-					}
 					$attribs = [
 						'data-name' => $ext,
 						'class' => 'config-ext-input'
 					];
 					$labelAttribs = [];
-					$fullDepList = [];
 					if ( isset( $info['requires']['extensions'] ) ) {
 						$dependencyMap[$ext]['extensions'] = $info['requires']['extensions'];
 						$labelAttribs['class'] = 'mw-ext-with-dependencies';
@@ -299,17 +296,15 @@ class WebInstallerOptions extends WebInstallerPage {
 							}
 						}
 
-						// @phan-suppress-next-line SecurityCheck-XSS
 						$text = wfMessage( 'config-extensions-requires' )
 							->rawParams( $ext, $wgLang->commaList( $links ) )
 							->escaped();
 					} else {
 						$text = $ext;
 					}
-					// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 					$extHtml .= $this->parent->getCheckBox( [
 						'var' => "ext-$ext",
-						'rawtext' => $text,
+						'rawtext' => $text . $this->makeMoreInfoLink( $info ),
 						'attribs' => $attribs,
 						'labelAttribs' => $labelAttribs,
 					] );
@@ -321,7 +316,7 @@ class WebInstallerOptions extends WebInstallerPage {
 			$this->addHTML( $extHtml );
 			// Push the dependency map to the client side
 			$this->addHTML( Html::inlineScript(
-				'var extDependencyMap = ' . Xml::encodeJsVar( $dependencyMap )
+				'var extDependencyMap = ' . Html::encodeJsVar( $dependencyMap )
 			) );
 		}
 	}
@@ -450,6 +445,23 @@ class WebInstallerOptions extends WebInstallerPage {
 	}
 
 	/**
+	 * @param array $info
+	 * @return string HTML
+	 */
+	private function makeMoreInfoLink( $info ) {
+		if ( !isset( $info['url'] ) ) {
+			return '';
+		}
+		return ' ' . wfMessage( 'parentheses' )->rawParams(
+			Html::element(
+				'a',
+				[ 'href' => $info['url'] ],
+				wfMessage( 'config-ext-skins-more-info' )->text()
+			)
+		)->escaped();
+	}
+
+	/**
 	 * @return string
 	 */
 	public function getCCPartnerUrl() {
@@ -573,8 +585,7 @@ class WebInstallerOptions extends WebInstallerPage {
 		$retVal = true;
 
 		if ( !array_key_exists( $this->getVar( '_RightsProfile' ), $this->parent->rightsProfiles ) ) {
-			reset( $this->parent->rightsProfiles );
-			$this->setVar( '_RightsProfile', key( $this->parent->rightsProfiles ) );
+			$this->setVar( '_RightsProfile', array_key_first( $this->parent->rightsProfiles ) );
 		}
 
 		$code = $this->getVar( '_LicenseCode' );
@@ -615,7 +626,7 @@ class WebInstallerOptions extends WebInstallerPage {
 		}
 		$defaultSkin = $this->getVar( 'wgDefaultSkin' );
 		$skinsToInstallLowercase = array_map( 'strtolower', $skinsToInstall );
-		if ( $skinsToInstall && array_search( $defaultSkin, $skinsToInstallLowercase ) === false ) {
+		if ( $skinsToInstall && !in_array( $defaultSkin, $skinsToInstallLowercase ) ) {
 			$this->parent->showError( 'config-skins-must-enable-default' );
 			$retVal = false;
 		}
@@ -632,6 +643,9 @@ class WebInstallerOptions extends WebInstallerPage {
 
 		if ( $this->getVar( '_MainCacheType' ) == 'memcached' ) {
 			$memcServers = explode( "\n", $this->getVar( '_MemCachedServers' ) );
+			// FIXME: explode() will always result in an array of at least one string, even on null (when
+			// the string will be empty and you'll get a PHP warning), so this has never worked?
+			// @phan-suppress-next-line PhanImpossibleCondition
 			if ( !$memcServers ) {
 				$this->parent->showError( 'config-memcache-needservers' );
 				$retVal = false;

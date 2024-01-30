@@ -21,12 +21,29 @@
  * @ingroup SpecialPage
  * @author DannyS712
  */
+
+namespace MediaWiki\Specials;
+
+use MediaWiki\SpecialPage\SpecialRedirectWithAction;
+use SearchEngineFactory;
+
 class SpecialEditPage extends SpecialRedirectWithAction {
-	public function __construct() {
-		parent::__construct( 'EditPage', 'edit', 'editpage' );
+
+	/**
+	 * @param SearchEngineFactory $searchEngineFactory
+	 */
+	public function __construct(
+		SearchEngineFactory $searchEngineFactory
+	) {
+		parent::__construct( 'EditPage', 'edit', 'editpage', $searchEngineFactory );
 	}
 
 	// Messages, for grep:
 	// specialeditpage-page
 	// specialeditpage-submit
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialEditPage::class, 'SpecialEditPage' );

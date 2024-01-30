@@ -1,7 +1,5 @@
 <?php
 /**
- * Job for asynchronous rendering of thumbnails.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,13 +16,15 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup JobQueue
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
 
 /**
- * Job for asynchronous rendering of thumbnails.
+ * Job for asynchronous rendering of thumbnails, e.g. after new uploads.
  *
  * @ingroup JobQueue
  */
@@ -35,7 +35,7 @@ class ThumbnailRenderJob extends Job {
 
 	public function run() {
 		$uploadThumbnailRenderMethod = MediaWikiServices::getInstance()
-			->getMainConfig()->get( 'UploadThumbnailRenderMethod' );
+			->getMainConfig()->get( MainConfigNames::UploadThumbnailRenderMethod );
 
 		$transformParams = $this->params['transformParams'];
 
@@ -49,16 +49,19 @@ class ThumbnailRenderJob extends Job {
 
 				if ( !$thumb || $thumb->isError() ) {
 					if ( $thumb instanceof MediaTransformError ) {
-						$this->setLastError( __METHOD__ . ': thumbnail couln\'t be generated:' .
+						$this->setLastError( __METHOD__ . ': thumbnail couldn\'t be generated:' .
 							$thumb->toText() );
 					} else {
-						$this->setLastError( __METHOD__ . ': thumbnail couln\'t be generated' );
+						$this->setLastError( __METHOD__ . ': thumbnail couldn\'t be generated' );
 					}
 					return false;
 				}
+				$this->maybeEnqueueNextPage( $transformParams );
 				return true;
 			} elseif ( $uploadThumbnailRenderMethod === 'http' ) {
-				return $this->hitThumbUrl( $file, $transformParams );
+				$res = $this->hitThumbUrl( $file, $transformParams );
+				$this->maybeEnqueueNextPage( $transformParams );
+				return $res;
 			} else {
 				$this->setLastError( __METHOD__ . ': unknown thumbnail render method ' .
 					$uploadThumbnailRenderMethod );
@@ -77,8 +80,10 @@ class ThumbnailRenderJob extends Job {
 	 */
 	protected function hitThumbUrl( LocalFile $file, $transformParams ) {
 		$config = MediaWikiServices::getInstance()->getMainConfig();
-		$uploadThumbnailRenderHttpCustomHost = $config->get( 'UploadThumbnailRenderHttpCustomHost' );
-		$uploadThumbnailRenderHttpCustomDomain = $config->get( 'UploadThumbnailRenderHttpCustomDomain' );
+		$uploadThumbnailRenderHttpCustomHost =
+			$config->get( MainConfigNames::UploadThumbnailRenderHttpCustomHost );
+		$uploadThumbnailRenderHttpCustomDomain =
+			$config->get( MainConfigNames::UploadThumbnailRenderHttpCustomDomain );
 		$handler = $file->getHandler();
 		if ( !$handler ) {
 			$this->setLastError( __METHOD__ . ': could not get handler' );
@@ -139,6 +144,25 @@ class ThumbnailRenderJob extends Job {
 				. Status::wrap( $status )->getWikiText( false, false, 'en' ) );
 		}
 		return false;
+	}
+
+	private function maybeEnqueueNextPage( $transformParams ) {
+		if (
+			( $this->params['enqueueNextPage'] ?? false ) &&
+			( $transformParams['page'] ?? 0 ) < ( $this->params['pageLimit'] ?? 0 )
+		) {
+			$transformParams['page'] += 1;
+			$job = new ThumbnailRenderJob(
+				$this->getTitle(),
+				[
+					'transformParams' => $transformParams,
+					'enqueueNextPage' => true,
+					'pageLimit' => $this->params['pageLimit']
+				]
+			);
+
+			MediaWikiServices::getInstance()->getJobQueueGroup()->lazyPush( [ $job ] );
+		}
 	}
 
 	/**

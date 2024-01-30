@@ -1,10 +1,8 @@
 <?php
 /** Wallisian (Fakaʻuvea)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Lea.Fakauvea
  * @author Amir E. Aharoni

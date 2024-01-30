@@ -1,8 +1,5 @@
 <?php
-
 /**
- * Karakalpak (Qaraqalpaqsha) specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -19,31 +16,26 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 
 /**
  * Karakalpak (Qaraqalpaqsha)
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class LanguageKaa extends Language {
-
-	# Convert from the nominative form of a noun to some other case
-	# Invoked with {{GRAMMAR:case|word}}
 
 	/**
 	 * Cases: genitive, dative, accusative, locative, ablative, comitative + possessive forms
 	 *
-	 * @param string $word
-	 * @param string $case
-	 *
-	 * @return string
+	 * @inheritDoc
 	 */
 	public function convertGrammar( $word, $case ) {
-		$grammarForms = MediaWikiServices::getInstance()->getMainConfig()->get( 'GrammarForms' );
+		$grammarForms =
+			MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::GrammarForms );
 		if ( isset( $grammarForms['kaa'][$case][$word] ) ) {
 			return $grammarForms['kaa'][$case][$word];
 		}
@@ -52,31 +44,27 @@ class LanguageKaa extends Language {
 	}
 
 	/**
-	 * It fixes issue with ucfirst for transforming 'i' to 'İ'
+	 * Fixes an issue with ucfirst for transforming 'i' to 'İ'
 	 *
-	 * @param string $string
-	 *
-	 * @return string
+	 * @inheritDoc
 	 */
-	public function ucfirst( $string ) {
-		if ( substr( $string, 0, 1 ) === 'i' ) {
-			return 'İ' . substr( $string, 1 );
+	public function ucfirst( $str ) {
+		if ( substr( $str, 0, 1 ) === 'i' ) {
+			return 'İ' . substr( $str, 1 );
 		}
-		return parent::ucfirst( $string );
+		return parent::ucfirst( $str );
 	}
 
 	/**
-	 * It fixes issue with lcfirst for transforming 'I' to 'ı'
+	 * Fixes an issue with lcfirst for transforming 'I' to 'ı'
 	 *
-	 * @param string $string
-	 *
-	 * @return mixed|string
+	 * @inheritDoc
 	 */
-	public function lcfirst( $string ) {
-		if ( substr( $string, 0, 1 ) === 'I' ) {
-			return 'ı' . substr( $string, 1 );
+	public function lcfirst( $str ) {
+		if ( substr( $str, 0, 1 ) === 'I' ) {
+			return 'ı' . substr( $str, 1 );
 		}
-		return parent::lcfirst( $string );
+		return parent::lcfirst( $str );
 	}
 
 }

@@ -1,13 +1,14 @@
 <?php
 
 use MediaWiki\Languages\LanguageFallback;
-use MediaWiki\Languages\LanguageNameUtils;
+use MediaWiki\Tests\Unit\DummyServicesTrait;
 
 /**
  * @coversDefaultClass MediaWiki\Languages\LanguageFallback
  * @covers ::__construct
  */
 class LanguageFallbackTest extends MediaWikiUnitTestCase {
+	use DummyServicesTrait;
 	use LanguageFallbackTestTrait;
 
 	private const DATA = [
@@ -16,20 +17,8 @@ class LanguageFallbackTest extends MediaWikiUnitTestCase {
 		'sco' => [ 'en' ],
 		'yi' => [ 'he' ],
 		'ruq' => [ 'ruq-latn', 'ro' ],
-		'sh' => [ 'bs', 'sr-el', 'hr' ],
+		'sh' => [ 'sh-latn', 'sh-cyrl', 'bs', 'sr-el', 'sr-latn', 'hr' ],
 	];
-
-	private function getLanguageNameUtils() {
-		$mockLangNameUtils = $this->createMock( LanguageNameUtils::class );
-		$mockLangNameUtils->method( 'isValidBuiltInCode' )
-			->will( $this->returnCallback( static function ( $code ) {
-				// One-line copy-paste
-				return (bool)preg_match( '/^[a-z0-9-]{2,}$/', $code );
-			} ) );
-		$mockLangNameUtils->expects( $this->never() )
-			->method( $this->anythingBut( 'isValidBuiltInCode' ) );
-		return $mockLangNameUtils;
-	}
 
 	private function getCallee( array $options = [] ): LanguageFallback {
 		return new LanguageFallback(
@@ -38,7 +27,7 @@ class LanguageFallbackTest extends MediaWikiUnitTestCase {
 				$options['expectedGets'] ?? 1,
 				$options['fallbackMap'] ?? self::DATA
 			),
-			$this->getLanguageNameUtils()
+			$this->getDummyLanguageNameUtils()
 		);
 	}
 

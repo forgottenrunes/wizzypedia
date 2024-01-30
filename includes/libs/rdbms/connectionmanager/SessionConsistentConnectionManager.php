@@ -16,9 +16,7 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Database
  */
-
 namespace Wikimedia\Rdbms;
 
 /**
@@ -38,7 +36,7 @@ namespace Wikimedia\Rdbms;
  * operations to the primary database server).
  *
  * @since 1.29
- *
+ * @ingroup Database
  * @author Daniel Kinzler
  * @author Addshore
  */
@@ -66,7 +64,7 @@ class SessionConsistentConnectionManager extends ConnectionManager {
 	 * @param string[]|null $groups
 	 * @param int $flags
 	 *
-	 * @return IDatabase
+	 * @return IReadableDatabase
 	 */
 	public function getReadConnection( ?array $groups = null, int $flags = 0 ) {
 		if ( $this->forceWriteConnection ) {
@@ -95,6 +93,7 @@ class SessionConsistentConnectionManager extends ConnectionManager {
 	 * @param string[]|null $groups
 	 *
 	 * @return DBConnRef
+	 * @deprecated since 1.40; Use getReadConnection()
 	 */
 	public function getReadConnectionRef( array $groups = null ) {
 		if ( $this->forceWriteConnection ) {
@@ -108,6 +107,7 @@ class SessionConsistentConnectionManager extends ConnectionManager {
 	 * @since 1.29
 	 *
 	 * @return DBConnRef
+	 * @deprecated since 1.40; Use getWriteConnection()
 	 */
 	public function getWriteConnectionRef() {
 		$this->prepareForUpdates();

@@ -1,7 +1,14 @@
 <?php
 
-class Scribunto_LuaDataProvider implements Iterator {
-	/** @var Scribunto_LuaEngine|null */
+namespace MediaWiki\Extension\Scribunto\Tests\Engines\LuaCommon;
+
+use Exception;
+use Iterator;
+use MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaEngine;
+use MediaWiki\Title\Title;
+
+class LuaDataProvider implements Iterator {
+	/** @var LuaEngine|null */
 	protected $engine = null;
 	/** @var mixed|null */
 	protected $exports = null;
@@ -9,7 +16,7 @@ class Scribunto_LuaDataProvider implements Iterator {
 	protected $key = 1;
 
 	/**
-	 * @param Scribunto_LuaEngine $engine
+	 * @param LuaEngine $engine
 	 * @param string $moduleName
 	 */
 	public function __construct( $engine, $moduleName ) {
@@ -32,22 +39,24 @@ class Scribunto_LuaDataProvider implements Iterator {
 		$this->exports = null;
 	}
 
-	public function rewind() {
+	public function rewind(): void {
 		$this->key = 1;
 	}
 
-	public function valid() {
+	public function valid(): bool {
 		return $this->key <= $this->exports['count'];
 	}
 
+	#[\ReturnTypeWillChange]
 	public function key() {
 		return $this->key;
 	}
 
-	public function next() {
+	public function next(): void {
 		$this->key++;
 	}
 
+	#[\ReturnTypeWillChange]
 	public function current() {
 		return $this->engine->getInterpreter()->callFunction( $this->exports['provide'], $this->key );
 	}

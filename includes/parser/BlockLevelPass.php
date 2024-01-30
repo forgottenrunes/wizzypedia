@@ -328,7 +328,9 @@ class BlockLevelPass {
 					'/<('
 						. "\\/({$blockElems})|({$antiBlockElems})|"
 						// Never suppresses
-						. '\\/?(center|blockquote|div|hr|mw:|aside|figure)'
+						. '\\/?(center|blockquote|div|hr|mw:|aside|figure)|'
+						// Used as Parser::TOC_PLACEHOLDER
+						. 'meta property="mw:'
 						. ')\\b/iS',
 					$t
 				);
@@ -419,6 +421,7 @@ class BlockLevelPass {
 			}
 		}
 		while ( $prefixLength ) {
+			// @phan-suppress-next-line PhanTypeArraySuspicious $prefix set if $prefixLength is set
 			$output .= $this->closeList( $prefix2[$prefixLength - 1] );
 			--$prefixLength;
 			// Note that a paragraph is only ever opened when `prefixLength`
@@ -438,8 +441,7 @@ class BlockLevelPass {
 	 * @param string $str The string to split
 	 * @param string &$before Set to everything before the ':'
 	 * @param string &$after Set to everything after the ':'
-	 * @throws MWException
-	 * @return string|false The position of the ':', or false if none found
+	 * @return int|false The position of the ':', or false if none found
 	 */
 	private function findColonNoLinks( $str, &$before, &$after ) {
 		if ( !preg_match( '/:|<|-\{/', $str, $m, PREG_OFFSET_CAPTURE ) ) {
@@ -588,7 +590,7 @@ class BlockLevelPass {
 					}
 					break;
 				default:
-					throw new MWException( "State machine error in " . __METHOD__ );
+					throw new LogicException( "State machine error in " . __METHOD__ );
 			}
 		}
 		if ( $ltLevel > 0 || $lcLevel > 0 ) {
@@ -596,7 +598,6 @@ class BlockLevelPass {
 				__METHOD__ . ": Invalid input; not enough close tags " .
 				"(level $ltLevel/$lcLevel, state $state)"
 			);
-			return false;
 		}
 		return false;
 	}

@@ -8,16 +8,16 @@
 
 namespace MediaWiki\Extension\Math;
 
-use Exception;
-use Hooks;
 use Html;
+use MediaWiki\Extension\Math\Hooks\HookRunner;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
 use Psr\Log\LoggerInterface;
 use SpecialPage;
 use StatusValue;
 use stdClass;
-use Title;
+use Throwable;
 use Xml;
 use XmlTypeCheck;
 
@@ -31,14 +31,14 @@ class MathMathML extends MathRenderer {
 	/** @var string[] */
 	protected $restbaseInputTypes = [ 'tex', 'inline-tex', 'chem' ];
 	/** @var string[] */
-	protected $restbaseRenderingModes = [ MathConfig::MODE_MATHML, MathConfig::MODE_PNG ];
+	protected $restbaseRenderingModes = [ MathConfig::MODE_MATHML ];
 	/** @var string[] */
 	protected $allowedRootElements = [];
 	/** @var string */
 	protected $host;
 
 	/** @var LoggerInterface */
-	private $logger;
+	protected $logger;
 
 	/** @var bool if false MathML output is not validated */
 	private $XMLValidation = true;
@@ -61,7 +61,7 @@ class MathMathML extends MathRenderer {
 		$this->host = $wgMathMathMLUrl;
 		if ( isset( $params['type'] ) ) {
 			$allowedTypes = [ 'pmml', 'ascii', 'chem' ];
-			if ( in_array( $params['type'], $allowedTypes ) ) {
+			if ( in_array( $params['type'], $allowedTypes, true ) ) {
 				$this->inputType = $params['type'];
 			}
 			if ( $params['type'] == 'pmml' ) {
@@ -100,7 +100,7 @@ class MathMathML extends MathRenderer {
 	 */
 	public static function batchEvaluate( array $renderers ) {
 		$rbis = [];
-		foreach ( $renderers as $key => $renderer ) {
+		foreach ( $renderers as $renderer ) {
 			$rbi = new MathRestbaseInterface( $renderer->getTex(), $renderer->getInputType() );
 			$renderer->setRestbaseInterface( $rbi );
 			$rbis[] = $rbi;
@@ -139,19 +139,11 @@ class MathMathML extends MathRenderer {
 		$this->allowedRootElements = $settings;
 	}
 
-	/**
-	 * @see MathRenderer::render()
-	 * @param bool $forceReRendering
-	 * @return bool
-	 */
-	public function render( $forceReRendering = false ) {
+	public function render() {
 		global $wgMathFullRestbaseURL;
 		try {
-			if ( $forceReRendering ) {
-				$this->setPurge( true );
-			}
-			if ( in_array( $this->inputType, $this->restbaseInputTypes ) &&
-				 in_array( $this->mode, $this->restbaseRenderingModes )
+			if ( in_array( $this->inputType, $this->restbaseInputTypes, true ) &&
+				 in_array( $this->mode, $this->restbaseRenderingModes, true )
 			) {
 				if ( !$this->rbi ) {
 					$this->rbi =
@@ -181,7 +173,7 @@ class MathMathML extends MathRenderer {
 				return $renderResult->isGood();
 			}
 			return true;
-		} catch ( Exception $e ) {
+		} catch ( Throwable $e ) {
 			$this->lastError = $this->getError( 'math_mathoid_error',
 				$wgMathFullRestbaseURL, $e->getMessage() );
 			$this->logger->error( $e->getMessage(), [ $e, $this ] );
@@ -348,7 +340,7 @@ class MathMathML extends MathRenderer {
 			$name = $xmlObject->getRootElement();
 			$elementSplit = explode( ':', $name );
 			$localName = end( $elementSplit );
-			if ( in_array( $localName, $this->getAllowedRootElements() ) ) {
+			if ( in_array( $localName, $this->getAllowedRootElements(), true ) ) {
 				$out = true;
 			} else {
 				$this->logger->error( "Got wrong root element: $name" );
@@ -362,9 +354,6 @@ class MathMathML extends MathRenderer {
 	 * @return Title|string
 	 */
 	private function getFallbackImageUrl( $noRender = false ) {
-		if ( $this->getMode() === MathConfig::MODE_PNG && $this->pngPath ) {
-			return $this->pngPath;
-		}
 		if ( $this->svgPath ) {
 			return $this->svgPath;
 		}
@@ -415,18 +404,11 @@ class MathMathML extends MathRenderer {
 	 */
 	protected function getFallbackImage( $noRender = false, $classOverride = false ) {
 		$attribs = [
-			'src' => $this->getFallbackImageUrl( $noRender )
+			'src' => $this->getFallbackImageUrl( $noRender ),
+			'class' => $classOverride === false ? $this->getClassName( true ) : $classOverride,
 		];
-		if ( $classOverride === false ) { // $class = '' suppresses class attribute
-			$class = $this->getClassName( true );
-		} else {
-			$class = $classOverride;
-		}
 		if ( !$this->mathoidStyle ) {
 			$this->correctSvgStyle( $this->mathoidStyle );
-		}
-		if ( $class ) {
-			$attribs['class'] = $class;
 		}
 
 		return Html::element( 'img', $this->getAttributes( 'span', $attribs, [
@@ -460,7 +442,9 @@ class MathMathML extends MathRenderer {
 		} else {
 			$class .= 'inline';
 		}
-		if ( !$fallback ) {
+		if ( $fallback ) {
+			$class .= ' mw-invert';
+		} else {
 			$class .= ' mwe-math-mathml-a11y';
 		}
 		return $class;
@@ -484,9 +468,7 @@ class MathMathML extends MathRenderer {
 		$hyperlink = null;
 		if ( isset( $this->params['qid'] ) && preg_match( '/Q\d+/', $this->params['qid'] ) ) {
 			$attribs['data-qid'] = $this->params['qid'];
-			// TODO: SpecialPage::getTitleFor uses the depcrated method Title::newFromTitleValue and
-			// declares a never thrown MWException. Once this SpecialPage is updated, update the next line.
-			$titleObj = Title::newFromLinkTarget( SpecialPage::getTitleValueFor( 'MathWikibase' ) );
+			$titleObj = SpecialPage::getTitleFor( 'MathWikibase' );
 			$hyperlink = $titleObj->getLocalURL( [ 'qid' => $this->params['qid'] ] );
 		}
 		$output = Html::openElement( $element, $attribs );
@@ -542,7 +524,7 @@ class MathMathML extends MathRenderer {
 	}
 
 	/**
-	 * @param stdClass $jsonResult json result
+	 * @param stdClass $jsonResult
 	 * @param string $host name
 	 *
 	 * @return StatusValue
@@ -566,8 +548,8 @@ class MathMathML extends MathRenderer {
 			}
 			// Avoid PHP 7.1 warning from passing $this by reference
 			$renderer = $this;
-			Hooks::run( 'MathRenderingResultRetrieved',
-				[ &$renderer, &$jsonResult ]
+			( new HookRunner( MediaWikiServices::getInstance()->getHookContainer() ) )->onMathRenderingResultRetrieved(
+				$renderer, $jsonResult
 			); // Enables debugging of server results
 			return StatusValue::newGood(); // FIXME: empty?
 		} else {

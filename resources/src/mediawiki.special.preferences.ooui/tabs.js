@@ -2,20 +2,11 @@
  * JavaScript for Special:Preferences: Tab navigation.
  */
 ( function () {
+	var nav = require( './nav.js' );
 	$( function () {
-		var tabs, previousTab, switchingNoHash;
+		nav.insertHints( mw.msg( 'prefs-tabs-navigation-hint' ) );
 
-		// Make sure the accessibility tip is focussable so that keyboard users take notice,
-		// but hide it by default to reduce visual clutter.
-		// Make sure it becomes visible when focused.
-		$( '<div>' ).addClass( 'mw-navigation-hint' )
-			.text( mw.msg( 'prefs-tabs-navigation-hint' ) )
-			.attr( {
-				tabIndex: 0
-			} )
-			.insertBefore( '.mw-htmlform-ooui-wrapper' );
-
-		tabs = OO.ui.infuse( $( '.mw-prefs-tabs' ) );
+		var tabs = OO.ui.infuse( $( '.mw-prefs-tabs' ) );
 
 		// Support: Chrome
 		// https://bugs.chromium.org/p/chromium/issues/detail?id=1252507
@@ -40,17 +31,15 @@
 		}
 
 		function onTabPanelSet( panel ) {
-			var scrollTop, active;
-
-			if ( switchingNoHash ) {
+			if ( nav.switchingNoHash ) {
 				return;
 			}
 			// Handle hash manually to prevent jumping,
 			// therefore save and restore scrollTop to prevent jumping.
-			scrollTop = $( window ).scrollTop();
+			var scrollTop = $( window ).scrollTop();
 			// Changing the hash apparently causes keyboard focus to be lost?
 			// Save and restore it. This makes no sense though.
-			active = document.activeElement;
+			var active = document.activeElement;
 			location.hash = '#' + panel.getName();
 			if ( active ) {
 				active.focus();
@@ -60,66 +49,145 @@
 
 		tabs.on( 'set', onTabPanelSet );
 
-		/**
-		 * @ignore
-		 * @param {string} name The name of a tab
-		 * @param {boolean} [noHash] A hash will be set according to the current
-		 *  open section. Use this flag to suppress this.
-		 */
-		function switchPrefTab( name, noHash ) {
-			if ( noHash ) {
-				switchingNoHash = true;
-			}
-			tabs.setTabPanel( name );
+		// Hash navigation callback
+		var setSection = function ( sectionName, fieldset ) {
+			tabs.setTabPanel( sectionName );
 			enhancePanel( tabs.getCurrentTabPanel() );
-			if ( noHash ) {
-				switchingNoHash = false;
+			// Scroll to a fieldset if provided.
+			if ( fieldset ) {
+				fieldset.scrollIntoView();
 			}
-		}
+		};
 
-		// Jump to correct section as indicated by the hash.
-		// This function is called onload and onhashchange.
-		function detectHash() {
-			var hash = location.hash,
-				matchedElement, $parentSection;
-			if ( hash.match( /^#mw-prefsection-[\w]+$/ ) ) {
-				mw.storage.session.remove( 'mwpreferences-prevTab' );
-				switchPrefTab( hash.slice( 1 ) );
-			} else if ( hash.match( /^#mw-[\w-]+$/ ) ) {
-				matchedElement = document.getElementById( hash.slice( 1 ) );
-				$parentSection = $( matchedElement ).closest( '.mw-prefs-section-fieldset' );
-				if ( $parentSection.length ) {
-					mw.storage.session.remove( 'mwpreferences-prevTab' );
-					// Switch to proper tab and scroll to selected item.
-					switchPrefTab( $parentSection.attr( 'id' ), true );
-					matchedElement.scrollIntoView();
-				}
-			}
-		}
-
-		$( window ).on( 'hashchange', function () {
-			var hash = location.hash;
-			if ( hash.match( /^#mw-[\w-]+/ ) ) {
-				detectHash();
-			} else if ( hash === '' ) {
-				switchPrefTab( 'mw-prefsection-personal', true );
-			}
-		} )
-			// Run the function immediately to select the proper tab on startup.
-			.trigger( 'hashchange' );
-
-		// Restore the active tab after saving the preferences
-		previousTab = mw.storage.session.get( 'mwpreferences-prevTab' );
-		if ( previousTab ) {
-			switchPrefTab( previousTab, true );
-			// Deleting the key, the tab states should be reset until we press Save
-			mw.storage.session.remove( 'mwpreferences-prevTab' );
-		}
-
-		$( '#mw-prefs-form' ).on( 'submit', function () {
+		// onSubmit callback
+		var onSubmit = function () {
 			var value = tabs.getCurrentTabPanelName();
 			mw.storage.session.set( 'mwpreferences-prevTab', value );
+		};
+
+		nav.onLoad( setSection, 'mw-prefsection-personal' );
+
+		nav.restorePrevSection( setSection, onSubmit );
+
+		// Search index
+		var index, texts;
+		function buildIndex() {
+			index = {};
+			var $fields = tabs.contentPanel.$element.find( '[class^=mw-htmlform-field-]:not( .mw-prefs-search-noindex )' );
+			var $descFields = $fields.filter(
+				'.oo-ui-fieldsetLayout-group > .oo-ui-widget > .mw-htmlform-field-HTMLInfoField'
+			);
+			$fields.not( $descFields ).each( function () {
+				var $field = $( this );
+				var $wrapper = $field.parents( '.mw-prefs-fieldset-wrapper' );
+				var $tabPanel = $field.closest( '.oo-ui-tabPanelLayout' );
+				var $labels = $field.find(
+					'.oo-ui-labelElement-label, .oo-ui-textInputWidget .oo-ui-inputWidget-input, p'
+				).add(
+					$wrapper.find( '> .oo-ui-fieldsetLayout > .oo-ui-fieldsetLayout-header .oo-ui-labelElement-label' )
+				);
+				$field = $field.add( $tabPanel.find( $descFields ) );
+
+				function addToIndex( $label, $highlight ) {
+					var text = $label.val() || $label[ 0 ].textContent.toLowerCase().trim().replace( /\s+/, ' ' );
+					if ( text ) {
+						index[ text ] = index[ text ] || [];
+						index[ text ].push( {
+							$highlight: $highlight || $label,
+							$field: $field,
+							$wrapper: $wrapper,
+							$tabPanel: $tabPanel
+						} );
+					}
+				}
+
+				$labels.each( function () {
+					addToIndex( $( this ) );
+
+					// Check if there we are in an infusable dropdown and collect other options
+					var $dropdown = $( this ).closest( '.oo-ui-dropdownInputWidget[data-ooui],.mw-widget-selectWithInputWidget[data-ooui]' );
+					if ( $dropdown.length ) {
+						var dropdown = OO.ui.infuse( $dropdown[ 0 ] );
+						var dropdownWidget = ( dropdown.dropdowninput || dropdown ).dropdownWidget;
+						if ( dropdownWidget ) {
+							dropdownWidget.getMenu().getItems().forEach( function ( option ) {
+								// Highlight the dropdown handle and the matched label, for when the dropdown is opened
+								addToIndex( option.$label, dropdownWidget.$handle );
+								addToIndex( option.$label, option.$label );
+							} );
+						}
+					}
+				} );
+			} );
+			mw.hook( 'prefs.search.buildIndex' ).fire( index );
+			texts = Object.keys( index );
+		}
+
+		function infuseAllPanels() {
+			tabs.stackLayout.items.forEach( function ( tabPanel ) {
+				var wasVisible = tabPanel.isVisible();
+				// Force panel to be visible while infusing
+				tabPanel.toggle( true );
+
+				enhancePanel( tabPanel );
+
+				// Restore visibility
+				tabPanel.toggle( wasVisible );
+			} );
+		}
+
+		var search = OO.ui.infuse( $( '.mw-prefs-search' ) ).fieldWidget;
+		search.$input.on( 'focus', function () {
+			if ( !index ) {
+				// Lazy-build index on first focus
+				// Infuse all widgets as we may end up showing a large subset of them
+				infuseAllPanels();
+				buildIndex();
+			}
 		} );
+		var $noResults = $( '<div>' ).addClass( 'mw-prefs-noresults' ).text( mw.msg( 'searchprefs-noresults' ) );
+		search.on( 'change', function ( val ) {
+			if ( !index ) {
+				// In case 'focus' hasn't fired yet
+				infuseAllPanels();
+				buildIndex();
+			}
+			var isSearching = !!val;
+			tabs.$element.toggleClass( 'mw-prefs-tabs-searching', isSearching );
+			tabs.tabSelectWidget.toggle( !isSearching );
+			tabs.contentPanel.setContinuous( isSearching );
+
+			$( '.mw-prefs-search-matched' ).removeClass( 'mw-prefs-search-matched' );
+			$( '.mw-prefs-search-highlight' ).removeClass( 'mw-prefs-search-highlight' );
+			var hasResults = false;
+			if ( isSearching ) {
+				val = val.toLowerCase();
+				texts.forEach( function ( text ) {
+					// TODO: Could use Intl.Collator.prototype.compare like OO.ui.mixin.LabelElement.static.highlightQuery
+					// but might be too slow.
+					if ( text.indexOf( val ) !== -1 ) {
+						index[ text ].forEach( function ( item ) {
+							item.$highlight.addClass( 'mw-prefs-search-highlight' );
+							item.$field.addClass( 'mw-prefs-search-matched' );
+							item.$wrapper.addClass( 'mw-prefs-search-matched' );
+							item.$tabPanel.addClass( 'mw-prefs-search-matched' );
+						} );
+						hasResults = true;
+					}
+				} );
+			}
+			if ( isSearching && !hasResults ) {
+				tabs.$element.append( $noResults );
+			} else {
+				$noResults.detach();
+			}
+		} );
+
+		// Handle the initial value in case the user started typing before this JS code loaded,
+		// or the browser restored the value for a closed tab
+		if ( search.getValue() ) {
+			search.emit( 'change', search.getValue() );
+		}
 
 	} );
 }() );

@@ -5,6 +5,19 @@
  * @license The MIT License (MIT); see LICENSE.txt
  */
 
+/**
+ * Object literal
+ *
+ * @class ve.dm.MWTransclusionPartInstruction
+ * @private
+ */
+/**
+ * @property {ve.dm.MWTransclusionPartModel} [remove]
+ * @property {ve.dm.MWTransclusionPartModel} [add]
+ * @property {number} [index]
+ * @property {jQuery.Deferred} [deferred]
+ */
+
 ( function () {
 	var hasOwn = Object.hasOwnProperty,
 		specCache = {};
@@ -12,26 +25,26 @@
 	/**
 	 * Represents a MediaWiki transclusion, i.e. a sequence of one or more template invocations that
 	 * strictly belong to each other (e.g. because they are unbalanced), possibly mixed with raw
-	 * wikitext snippets. These individual "parts" are subclasses of
-	 * {@see ve.dm.MWTransclusionPartModel}.
+	 * wikitext snippets. These individual "parts" are subclasses of ve.dm.MWTransclusionPartModel.
 	 *
 	 * @class
 	 * @mixins OO.EventEmitter
 	 *
 	 * @constructor
 	 * @param {ve.dm.Document} doc Document to use associate with API requests
-	 * @property {ve.dm.MWTransclusionPartModel[]} parts
-	 * @property {number} uid
-	 * @property {jQuery.Promise[]} templateDataApiRequests Currently running API requests. The only
-	 *  reason to keep these around is to be able to abort them earlier when the template dialog
-	 *  closes or resets.
-	 * @property {Object[]} changeQueue
 	 */
 	ve.dm.MWTransclusionModel = function VeDmMWTransclusionModel( doc ) {
 		// Mixin constructors
 		OO.EventEmitter.call( this );
 
-		// Properties
+		/**
+		 * @property {ve.dm.MWTransclusionPartModel[]} parts
+		 * @property {number} uid
+		 * @property {jQuery.Promise[]} templateDataApiRequests Currently running API requests. The only
+		 *  reason to keep these around is to be able to abort them earlier when the template dialog
+		 *  closes or resets.
+		 * @property {Object[]} changeQueue
+		 */
 		this.doc = doc;
 		this.parts = [];
 		this.uid = 0;
@@ -197,8 +210,8 @@
 	 * Process one or more queue items.
 	 *
 	 * @private
-	 * @param {Object[]} queue List of objects containing parts to add and optionally indexes to add
-	 *  them at, if no index is given parts will be added at the end
+	 * @param {ve.dm.MWTransclusionPartInstruction[]} queue List of objects containing parts to add and optionally
+	 * indexes to add them at, if no index is given parts will be added at the end
 	 * @fires replace For each item added
 	 * @fires change
 	 */
@@ -311,7 +324,7 @@
 	/**
 	 * @private
 	 * @param {string[]} titles
-	 * @param {Object[]} queue
+	 * @param {ve.dm.MWTransclusionPartInstruction[]} queue
 	 * @return {jQuery.Promise}
 	 */
 	ve.dm.MWTransclusionModel.prototype.callTemplateDataApi = function ( titles, queue ) {
@@ -332,7 +345,7 @@
 	/**
 	 * @private
 	 * @param {Object} [data]
-	 * @param {Object.<number,Object>} [data.pages]
+	 * @param {Object.<number,ve.dm.MWTemplatePageMetadata>} [data.pages]
 	 */
 	ve.dm.MWTransclusionModel.prototype.cacheTemplateDataApiResponse = function ( data ) {
 		if ( !data || !data.pages ) {
@@ -413,15 +426,14 @@
 	};
 
 	/**
-	 * @return {number} Next part ID, starting from 0, guaranteed to be unique for this transclusion
+	 * @return {string} Next part ID, starting from "part_0", guaranteed to be unique for this
+	 *  transclusion
 	 */
 	ve.dm.MWTransclusionModel.prototype.nextUniquePartId = function () {
-		return this.uid++;
+		return 'part_' + this.uid++;
 	};
 
 	/**
-	 * Replace part.
-	 *
 	 * Replace asynchronously.
 	 *
 	 * @param {ve.dm.MWTransclusionPartModel} remove Part to remove
@@ -448,11 +460,9 @@
 	};
 
 	/**
-	 * Add part.
-	 *
 	 * Added asynchronously, but order is preserved.
 	 *
-	 * @param {ve.dm.MWTransclusionPartModel} part Part to add
+	 * @param {ve.dm.MWTransclusionPartModel} part
 	 * @param {number} [index] Specific index to add content at, defaults to the end
 	 * @throws {Error} If part is not valid
 	 * @return {jQuery.Promise} Promise, resolved when part is added
@@ -472,9 +482,7 @@
 	};
 
 	/**
-	 * Remove a part.
-	 *
-	 * @param {ve.dm.MWTransclusionPartModel} part Part to remove
+	 * @param {ve.dm.MWTransclusionPartModel} part
 	 * @fires replace
 	 */
 	ve.dm.MWTransclusionModel.prototype.removePart = function ( part ) {
@@ -506,17 +514,13 @@
 	};
 
 	/**
-	 * Get all parts.
-	 *
-	 * @return {ve.dm.MWTransclusionPartModel[]} Parts in transclusion
+	 * @return {ve.dm.MWTransclusionPartModel[]} All parts in this transclusion
 	 */
 	ve.dm.MWTransclusionModel.prototype.getParts = function () {
 		return this.parts;
 	};
 
 	/**
-	 * Get part by its ID.
-	 *
 	 * Matching is performed against the first section of the `id`, delimited by a '/'.
 	 *
 	 * @param {string} [id] Any id, including slash-delimited template parameter ids
@@ -569,13 +573,15 @@
 		return -1;
 	};
 
-	/*
+	/**
 	 * Add missing required and suggested parameters to each transclusion.
 	 */
 	ve.dm.MWTransclusionModel.prototype.addPromptedParameters = function () {
-		for ( var i = 0; i < this.parts.length; i++ ) {
-			this.parts[ i ].addPromptedParameters();
-		}
+		this.parts.forEach( function ( part ) {
+			if ( part instanceof ve.dm.MWTemplateModel ) {
+				part.addPromptedParameters();
+			}
+		} );
 	};
 
 	/**

@@ -20,9 +20,9 @@
  * @since 1.35
  */
 
-namespace Vector\FeatureManagement\Requirements;
+namespace MediaWiki\Skins\Vector\FeatureManagement\Requirements;
 
-use Vector\FeatureManagement\Requirement;
+use MediaWiki\Skins\Vector\FeatureManagement\Requirement;
 
 /**
  * Some application state changes throughout the lifetime of the application, e.g. `wgSitename` or
@@ -33,11 +33,11 @@ use Vector\FeatureManagement\Requirement;
  * application state statically, e.g.
  *
  * ```lang=php
- * $featureManager->registerComplexRequirement(
+ * $featureManager->registerRequirement(
  *   new DynamicConfigRequirement(
  *     $config,
- *     'Sitename',
- *     'Foo'
+ *     MainConfigNames::Sitename,
+ *     'requirementName'
  *   )
  * );
  * ```
@@ -48,9 +48,9 @@ use Vector\FeatureManagement\Requirement;
  * Contrast to
  *
  * ```lang=php
- * $featureManager->registerRequirement(
- *   'Foo',
- *   $config->get( 'Sitename' )
+ * $featureManager->registerSimpleRequirement(
+ *   'requirementName',
+ *   (bool)$config->get( MainConfigNames::Sitename )
  * );
  * ```
  *
@@ -61,7 +61,7 @@ use Vector\FeatureManagement\Requirement;
  *
  * @unstable
  *
- * @package Vector\FeatureManagement\Requirements
+ * @package MediaWiki\Skins\Vector\FeatureManagement\Requirements
  * @internal
  */
 final class DynamicConfigRequirement implements Requirement {

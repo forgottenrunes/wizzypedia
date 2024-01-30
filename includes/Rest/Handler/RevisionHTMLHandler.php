@@ -2,18 +2,16 @@
 
 namespace MediaWiki\Rest\Handler;
 
-use Config;
 use LogicException;
-use MediaWiki\Page\PageLookup;
-use MediaWiki\Parser\ParserCacheFactory;
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Rest\Handler\Helper\HtmlOutputRendererHelper;
+use MediaWiki\Rest\Handler\Helper\PageRestHelperFactory;
+use MediaWiki\Rest\Handler\Helper\RevisionContentHelper;
 use MediaWiki\Rest\LocalizedHttpException;
 use MediaWiki\Rest\Response;
 use MediaWiki\Rest\SimpleHandler;
 use MediaWiki\Rest\StringStream;
-use MediaWiki\Revision\RevisionLookup;
-use TitleFormatter;
 use Wikimedia\Assert\Assert;
-use Wikimedia\UUID\GlobalIdGenerator;
 
 /**
  * A handler that returns Parsoid HTML for the following routes:
@@ -25,41 +23,37 @@ use Wikimedia\UUID\GlobalIdGenerator;
  */
 class RevisionHTMLHandler extends SimpleHandler {
 
-	/** @var ParsoidHTMLHelper */
+	/** @var HtmlOutputRendererHelper */
 	private $htmlHelper;
 
 	/** @var RevisionContentHelper */
 	private $contentHelper;
 
-	public function __construct(
-		Config $config,
-		RevisionLookup $revisionLookup,
-		TitleFormatter $titleFormatter,
-		ParserCacheFactory $parserCacheFactory,
-		GlobalIdGenerator $globalIdGenerator,
-		PageLookup $pageLookup
-	) {
-		$this->contentHelper = new RevisionContentHelper(
-			$config,
-			$revisionLookup,
-			$titleFormatter,
-			$pageLookup
-		);
-		$this->htmlHelper = new ParsoidHTMLHelper(
-			$parserCacheFactory->getParserCache( 'parsoid' ),
-			$parserCacheFactory->getRevisionOutputCache( 'parsoid' ),
-			$globalIdGenerator
-		);
+	public function __construct( PageRestHelperFactory $helperFactory ) {
+		$this->contentHelper = $helperFactory->newRevisionContentHelper();
+		$this->htmlHelper = $helperFactory->newHtmlOutputRendererHelper();
 	}
 
 	protected function postValidationSetup() {
-		$this->contentHelper->init( $this->getAuthority(), $this->getValidatedParams() );
+		// TODO: Once Authority supports rate limit (T310476), just inject the Authority.
+		$user = MediaWikiServices::getInstance()->getUserFactory()
+			->newFromUserIdentity( $this->getAuthority()->getUser() );
+
+		$this->contentHelper->init( $user, $this->getValidatedParams() );
 
 		$page = $this->contentHelper->getPage();
 		$revision = $this->contentHelper->getTargetRevision();
 
 		if ( $page && $revision ) {
-			$this->htmlHelper->init( $page, $revision );
+			$this->htmlHelper->init( $page, $this->getValidatedParams(), $user, $revision );
+
+			$request = $this->getRequest();
+			$acceptLanguage = $request->getHeaderLine( 'Accept-Language' ) ?: null;
+			if ( $acceptLanguage ) {
+				$this->htmlHelper->setVariantConversionLanguage(
+					$acceptLanguage
+				);
+			}
 		}
 	}
 
@@ -82,20 +76,24 @@ class RevisionHTMLHandler extends SimpleHandler {
 		Assert::invariant( $revisionRecord !== null, 'Revision should be known' );
 
 		$outputMode = $this->getOutputMode();
+		$setContentLanguageHeader = true;
 		switch ( $outputMode ) {
 			case 'html':
 				$parserOutput = $this->htmlHelper->getHtml();
 				$response = $this->getResponseFactory()->create();
 				// TODO: need to respect content-type returned by Parsoid.
 				$response->setHeader( 'Content-Type', 'text/html' );
+				$this->htmlHelper->putHeaders( $response, $setContentLanguageHeader );
 				$this->contentHelper->setCacheControl( $response, $parserOutput->getCacheExpiry() );
-				$response->setBody( new StringStream( $parserOutput->getText() ) );
+				$response->setBody( new StringStream( $parserOutput->getRawText() ) );
 				break;
 			case 'with_html':
 				$parserOutput = $this->htmlHelper->getHtml();
 				$body = $this->contentHelper->constructMetadata();
-				$body['html'] = $parserOutput->getText();
+				$body['html'] = $parserOutput->getRawText();
 				$response = $this->getResponseFactory()->createJson( $body );
+				// For JSON content, it doesn't make sense to set content language header
+				$this->htmlHelper->putHeaders( $response, !$setContentLanguageHeader );
 				$this->contentHelper->setCacheControl( $response, $parserOutput->getCacheExpiry() );
 				break;
 			default:
@@ -116,7 +114,8 @@ class RevisionHTMLHandler extends SimpleHandler {
 			return null;
 		}
 
-		return $this->htmlHelper->getETag();
+		// Vary eTag based on output mode
+		return $this->htmlHelper->getETag( $this->getOutputMode() );
 	}
 
 	/**
@@ -139,7 +138,10 @@ class RevisionHTMLHandler extends SimpleHandler {
 	}
 
 	public function getParamSettings(): array {
-		return $this->contentHelper->getParamSettings();
+		return array_merge(
+			$this->contentHelper->getParamSettings(),
+			$this->htmlHelper->getParamSettings()
+		);
 	}
 
 	/**

@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright © 2007 Roan Kattouw "<Firstname>.<Lastname>@gmail.com"
+ * Copyright © 2007 Roan Kattouw <roan.kattouw@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,8 +22,13 @@
 
 use MediaWiki\Block\BlockActionInfo;
 use MediaWiki\Block\BlockRestrictionStore;
+use MediaWiki\Block\Restriction\PageRestriction;
+use MediaWiki\CommentStore\CommentStore;
+use MediaWiki\MainConfigNames;
 use MediaWiki\ParamValidator\TypeDef\UserDef;
 use Wikimedia\IPUtils;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\IntegerDef;
 use Wikimedia\Rdbms\IResultWrapper;
 
 /**
@@ -33,14 +38,9 @@ use Wikimedia\Rdbms\IResultWrapper;
  */
 class ApiQueryBlocks extends ApiQueryBase {
 
-	/** @var BlockActionInfo */
-	private $blockActionInfo;
-
-	/** @var BlockRestrictionStore */
-	private $blockRestrictionStore;
-
-	/** @var CommentStore */
-	private $commentStore;
+	private BlockActionInfo $blockActionInfo;
+	private BlockRestrictionStore $blockRestrictionStore;
+	private CommentStore $commentStore;
 
 	/**
 	 * @param ApiQuery $query
@@ -116,16 +116,12 @@ class ApiQueryBlocks extends ApiQueryBase {
 		$this->addWhereRange( 'ipb_id', $params['dir'], null, null );
 
 		if ( $params['continue'] !== null ) {
-			$cont = explode( '|', $params['continue'] );
-			$this->dieContinueUsageIf( count( $cont ) != 2 );
-			$op = ( $params['dir'] == 'newer' ? '>' : '<' );
-			$continueTimestamp = $db->addQuotes( $db->timestamp( $cont[0] ) );
-			$continueId = (int)$cont[1];
-			$this->dieContinueUsageIf( $continueId != $cont[1] );
-			$this->addWhere( "ipb_timestamp $op $continueTimestamp OR " .
-				"(ipb_timestamp = $continueTimestamp AND " .
-				"ipb_id $op= $continueId)"
-			);
+			$cont = $this->parseContinueParamOrDie( $params['continue'], [ 'timestamp', 'int' ] );
+			$op = ( $params['dir'] == 'newer' ? '>=' : '<=' );
+			$this->addWhere( $db->buildComparison( $op, [
+				'ipb_timestamp' => $db->timestamp( $cont[0] ),
+				'ipb_id' => $cont[1],
+			] ) );
 		}
 
 		if ( $params['ids'] ) {
@@ -136,7 +132,7 @@ class ApiQueryBlocks extends ApiQueryBase {
 			$this->addWhereFld( 'ipb_auto', 0 );
 		}
 		if ( $params['ip'] !== null ) {
-			$blockCIDRLimit = $this->getConfig()->get( 'BlockCIDRLimit' );
+			$blockCIDRLimit = $this->getConfig()->get( MainConfigNames::BlockCIDRLimit );
 			if ( IPUtils::isIPv4( $params['ip'] ) ) {
 				$type = 'IPv4';
 				$cidrLimit = $blockCIDRLimit['IPv4'];
@@ -149,20 +145,18 @@ class ApiQueryBlocks extends ApiQueryBase {
 				$this->dieWithError( 'apierror-badip', 'param_ip' );
 			}
 
-			# Check range validity, if it's a CIDR
-			list( $ip, $range ) = IPUtils::parseCIDR( $params['ip'] );
+			// Check range validity, if it's a CIDR
+			[ $ip, $range ] = IPUtils::parseCIDR( $params['ip'] );
 			if ( $ip !== false && $range !== false && $range < $cidrLimit ) {
 				$this->dieWithError( [ 'apierror-cidrtoobroad', $type, $cidrLimit ] );
 			}
 
-			# Let IPUtils::parseRange handle calculating $upper, instead of duplicating the logic here.
-			list( $lower, $upper ) = IPUtils::parseRange( $params['ip'] );
+			// Let IPUtils::parseRange handle calculating $upper, instead of duplicating the logic here.
+			[ $lower, $upper ] = IPUtils::parseRange( $params['ip'] );
 
-			# Extract the common prefix to any rangeblock affecting this IP/CIDR
+			// Extract the common prefix to any range block affecting this IP/CIDR
 			$prefix = substr( $lower, 0, $prefixLen + (int)floor( $cidrLimit / 4 ) );
 
-			# Fairly hard to make a malicious SQL statement out of hex characters,
-			# but it is good practice to add quotes
 			$lower = $db->addQuotes( $lower );
 			$upper = $db->addQuotes( $upper );
 
@@ -177,7 +171,7 @@ class ApiQueryBlocks extends ApiQueryBase {
 		if ( $params['show'] !== null ) {
 			$show = array_fill_keys( $params['show'], true );
 
-			/* Check for conflicting parameters. */
+			// Check for conflicting parameters.
 			if ( ( isset( $show['account'] ) && isset( $show['!account'] ) )
 				|| ( isset( $show['ip'] ) && isset( $show['!ip'] ) )
 				|| ( isset( $show['range'] ) && isset( $show['!range'] ) )
@@ -186,12 +180,11 @@ class ApiQueryBlocks extends ApiQueryBase {
 				$this->dieWithError( 'apierror-show' );
 			}
 
-			$this->addWhereIf( 'ipb_user = 0', isset( $show['!account'] ) );
+			$this->addWhereIf( [ 'ipb_user' => 0 ], isset( $show['!account'] ) );
 			$this->addWhereIf( 'ipb_user != 0', isset( $show['account'] ) );
 			$this->addWhereIf( 'ipb_user != 0 OR ipb_range_end > ipb_range_start', isset( $show['!ip'] ) );
 			$this->addWhereIf( 'ipb_user = 0 AND ipb_range_end = ipb_range_start', isset( $show['ip'] ) );
-			$this->addWhereIf( 'ipb_expiry = ' .
-				$db->addQuotes( $db->getInfinity() ), isset( $show['!temp'] ) );
+			$this->addWhereIf( [ 'ipb_expiry' => $db->getInfinity() ], isset( $show['!temp'] ) );
 			$this->addWhereIf( 'ipb_expiry != ' .
 				$db->addQuotes( $db->getInfinity() ), isset( $show['temp'] ) );
 			$this->addWhereIf( 'ipb_range_end = ipb_range_start', isset( $show['!range'] ) );
@@ -202,7 +195,7 @@ class ApiQueryBlocks extends ApiQueryBase {
 			$this->addWhereFld( 'ipb_deleted', 0 );
 		}
 
-		# Filter out expired rows
+		// Filter out expired rows
 		$this->addWhere( 'ipb_expiry > ' . $db->addQuotes( $db->timestamp() ) );
 
 		$res = $this->select( __METHOD__ );
@@ -302,7 +295,7 @@ class ApiQueryBlocks extends ApiQueryBase {
 			'page' => 'pages',
 			'ns' => 'namespaces',
 		];
-		if ( $this->getConfig()->get( 'EnablePartialActionBlocks' ) ) {
+		if ( $this->getConfig()->get( MainConfigNames::EnablePartialActionBlocks ) ) {
 			$keys['action'] = 'actions';
 		}
 
@@ -311,7 +304,7 @@ class ApiQueryBlocks extends ApiQueryBase {
 			$id = $restriction->getBlockId();
 			switch ( $restriction->getType() ) {
 				case 'page':
-					/** @var \MediaWiki\Block\Restriction\PageRestriction $restriction */
+					/** @var PageRestriction $restriction */
 					'@phan-var \MediaWiki\Block\Restriction\PageRestriction $restriction';
 					$value = [ 'id' => $restriction->getValue() ];
 					if ( $restriction->getTitle() ) {
@@ -336,31 +329,35 @@ class ApiQueryBlocks extends ApiQueryBase {
 	}
 
 	public function getAllowedParams() {
-		$blockCIDRLimit = $this->getConfig()->get( 'BlockCIDRLimit' );
+		$blockCIDRLimit = $this->getConfig()->get( MainConfigNames::BlockCIDRLimit );
 
 		return [
 			'start' => [
-				ApiBase::PARAM_TYPE => 'timestamp'
+				ParamValidator::PARAM_TYPE => 'timestamp'
 			],
 			'end' => [
-				ApiBase::PARAM_TYPE => 'timestamp',
+				ParamValidator::PARAM_TYPE => 'timestamp',
 			],
 			'dir' => [
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_TYPE => [
 					'newer',
 					'older'
 				],
-				ApiBase::PARAM_DFLT => 'older',
+				ParamValidator::PARAM_DEFAULT => 'older',
 				ApiBase::PARAM_HELP_MSG => 'api-help-param-direction',
+				ApiBase::PARAM_HELP_MSG_PER_VALUE => [
+					'newer' => 'api-help-paramvalue-direction-newer',
+					'older' => 'api-help-paramvalue-direction-older',
+				],
 			],
 			'ids' => [
-				ApiBase::PARAM_TYPE => 'integer',
-				ApiBase::PARAM_ISMULTI => true
+				ParamValidator::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_ISMULTI => true
 			],
 			'users' => [
-				ApiBase::PARAM_TYPE => 'user',
+				ParamValidator::PARAM_TYPE => 'user',
 				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name', 'ip', 'cidr' ],
-				ApiBase::PARAM_ISMULTI => true
+				ParamValidator::PARAM_ISMULTI => true
 			],
 			'ip' => [
 				ApiBase::PARAM_HELP_MSG => [
@@ -370,15 +367,15 @@ class ApiQueryBlocks extends ApiQueryBase {
 				],
 			],
 			'limit' => [
-				ApiBase::PARAM_DFLT => 10,
-				ApiBase::PARAM_TYPE => 'limit',
-				ApiBase::PARAM_MIN => 1,
-				ApiBase::PARAM_MAX => ApiBase::LIMIT_BIG1,
-				ApiBase::PARAM_MAX2 => ApiBase::LIMIT_BIG2
+				ParamValidator::PARAM_DEFAULT => 10,
+				ParamValidator::PARAM_TYPE => 'limit',
+				IntegerDef::PARAM_MIN => 1,
+				IntegerDef::PARAM_MAX => ApiBase::LIMIT_BIG1,
+				IntegerDef::PARAM_MAX2 => ApiBase::LIMIT_BIG2
 			],
 			'prop' => [
-				ApiBase::PARAM_DFLT => 'id|user|by|timestamp|expiry|reason|flags',
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_DEFAULT => 'id|user|by|timestamp|expiry|reason|flags',
+				ParamValidator::PARAM_TYPE => [
 					'id',
 					'user',
 					'userid',
@@ -391,11 +388,11 @@ class ApiQueryBlocks extends ApiQueryBase {
 					'flags',
 					'restrictions',
 				],
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_ISMULTI => true,
 				ApiBase::PARAM_HELP_MSG_PER_VALUE => [],
 			],
 			'show' => [
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_TYPE => [
 					'account',
 					'!account',
 					'temp',
@@ -405,7 +402,7 @@ class ApiQueryBlocks extends ApiQueryBase {
 					'range',
 					'!range',
 				],
-				ApiBase::PARAM_ISMULTI => true
+				ParamValidator::PARAM_ISMULTI => true
 			],
 			'continue' => [
 				ApiBase::PARAM_HELP_MSG => 'api-help-param-continue',

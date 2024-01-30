@@ -3,6 +3,7 @@
 use MediaWiki\Json\JsonCodec;
 use MediaWiki\Parser\RevisionOutputCache;
 use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\Status\Status;
 use Psr\Log\NullLogger;
 
 /**
@@ -19,7 +20,7 @@ class PoolWorkArticleViewOldTest extends PoolWorkArticleViewTest {
 	 * @param RevisionRecord|null $rev
 	 * @param ParserOptions|null $options
 	 *
-	 * @return PoolWorkArticleView
+	 * @return PoolWorkArticleViewOld
 	 */
 	protected function newPoolWorkArticleView(
 		WikiPage $page,
@@ -27,7 +28,7 @@ class PoolWorkArticleViewOldTest extends PoolWorkArticleViewTest {
 		$options = null
 	) {
 		if ( !$options ) {
-			$options = ParserOptions::newCanonical( 'canonical' );
+			$options = ParserOptions::newFromAnon();
 		}
 
 		if ( !$rev ) {
@@ -70,17 +71,19 @@ class PoolWorkArticleViewOldTest extends PoolWorkArticleViewTest {
 	}
 
 	public function testUpdateCachedOutput() {
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$page = $this->getExistingTestPage( __METHOD__ );
 
 		$cache = $this->installRevisionOutputCache();
 
 		$work = $this->newPoolWorkArticleView( $page, null, $options );
-		$this->assertTrue( $work->execute() );
+		/** @var Status $status */
+		$status = $work->execute();
+		$this->assertStatusGood( $status );
 
 		$cachedOutput = $cache->get( $page->getRevisionRecord(), $options );
 		$this->assertNotEmpty( $cachedOutput );
-		$this->assertSame( $work->getParserOutput()->getText(), $cachedOutput->getText() );
+		$this->assertSame( $status->getValue()->getText(), $cachedOutput->getText() );
 	}
 
 	public function testDoesNotCacheNotSafe() {
@@ -88,12 +91,21 @@ class PoolWorkArticleViewOldTest extends PoolWorkArticleViewTest {
 
 		$cache = $this->installRevisionOutputCache();
 
-		$parserOptions = ParserOptions::newCanonical( 'canonical' );
+		$parserOptions = ParserOptions::newFromAnon();
 		$parserOptions->setWrapOutputClass( 'wrapwrap' ); // Not safe to cache!
 
 		$work = $this->newPoolWorkArticleView( $page, null, $parserOptions );
-		$this->assertTrue( $work->execute() );
+		/** @var Status $status */
+		$status = $work->execute();
+		$this->assertStatusGood( $status );
 
 		$this->assertFalse( $cache->get( $page->getRevisionRecord(), $parserOptions ) );
+	}
+
+	public function testDoWorkWithFakeRevision() {
+		// PoolWorkArticleViewOld caches the results, but things with null revid should
+		// not be cached.
+		$this->expectException( InvalidArgumentException::class );
+		parent::testDoWorkWithFakeRevision();
 	}
 }

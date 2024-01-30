@@ -1,7 +1,5 @@
 <?php
 /**
- * Job to update link tables for pages
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,19 +16,22 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup JobQueue
  */
+
 use Liuggio\StatsdClient\Factory\StatsdDataFactoryInterface;
 use MediaWiki\Deferred\LinksUpdate\LinksUpdate;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\PageAssertionException;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\RevisionRenderer;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 
 /**
- * Job to update link tables for pages
+ * Job to update link tables for rerendered wiki pages.
  *
  * This job comes in a few variants:
  *
@@ -77,7 +78,7 @@ class RefreshLinksJob extends Job {
 			// Multiple pages per job make matches unlikely
 			!( isset( $params['pages'] ) && count( $params['pages'] ) != 1 )
 		);
-		$this->params += [ 'causeAction' => 'unknown', 'causeAgent' => 'unknown' ];
+		$this->params += [ 'causeAction' => 'RefreshLinksJob', 'causeAgent' => 'unknown' ];
 		// Tell JobRunner to not automatically wrap run() in a transaction round.
 		// Each runForTitle() call will manage its own rounds in order to run DataUpdates
 		// and to avoid contention as well.
@@ -121,7 +122,6 @@ class RefreshLinksJob extends Job {
 			if ( !isset( $this->params['range'] ) ) {
 				$lbFactory = $services->getDBLoadBalancerFactory();
 				if ( !$lbFactory->waitForReplication( [
-					'domain'  => $lbFactory->getLocalDomainID(),
 					'timeout' => self::LAG_WAIT_TIMEOUT
 				] ) ) {
 					// only try so hard, keep going with what we have
@@ -139,7 +139,7 @@ class RefreshLinksJob extends Job {
 			// jobs and possibly a recursive RefreshLinks job for the rest of the backlinks
 			$jobs = BacklinkJobUtils::partitionBacklinkJob(
 				$this,
-				$services->getMainConfig()->get( 'UpdateRowsPerJob' ),
+				$services->getMainConfig()->get( MainConfigNames::UpdateRowsPerJob ),
 				1, // job-per-title
 				[ 'params' => $extraParams ]
 			);
@@ -147,7 +147,7 @@ class RefreshLinksJob extends Job {
 
 		} elseif ( isset( $this->params['pages'] ) ) {
 			// Job to update link tables for a set of titles
-			foreach ( $this->params['pages'] as list( $ns, $dbKey ) ) {
+			foreach ( $this->params['pages'] as [ $ns, $dbKey ] ) {
 				$title = Title::makeTitleSafe( $ns, $dbKey );
 				if ( $title && $title->canExist() ) {
 					$ok = $this->runForTitle( $title ) && $ok;
@@ -184,7 +184,7 @@ class RefreshLinksJob extends Job {
 		if ( !$page->exists() ) {
 			// Probably due to concurrent deletion or renaming of the page
 			$logger = LoggerFactory::getInstance( 'RefreshLinksJob' );
-			$logger->notice(
+			$logger->warning(
 				'The page does not exist. Perhaps it was deleted?',
 				[
 					'page_title' => $this->title->getPrefixedDBkey(),
@@ -202,7 +202,7 @@ class RefreshLinksJob extends Job {
 		// The page ID and latest revision ID will be queried again after the lock
 		// is acquired to bail if they are changed from that of loadPageData() above.
 		// Serialize links updates by page ID so they see each others' changes
-		$dbw = $lbFactory->getMainLB()->getConnectionRef( DB_PRIMARY );
+		$dbw = $lbFactory->getPrimaryDatabase();
 		/** @noinspection PhpUnusedLocalVariableInspection */
 		$scopedLock = LinksUpdate::acquirePageLock( $dbw, $page->getId(), 'job' );
 		if ( $scopedLock === null ) {
@@ -222,6 +222,9 @@ class RefreshLinksJob extends Job {
 			return true;
 		}
 
+		// These can be fairly long-running jobs, while commitAndWaitForReplication
+		// releases primary snapshots, let the replica release their snapshot as well
+		$lbFactory->flushReplicaSnapshots( __METHOD__ );
 		// Parse during a fresh transaction round for better read consistency
 		$lbFactory->beginPrimaryChanges( __METHOD__ );
 		$output = $this->getParserOutput( $renderer, $parserCache, $page, $stats );
@@ -241,6 +244,12 @@ class RefreshLinksJob extends Job {
 		$page->doSecondaryDataUpdates( $options );
 		InfoAction::invalidateCache( $page );
 
+		// NOTE: Since 2019 (f588586e) this no longer saves the new ParserOutput to the ParserCache!
+		//       This means the page will have to be rendered on-the-fly when it is next viewed.
+		//       This is to avoid spending limited ParserCache capacity on rarely visited pages.
+		// TODO: Save the ParserOutput to ParserCache by calling WikiPage::updateParserCache()
+		//       for pages that are likely to benefit (T327162).
+
 		// Commit any writes here in case this method is called in a loop.
 		// In that case, the scoped lock will fail to be acquired.
 		$lbFactory->commitAndWaitForReplication( __METHOD__, $ticket );
@@ -249,14 +258,13 @@ class RefreshLinksJob extends Job {
 	}
 
 	/**
-	 * @param WikiPage $page
-	 * @return bool Whether something updated the backlinks with data newer than this job
+	 * @return string|null Minimum lag-safe TS_MW timestamp with regard to root job creation
 	 */
-	private function isAlreadyRefreshed( WikiPage $page ) {
+	private function getLagAwareRootTimestamp() {
 		// Get the timestamp of the change that triggered this job
 		$rootTimestamp = $this->params['rootJobTimestamp'] ?? null;
 		if ( $rootTimestamp === null ) {
-			return false;
+			return null;
 		}
 
 		if ( !empty( $this->params['isOpportunistic'] ) ) {
@@ -271,7 +279,34 @@ class RefreshLinksJob extends Job {
 			);
 		}
 
-		return ( $page->getLinksTimestamp() > $lagAwareTimestamp );
+		return $lagAwareTimestamp;
+	}
+
+	/**
+	 * @param WikiPage $page
+	 * @return bool Whether something updated the backlinks with data newer than this job
+	 */
+	private function isAlreadyRefreshed( WikiPage $page ) {
+		$lagAwareTimestamp = $this->getLagAwareRootTimestamp();
+
+		return ( $lagAwareTimestamp !== null && $page->getLinksTimestamp() > $lagAwareTimestamp );
+	}
+
+	/**
+	 * @see DerivedPageDataUpdater::shouldGenerateHTMLOnEdit
+	 * @return bool true if at least one of slots require rendering HTML on edit, false otherwise.
+	 *              This is needed for example in populating ParserCache.
+	 */
+	private function shouldGenerateHTMLOnEdit( RevisionRecord $revision ): bool {
+		$services = MediaWikiServices::getInstance();
+		foreach ( $revision->getSlots()->getSlotRoles() as $role ) {
+			$slot = $revision->getSlots()->getSlot( $role );
+			$contentHandler = $services->getContentHandlerFactory()->getContentHandler( $slot->getModel() );
+			if ( $contentHandler->generateHTMLOnEdit() ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -300,15 +335,19 @@ class RefreshLinksJob extends Job {
 			return $cachedOutput;
 		}
 
+		$causeAction = $this->params['causeAction'] ?? 'RefreshLinksJob';
 		$renderedRevision = $renderer->getRenderedRevision(
 			$revision,
 			$page->makeParserOptions( 'canonical' ),
 			null,
-			[ 'audience' => $revision::RAW ]
+			[ 'audience' => $revision::RAW, 'causeAction' => $causeAction ]
 		);
 
 		$parseTimestamp = wfTimestampNow(); // timestamp that parsing started
-		$output = $renderedRevision->getRevisionParserOutput( [ 'generate-html' => false ] );
+		$output = $renderedRevision->getRevisionParserOutput( [
+			// To avoid duplicate parses, this must match DerivedPageDataUpdater::shouldGenerateHTMLOnEdit() (T301309)
+			'generate-html' => $this->shouldGenerateHTMLOnEdit( $revision )
+		] );
 		$output->setCacheTime( $parseTimestamp ); // notify LinksUpdate::doUpdate()
 
 		return $output;
@@ -384,18 +423,6 @@ class RefreshLinksJob extends Job {
 		$rootTimestamp = $this->params['rootJobTimestamp'] ?? null;
 		if ( $rootTimestamp !== null ) {
 			$opportunistic = !empty( $this->params['isOpportunistic'] );
-			if ( $opportunistic ) {
-				// Neither clock skew nor DB snapshot/replica DB lag matter much for
-				// such updates; focus on reusing the (often recently updated) cache
-				$lagAwareTimestamp = $rootTimestamp;
-			} else {
-				// For transclusion updates, the template changes must be reflected
-				$lagAwareTimestamp = wfTimestamp(
-					TS_MW,
-					(int)wfTimestamp( TS_UNIX, $rootTimestamp ) + self::NORMAL_MAX_LAG
-				);
-			}
-
 			if ( $page->getTouched() >= $rootTimestamp || $opportunistic ) {
 				// Cache is suspected to be up-to-date so it's worth the I/O of checking.
 				// As long as the cache rev ID matches the current rev ID and it reflects
@@ -405,7 +432,7 @@ class RefreshLinksJob extends Job {
 				if (
 					$output &&
 					$output->getCacheRevisionId() == $currentRevision->getId() &&
-					$output->getCacheTime() >= $lagAwareTimestamp
+					$output->getCacheTime() >= $this->getLagAwareRootTimestamp()
 				) {
 					$cachedOutput = $output;
 				}

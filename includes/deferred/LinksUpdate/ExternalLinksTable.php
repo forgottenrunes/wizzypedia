@@ -2,7 +2,7 @@
 
 namespace MediaWiki\Deferred\LinksUpdate;
 
-use LinkFilter;
+use MediaWiki\ExternalLinks\LinkFilter;
 use ParserOutput;
 
 /**
@@ -17,7 +17,10 @@ class ExternalLinksTable extends LinksTable {
 	private $existingLinks;
 
 	public function setParserOutput( ParserOutput $parserOutput ) {
-		$this->newLinks = $parserOutput->getExternalLinks();
+		$links = LinkFilter::getIndexedUrlsNonReversed( array_keys( $parserOutput->getExternalLinks() ) );
+		foreach ( $links as $link ) {
+			$this->newLinks[$link] = true;
+		}
 	}
 
 	protected function getTableName() {
@@ -29,7 +32,7 @@ class ExternalLinksTable extends LinksTable {
 	}
 
 	protected function getExistingFields() {
-		return [ 'el_to' ];
+		return [ 'el_to_domain_index', 'el_to_path' ];
 	}
 
 	/**
@@ -42,7 +45,8 @@ class ExternalLinksTable extends LinksTable {
 		if ( $this->existingLinks === null ) {
 			$this->existingLinks = [];
 			foreach ( $this->fetchExistingRows() as $row ) {
-				$this->existingLinks[$row->el_to] = true;
+				$link = LinkFilter::reverseIndexes( $row->el_to_domain_index ) . $row->el_to_path;
+				$this->existingLinks[$link] = true;
 			}
 		}
 		return $this->existingLinks;
@@ -70,16 +74,21 @@ class ExternalLinksTable extends LinksTable {
 
 	protected function insertLink( $linkId ) {
 		foreach ( LinkFilter::makeIndexes( $linkId ) as $index ) {
-			$this->insertRow( [
-				'el_to' => $linkId,
-				'el_index' => $index,
-				'el_index_60' => substr( $index, 0, 60 ),
-			] );
+			$params = [
+				'el_to_domain_index' => substr( $index[0], 0, 255 ),
+				'el_to_path' => $index[1],
+			];
+			$this->insertRow( $params );
 		}
 	}
 
 	protected function deleteLink( $linkId ) {
-		$this->deleteRow( [ 'el_to' => $linkId ] );
+		foreach ( LinkFilter::makeIndexes( $linkId ) as $index ) {
+			$this->deleteRow( [
+				'el_to_domain_index' => substr( $index[0], 0, 255 ),
+				'el_to_path' => $index[1]
+			] );
+		}
 	}
 
 	/**

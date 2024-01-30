@@ -21,8 +21,7 @@
  * @ingroup Maintenance
  */
 
-// NO_AUTOLOAD -- file-scope define() used to modify behaviour
-
+use MediaWiki\Settings\SettingsBuilder;
 use Wikimedia\AtEase\AtEase;
 
 require_once __DIR__ . '/Maintenance.php';
@@ -33,8 +32,8 @@ define( 'MEDIAWIKI_INSTALL', true );
 /**
  * Maintenance script to install and configure MediaWiki
  *
- * Default values for the options are defined in DefaultSettings.php
- * (see the mapping in CliInstaller.php)
+ * Default values for the options are defined in MainConfigSchema.php
+ * (see the mapping in includes/installer/CliInstaller.php)
  * Default for --dbpath (SQLite-specific) is defined in SqliteInstaller::getGlobalDefaults
  *
  * @ingroup Maintenance
@@ -47,9 +46,9 @@ class CommandLineInstaller extends Maintenance {
 		$this->addDescription( "CLI-based MediaWiki installation and configuration.\n" .
 			"Default options are indicated in parentheses." );
 
-		$this->addArg( 'name', 'The name of the wiki (MediaWiki)', false );
-
+		$this->addArg( 'name', 'The name of the wiki' );
 		$this->addArg( 'admin', 'The username of the wiki administrator.' );
+
 		$this->addOption( 'pass', 'The password for the wiki administrator.', false, true );
 		$this->addOption(
 			'passfile',
@@ -60,7 +59,7 @@ class CommandLineInstaller extends Maintenance {
 		/* $this->addOption( 'email', 'The email for the wiki administrator', false, true ); */
 		$this->addOption(
 			'scriptpath',
-			'The relative path of the wiki in the web server (/wiki)',
+			'The relative path of the wiki in the web server (/' . basename( dirname( __DIR__ ) ) . ')',
 			false,
 			true
 		);
@@ -76,6 +75,7 @@ class CommandLineInstaller extends Maintenance {
 
 		$this->addOption( 'dbtype', 'The type of database (mysql)', false, true );
 		$this->addOption( 'dbserver', 'The database host (localhost)', false, true );
+		$this->addOption( 'dbssl', 'Connect to the database over SSL' );
 		$this->addOption( 'dbport', 'The database port; only for PostgreSQL (5432)', false, true );
 		$this->addOption( 'dbname', 'The database name (my_wiki)', false, true );
 		$this->addOption( 'dbpath', 'The path for the SQLite DB ($IP/data)', false, true );
@@ -92,7 +92,7 @@ class CommandLineInstaller extends Maintenance {
 		);
 		$this->addOption( 'confpath', "Path to write LocalSettings.php to ($IP)", false, true );
 		$this->addOption( 'dbschema', 'The schema for the MediaWiki DB in '
-			. 'PostgreSQL/Microsoft SQL Server (mediawiki)', false, true );
+			. 'PostgreSQL (mediawiki)', false, true );
 		/*
 		$this->addOption( 'namespace', 'The project namespace (same as the "name" argument)',
 			false, true );
@@ -104,6 +104,19 @@ class CommandLineInstaller extends Maintenance {
 			false, true, false, true );
 		$this->addOption( 'skins', 'Comma-separated list of skins to install (default: all)',
 			false, true, false, true );
+	}
+
+	public function canExecuteWithoutLocalSettings(): bool {
+		return true;
+	}
+
+	public function finalSetup( SettingsBuilder $settingsBuilder = null ) {
+		if ( !$settingsBuilder ) {
+			$settingsBuilder = SettingsBuilder::getInstance();
+		}
+
+		parent::finalSetup( $settingsBuilder );
+		Installer::overrideConfig( $settingsBuilder );
 	}
 
 	public function getDbType() {
@@ -120,15 +133,20 @@ class CommandLineInstaller extends Maintenance {
 		$adminName = $this->getArg( 1 );
 		$envChecksOnly = $this->hasOption( 'env-checks' );
 
+		$scriptpath = $this->getOption( 'scriptpath', false );
+		if ( $scriptpath === false ) {
+			$this->mOptions['scriptpath'] = '/' . basename( dirname( __DIR__ ) );
+		}
+
 		$this->setDbPassOption();
 		if ( !$envChecksOnly ) {
 			$this->setPassOption();
 		}
 
 		try {
-			$installer = InstallerOverrides::getCliInstaller( $siteName, $adminName, $this->mOptions );
+			$installer = InstallerOverrides::getCliInstaller( $siteName, $adminName, $this->parameters->getOptions() );
 		} catch ( \MediaWiki\Installer\InstallException $e ) {
-			$this->output( $e->getStatus()->getMessage( false, false, 'en' )->text() . "\n" );
+			$this->error( $e->getStatus()->getMessage( false, false, 'en' )->text() . "\n" );
 			return false;
 		}
 
@@ -136,15 +154,11 @@ class CommandLineInstaller extends Maintenance {
 		if ( $status->isGood() ) {
 			$installer->showMessage( 'config-env-good' );
 		} else {
-			$installer->showStatusMessage( $status );
-
 			return false;
 		}
 		if ( !$envChecksOnly ) {
 			$status = $installer->execute();
 			if ( !$status->isGood() ) {
-				$installer->showStatusMessage( $status );
-
 				return false;
 			}
 			$installer->writeConfigurationFile( $this->getOption( 'confpath', $IP ) );
@@ -170,7 +184,7 @@ class CommandLineInstaller extends Maintenance {
 			if ( $dbpass === false ) {
 				$this->fatalError( "Couldn't open $dbpassfile" );
 			}
-			$this->mOptions['dbpass'] = trim( $dbpass, "\r\n" );
+			$this->setOption( 'dbpass', trim( $dbpass, "\r\n" ) );
 		}
 	}
 
@@ -178,7 +192,7 @@ class CommandLineInstaller extends Maintenance {
 		$passfile = $this->getOption( 'passfile' );
 		if ( $passfile !== null ) {
 			if ( $this->getOption( 'pass' ) !== null ) {
-				$this->error( 'WARNING: You have provided the options "pass" and "passfile". '
+				$this->error( 'WARNING: You have provided the option --pass or --passfile. '
 					. 'The content of "passfile" overrides "pass".' );
 			}
 			AtEase::suppressWarnings();
@@ -187,7 +201,7 @@ class CommandLineInstaller extends Maintenance {
 			if ( $pass === false ) {
 				$this->fatalError( "Couldn't open $passfile" );
 			}
-			$this->mOptions['pass'] = trim( $pass, "\r\n" );
+			$this->setOption( 'pass', trim( $pass, "\r\n" ) );
 		} elseif ( $this->getOption( 'pass' ) === null ) {
 			$this->fatalError( 'You need to provide the option "pass" or "passfile"' );
 		}

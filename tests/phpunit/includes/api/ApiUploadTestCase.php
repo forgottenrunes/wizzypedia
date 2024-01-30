@@ -1,5 +1,9 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\Page\File\FileDeleteForm;
+use MediaWiki\Title\Title;
+
 /**
  * Abstract class to support upload tests
  */
@@ -7,7 +11,7 @@ abstract class ApiUploadTestCase extends ApiTestCase {
 
 	/**
 	 * @since 1.37
-	 * @var array Used to fake $_FILES in tests and given to FauxRequest
+	 * @var array Used to fake $_FILES in tests and given to MediaWiki\Request\FauxRequest
 	 */
 	protected $requestDataFiles = [];
 
@@ -17,10 +21,7 @@ abstract class ApiUploadTestCase extends ApiTestCase {
 	protected function setUp(): void {
 		parent::setUp();
 
-		$this->setMwGlobals( [
-			'wgEnableUploads' => true,
-		] );
-
+		$this->overrideConfigValue( MainConfigNames::EnableUploads, true );
 		$this->clearFakeUploads();
 	}
 
@@ -54,12 +55,9 @@ abstract class ApiUploadTestCase extends ApiTestCase {
 
 			$page = $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( $title );
 			$this->deletePage( $page, "removing for test" );
-
-			// see if it now doesn't exist; reload
-			$title = Title::newFromText( $title->getText(), NS_FILE );
 		}
 
-		return !( $title && $title instanceof Title && $title->exists() );
+		return !( $title && $title instanceof Title && $title->exists( Title::READ_LATEST ) );
 	}
 
 	/**

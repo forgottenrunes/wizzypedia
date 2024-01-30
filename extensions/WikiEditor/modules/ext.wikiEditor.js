@@ -8,140 +8,37 @@
 	// This sets $.wikiEditor and $.fn.wikiEditor
 	require( './jquery.wikiEditor.js' );
 
-	function log() {
-		// mw.log is a no-op unless resource loader is in debug mode, so
-		// this allows trackdebug to work independently (T211698)
-		// eslint-disable-next-line no-console
-		console.log.apply( console, arguments );
-	}
-
-	function sampledLogger( schema, callback ) {
-		var trackdebug = !!mw.util.getParamValue( 'trackdebug' );
-		return function () {
-			if ( mw.loader.getState( 'ext.eventLogging' ) === null ) {
-				return;
-			}
-			var args = Array.prototype.slice.call( arguments );
-
-			mw.loader.using( [ 'ext.eventLogging' ] ).done( function () {
-				// Sampling
-				// We have to do this on the client too because the unload handler
-				// can cause an editingSessionId to be generated on the client
-				// Not using mw.eventLog.inSample() because we need to be able to pass our own editingSessionId
-				var inSample = mw.eventLog.randomTokenMatch(
-					1 / mw.config.get( 'wgWMESchemaEditAttemptStepSamplingRate' ),
-					editingSessionId
-				);
-
-				if ( !inSample && !mw.config.get( 'wgWMESchemaEditAttemptStepOversample' ) && !trackdebug ) {
-					return;
-				}
-
-				var data = callback.apply( this, [ inSample ].concat( args ) );
-
-				if ( trackdebug ) {
-					log( schema, data );
-				} else {
-					mw.eventLog.logEvent( schema, data );
-				}
-			} );
-		};
-	}
-
-	function addABTestData( data, addToken ) {
-		// DiscussionTools New Topic A/B test for logged out users
-		if ( !mw.config.get( 'wgDiscussionToolsABTest' ) ) {
+	function logEditEvent( data ) {
+		if ( mw.config.get( 'wgMFMode' ) !== null ) {
+			// Visiting a ?action=edit URL can, depending on user settings, result
+			// in the MobileFrontend overlay appearing on top of WikiEditor. In
+			// these cases, don't log anything.
 			return;
 		}
-		if ( mw.user.isAnon() ) {
-			var tokenData = mw.storage.getObject( 'DTNewTopicABToken' );
-			if ( !tokenData ) {
-				return;
-			}
-			var anonid = parseInt( tokenData.token.slice( 0, 8 ), 16 );
-			data.bucket = anonid % 2 === 0 ? 'test' : 'control';
-			if ( addToken ) {
-				// eslint-disable-next-line camelcase
-				data.anonymous_user_token = tokenData.token;
-			}
-		} else if ( mw.user.options.get( 'discussiontools-abtest2' ) ) {
-			data.bucket = mw.user.options.get( 'discussiontools-abtest2' );
-		}
-	}
-
-	var actionPrefixMap = {
-		firstChange: 'first_change',
-		saveIntent: 'save_intent',
-		saveAttempt: 'save_attempt',
-		saveSuccess: 'save_success',
-		saveFailure: 'save_failure'
-	};
-
-	var logEditEvent = sampledLogger( 'EditAttemptStep', function ( inSample, action, data ) {
-		var actionPrefix = actionPrefixMap[ action ] || action;
-
-		/* eslint-disable camelcase */
-		data = $.extend( {
-			version: 1,
-			action: action,
-			is_oversample: !inSample,
-			editing_session_id: editingSessionId,
-			page_token: mw.user.getPageviewToken(),
-			session_token: mw.user.sessionId(),
+		mw.track( 'editAttemptStep', $.extend( {
+			// eslint-disable-next-line camelcase
 			editor_interface: 'wikitext',
 			platform: 'desktop', // FIXME T249944
-			integration: 'page',
-			page_id: mw.config.get( 'wgArticleId' ),
-			page_title: mw.config.get( 'wgPageName' ),
-			page_ns: mw.config.get( 'wgNamespaceNumber' ),
-			revision_id: mw.config.get( 'wgRevisionId' ) || +$( 'input[name=parentRevId]' ).val() || 0,
-			user_id: mw.user.getId(),
-			user_editcount: mw.config.get( 'wgUserEditCount', 0 ),
-			mw_version: mw.config.get( 'wgVersion' )
-		}, data );
+			integration: 'page'
+		}, data ) );
+	}
 
-		if ( mw.user.isAnon() ) {
-			data.user_class = 'IP';
+	function logEditFeature( feature, action ) {
+		if ( mw.config.get( 'wgMFMode' ) !== null ) {
+			// Visiting a ?action=edit URL can, depending on user settings, result
+			// in the MobileFrontend overlay appearing on top of WikiEditor. In
+			// these cases, don't log anything.
+			return;
 		}
-
-		addABTestData( data, true );
-
-		// Schema's kind of a mess of special properties
-		if ( data.action === 'init' || data.action === 'abort' || data.action === 'saveFailure' ) {
-			data[ actionPrefix + '_type' ] = data.type;
-		}
-		if ( data.action === 'init' || data.action === 'abort' ) {
-			data[ actionPrefix + '_mechanism' ] = data.mechanism;
-		}
-		if ( data.action !== 'init' ) {
-			data[ actionPrefix + '_timing' ] = data.timing === undefined ? 0 : Math.floor( data.timing );
-		}
-		/* eslint-enable camelcase */
-
-		// Remove renamed properties
-		delete data.type;
-		delete data.mechanism;
-		delete data.timing;
-
-		return data;
-	} );
-
-	var logEditFeature = sampledLogger( 'VisualEditorFeatureUse', function ( inSample, feature, action ) {
-		/* eslint-disable camelcase */
-		var data = {
+		mw.track( 'visualEditorFeatureUse', {
 			feature: feature,
 			action: action,
-			editingSessionId: editingSessionId,
-			user_id: mw.user.getId(),
-			user_editcount: mw.config.get( 'wgUserEditCount', 0 ),
+			// eslint-disable-next-line camelcase
+			editor_interface: 'wikitext',
 			platform: 'desktop', // FIXME T249944
-			integration: 'page',
-			editor_interface: 'wikitext'
-		};
-		addABTestData( data );
-		/* eslint-enable camelcase */
-		return data;
-	} );
+			integration: 'page'
+		} );
+	}
 
 	function logAbort( switchingToVE, unmodified ) {
 		if ( switchingToVE ) {
@@ -159,7 +56,8 @@
 			abortType = 'abandon';
 		}
 
-		logEditEvent( 'abort', {
+		logEditEvent( {
+			action: 'abort',
 			type: abortType
 		} );
 	}
@@ -182,15 +80,18 @@
 				// that don't, we just ignore them, so as to not skew the
 				// results towards better-performance in those cases.
 				var readyTime = Date.now();
-				logEditEvent( 'ready', {
+				logEditEvent( {
+					action: 'ready',
 					timing: readyTime - window.performance.timing.navigationStart
 				} );
 				$textarea.on( 'wikiEditor-toolbar-doneInitialSections', function () {
-					logEditEvent( 'loaded', {
+					logEditEvent( {
+						action: 'loaded',
 						timing: Date.now() - window.performance.timing.navigationStart
 					} );
 				} ).one( 'input', function () {
-					logEditEvent( 'firstChange', {
+					logEditEvent( {
+						action: 'firstChange',
 						timing: Date.now() - readyTime
 					} );
 				} );
@@ -244,6 +145,32 @@
 
 				logAbort( true, unmodified );
 			} );
+
+			// Add logging for Realtime Preview.
+			mw.hook( 'ext.WikiEditor.realtimepreview.enable' ).add( function () {
+				logEditFeature( 'preview', 'preview-realtime-on' );
+			} );
+			mw.hook( 'ext.WikiEditor.realtimepreview.inuse' ).add( function () {
+				logEditFeature( 'preview', 'preview-realtime-inuse' );
+			} );
+			mw.hook( 'ext.WikiEditor.realtimepreview.disable' ).add( function () {
+				logEditFeature( 'preview', 'preview-realtime-off' );
+			} );
+			mw.hook( 'ext.WikiEditor.realtimepreview.loaded' ).add( function () {
+				logEditFeature( 'preview', 'preview-realtime-loaded' );
+			} );
+			mw.hook( 'ext.WikiEditor.realtimepreview.stop' ).add( function () {
+				logEditFeature( 'preview', 'preview-realtime-error-stopped' );
+			} );
+			mw.hook( 'ext.WikiEditor.realtimepreview.reloadError' ).add( function () {
+				logEditFeature( 'preview', 'preview-realtime-reload-error' );
+			} );
+			mw.hook( 'ext.WikiEditor.realtimepreview.reloadHover' ).add( function () {
+				logEditFeature( 'preview', 'preview-realtime-reload-hover' );
+			} );
+			mw.hook( 'ext.WikiEditor.realtimepreview.reloadManual' ).add( function () {
+				logEditFeature( 'preview', 'preview-realtime-reload-manual' );
+			} );
 		}
 
 		// The old toolbar is still in place and needs to be removed so there aren't two toolbars
@@ -254,6 +181,10 @@
 	} );
 
 	mw.addWikiEditor = function ( $textarea ) {
+		if ( $textarea.css( 'display' ) === 'none' ) {
+			return;
+		}
+
 		$textarea.wikiEditor(
 			'addModule', require( './jquery.wikiEditor.toolbar.config.js' )
 		);
@@ -265,4 +196,5 @@
 		$textarea.wikiEditor( 'addModule', dialogsConfig.getDefaultConfig() );
 
 	};
+
 }() );

@@ -1,12 +1,5 @@
 <?php
 /**
- * Created on Mar 28, 2009
- *
- * AbuseFilter extension
- *
- * Copyright © 2008 Alex Z. mrzmanwiki AT gmail DOT com
- * Based mostly on code by Bryan Tong Minh and Roan Kattouw
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -37,13 +30,18 @@ use MediaWiki\Extension\AbuseFilter\GlobalNameUtils;
 use MediaWiki\Extension\AbuseFilter\Special\SpecialAbuseLog;
 use MediaWiki\Extension\AbuseFilter\Variables\VariablesBlobStore;
 use MediaWiki\Extension\AbuseFilter\Variables\VariablesManager;
+use MediaWiki\Title\Title;
 use MWTimestamp;
-use Title;
 use User;
 use Wikimedia\IPUtils;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\IntegerDef;
 
 /**
  * Query module to list abuse log entries.
+ *
+ * @copyright 2009 Alex Z. <mrzmanwiki AT gmail DOT com>
+ * Based mostly on code by Bryan Tong Minh and Roan Kattouw
  *
  * @ingroup API
  * @ingroup Extensions
@@ -94,7 +92,7 @@ class QueryAbuseLog extends ApiQueryBase {
 		// Same check as in SpecialAbuseLog
 		$this->checkUserRightsAny( 'abusefilter-log' );
 
-		$user = $this->getUser();
+		$performer = $this->getAuthority();
 		$params = $this->extractRequestParams();
 
 		$prop = array_fill_keys( $params['prop'], true );
@@ -134,7 +132,7 @@ class QueryAbuseLog extends ApiQueryBase {
 					continue;
 				}
 			}
-			if ( !$this->afPermManager->canViewPrivateFiltersLogs( $user ) ) {
+			if ( !$this->afPermManager->canViewPrivateFiltersLogs( $performer ) ) {
 				foreach ( $searchFilters as [ $filterID, $global ] ) {
 					try {
 						$isHidden = $lookup->getFilter( $filterID, $global )->isHidden();
@@ -220,7 +218,7 @@ class QueryAbuseLog extends ApiQueryBase {
 			}
 		}
 
-		$this->addWhereIf( [ 'afl_deleted' => 0 ], !$this->afPermManager->canSeeHiddenLogEntries( $user ) );
+		$this->addWhereIf( [ 'afl_deleted' => 0 ], !$this->afPermManager->canSeeHiddenLogEntries( $performer ) );
 
 		if ( $searchFilters ) {
 			// @todo Avoid code duplication with SpecialAbuseLog::showList
@@ -272,7 +270,7 @@ class QueryAbuseLog extends ApiQueryBase {
 				$this->setContinueEnumParameter( 'start', $ts->getTimestamp( TS_ISO_8601 ) );
 				break;
 			}
-			$visibility = SpecialAbuseLog::getEntryVisibilityForUser( $row, $user, $this->afPermManager );
+			$visibility = SpecialAbuseLog::getEntryVisibilityForUser( $row, $performer, $this->afPermManager );
 			if ( $visibility !== SpecialAbuseLog::VISIBILITY_VISIBLE ) {
 				continue;
 			}
@@ -281,7 +279,7 @@ class QueryAbuseLog extends ApiQueryBase {
 			$global = $row->afl_global;
 			$fullName = GlobalNameUtils::buildGlobalName( $filterID, $global );
 			$isHidden = $lookup->getFilter( $filterID, $global )->isHidden();
-			$canSeeDetails = $this->afPermManager->canSeeLogDetailsForFilter( $user, $isHidden );
+			$canSeeDetails = $this->afPermManager->canSeeLogDetailsForFilter( $performer, $isHidden );
 
 			$entry = [];
 			if ( $fld_ids ) {
@@ -327,9 +325,8 @@ class QueryAbuseLog extends ApiQueryBase {
 				}
 			}
 
-			$hidden = SpecialAbuseLog::isHidden( $row );
-			if ( $fld_hidden && $hidden ) {
-				$entry['hidden'] = $hidden;
+			if ( $fld_hidden ) {
+				$entry['hidden'] = (bool)$row->afl_deleted;
 			}
 
 			if ( $entry ) {
@@ -351,42 +348,42 @@ class QueryAbuseLog extends ApiQueryBase {
 	public function getAllowedParams() {
 		$params = [
 			'logid' => [
-				ApiBase::PARAM_TYPE => 'integer'
+				ParamValidator::PARAM_TYPE => 'integer'
 			],
 			'start' => [
-				ApiBase::PARAM_TYPE => 'timestamp'
+				ParamValidator::PARAM_TYPE => 'timestamp'
 			],
 			'end' => [
-				ApiBase::PARAM_TYPE => 'timestamp'
+				ParamValidator::PARAM_TYPE => 'timestamp'
 			],
 			'dir' => [
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_TYPE => [
 					'newer',
 					'older'
 				],
-				ApiBase::PARAM_DFLT => 'older',
+				ParamValidator::PARAM_DEFAULT => 'older',
 				ApiBase::PARAM_HELP_MSG => 'api-help-param-direction',
 			],
 			'user' => null,
 			'title' => null,
 			'filter' => [
-				ApiBase::PARAM_TYPE => 'string',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_ISMULTI => true,
 				ApiBase::PARAM_HELP_MSG => [
 					'apihelp-query+abuselog-param-filter',
 					GlobalNameUtils::GLOBAL_FILTER_PREFIX
 				]
 			],
 			'limit' => [
-				ApiBase::PARAM_DFLT => 10,
-				ApiBase::PARAM_TYPE => 'limit',
-				ApiBase::PARAM_MIN => 1,
-				ApiBase::PARAM_MAX => ApiBase::LIMIT_BIG1,
-				ApiBase::PARAM_MAX2 => ApiBase::LIMIT_BIG2
+				ParamValidator::PARAM_DEFAULT => 10,
+				ParamValidator::PARAM_TYPE => 'limit',
+				IntegerDef::PARAM_MIN => 1,
+				IntegerDef::PARAM_MAX => ApiBase::LIMIT_BIG1,
+				IntegerDef::PARAM_MAX2 => ApiBase::LIMIT_BIG2
 			],
 			'prop' => [
-				ApiBase::PARAM_DFLT => 'ids|user|title|action|result|timestamp|hidden|revid',
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_DEFAULT => 'ids|user|title|action|result|timestamp|hidden|revid',
+				ParamValidator::PARAM_TYPE => [
 					'ids',
 					'filter',
 					'user',
@@ -398,15 +395,15 @@ class QueryAbuseLog extends ApiQueryBase {
 					'hidden',
 					'revid',
 				],
-				ApiBase::PARAM_ISMULTI => true
+				ParamValidator::PARAM_ISMULTI => true
 			]
 		];
 		if ( $this->getConfig()->get( 'AbuseFilterIsCentral' ) ) {
 			$params['wiki'] = [
-				ApiBase::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_TYPE => 'string',
 			];
-			$params['prop'][ApiBase::PARAM_DFLT] .= '|wiki';
-			$params['prop'][ApiBase::PARAM_TYPE][] = 'wiki';
+			$params['prop'][ParamValidator::PARAM_DEFAULT] .= '|wiki';
+			$params['prop'][ParamValidator::PARAM_TYPE][] = 'wiki';
 			$params['filter'][ApiBase::PARAM_HELP_MSG] = 'apihelp-query+abuselog-param-filter-central';
 		}
 		return $params;

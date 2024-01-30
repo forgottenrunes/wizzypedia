@@ -5,7 +5,7 @@ namespace MediaWiki\Extension\Math;
 use Exception;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\MediaWikiServices;
-use MWException;
+use RuntimeException;
 use stdClass;
 
 /**
@@ -16,11 +16,10 @@ class MathMathMLCli extends MathMathML {
 	/**
 	 * @param MathRenderer[] $renderers
 	 * @return bool
-	 * @throws MWException
 	 */
 	public static function batchEvaluate( array $renderers ) {
 		$req = [];
-		foreach ( $renderers as $key => $renderer ) {
+		foreach ( $renderers as $renderer ) {
 			'@phan-var MathMathMLCli $renderer';
 			// checking if the rendering is in the database is no security issue since only the md5
 			// hash of the user input string will be sent to the database
@@ -33,7 +32,7 @@ class MathMathMLCli extends MathMathML {
 		}
 		$exitCode = 1;
 		$res = self::evaluateWithCli( $req, $exitCode );
-		foreach ( $renderers as $key => $renderer ) {
+		foreach ( $renderers as $renderer ) {
 			'@phan-var MathMathMLCli $renderer';
 			if ( !$renderer->isInDatabase() ) {
 				$renderer->initializeFromCliResponse( $res );
@@ -70,7 +69,7 @@ class MathMathMLCli extends MathMathML {
 		// cli interface seems to be OK.
 		$this->processJsonResult( $response, 'file://' . $wgMathoidCli[0] );
 		$this->mathStyle = $response->mathoidStyle;
-		if ( array_key_exists( 'png', $response ) ) {
+		if ( property_exists( $response, 'png' ) ) {
 			$this->png = implode( array_map( "chr", $response->png->data ) );
 		} else {
 			LoggerFactory::getInstance( 'Math' )->error( 'Mathoid did not return a PNG image.' .
@@ -94,8 +93,7 @@ class MathMathMLCli extends MathMathML {
 				case '-':
 					// we do not know any cases that triggers this error
 			}
-		}
-		catch ( Exception $e ) {
+		} catch ( Exception $e ) {
 			// use default error message
 		}
 
@@ -117,11 +115,10 @@ class MathMathMLCli extends MathMathML {
 
 	/**
 	 * @param mixed $req request
-	 * @param int|null &$exitCode exit code
+	 * @param int|null &$exitCode
 	 * @return mixed
-	 * @throws MWException
 	 */
-	public static function evaluateWithCli( $req, &$exitCode = null ) {
+	private static function evaluateWithCli( $req, &$exitCode = null ) {
 		global $wgMathoidCli;
 		$json_req = json_encode( $req );
 		$cmd = MediaWikiServices::getInstance()->getShellCommandFactory()->create();
@@ -136,17 +133,17 @@ class MathMathMLCli extends MathMathML {
 				'conf' => var_export( $wgMathoidCli, true ),
 				'res' => var_export( $result, true ),
 			] );
-			throw new MWException( "Failed to execute Mathoid cli '$wgMathoidCli[0]', reason: $errorMsg" );
+			throw new RuntimeException( "Failed to execute Mathoid cli '$wgMathoidCli[0]', reason: $errorMsg" );
 		}
 		$res = json_decode( $result->getStdout() );
 		if ( !$res ) {
-			throw new MWException( "Mathoid cli response '$res' is no valid JSON file." );
+			throw new RuntimeException( "Mathoid cli response '$res' is no valid JSON file." );
 		}
 
 		return $res;
 	}
 
-	public function render( $forceReRendering = false ) {
+	public function render() {
 		if ( $this->getLastError() ) {
 			return false;
 		}
@@ -154,7 +151,7 @@ class MathMathMLCli extends MathMathML {
 		return true;
 	}
 
-	protected function doCheck() {
+	protected function doCheck(): bool {
 		// avoid that restbase is called if check is set to always
 		return $this->texSecure;
 	}

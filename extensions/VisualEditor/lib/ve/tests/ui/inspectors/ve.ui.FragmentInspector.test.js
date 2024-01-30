@@ -28,7 +28,6 @@ ve.test.utils.runFragmentInspectorTests = function ( surface, assert, cases ) {
 						}
 						// TODO: Skips ActionProcess
 						return inspector.teardown( caseItem.actionData || { action: 'done' } ).then( function () {
-
 							assert.equalRange( surfaceModel.getSelection().getRange(), caseItem.expectedRange, caseItem.msg + ': range' );
 							if ( caseItem.expectedData ) {
 								caseItem.expectedData( linearData );
@@ -61,11 +60,11 @@ ve.test.utils.runFragmentInspectorTests = function ( surface, assert, cases ) {
 
 QUnit.test( 'Different selections and inputs', function ( assert ) {
 	var done = assert.async(),
-		surface = ve.test.utils.createSurfaceFromHtml(
-			'<p>Foo <a href="bar">bar</a> baz  x</p>' +
-			'<p><!-- comment --> comment</p>' +
-			'<p>Fo<a href="bar">o bar</a></p>'
-		),
+		surface = ve.test.utils.createSurfaceFromHtml( ve.dm.example.singleLine`
+			<p>Foo <a href="bar">bar</a> baz  x</p>
+			<p><!-- comment --> comment</p>
+			<p>Fo<a href="bar">o bar</a></p>
+		` ),
 		fooHash = 'hd5a13e54366d44db',
 		barHash = 'h071cb84c069d07a4',
 		quuxHash = 'hb085ebec56a162a4',

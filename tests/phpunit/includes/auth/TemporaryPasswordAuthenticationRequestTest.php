@@ -2,6 +2,8 @@
 
 namespace MediaWiki\Auth;
 
+use MediaWiki\MainConfigNames;
+
 /**
  * @group AuthManager
  * @covers \MediaWiki\Auth\TemporaryPasswordAuthenticationRequest
@@ -32,9 +34,9 @@ class TemporaryPasswordAuthenticationRequestTest extends AuthenticationRequestTe
 			'MinimumPasswordLengthToLogin' => 1,
 		];
 
-		$this->setMwGlobals( [
-			'wgMinimalPasswordLength' => 10,
-			'wgPasswordPolicy' => $policy,
+		$this->overrideConfigValues( [
+			MainConfigNames::MinimalPasswordLength => 10,
+			MainConfigNames::PasswordPolicy => $policy,
 		] );
 
 		$ret1 = TemporaryPasswordAuthenticationRequest::newRandom();
@@ -44,12 +46,12 @@ class TemporaryPasswordAuthenticationRequestTest extends AuthenticationRequestTe
 		$this->assertNotSame( $ret1->password, $ret2->password );
 
 		$policy['policies']['default']['MinimalPasswordLength'] = 15;
-		$this->setMwGlobals( 'wgPasswordPolicy', $policy );
+		$this->overrideConfigValue( MainConfigNames::PasswordPolicy, $policy );
 		$ret = TemporaryPasswordAuthenticationRequest::newRandom();
 		$this->assertEquals( 15, strlen( $ret->password ) );
 
 		$policy['policies']['default']['MinimalPasswordLength'] = [ 'value' => 20 ];
-		$this->setMwGlobals( 'wgPasswordPolicy', $policy );
+		$this->overrideConfigValue( MainConfigNames::PasswordPolicy, $policy );
 		$ret = TemporaryPasswordAuthenticationRequest::newRandom();
 		$this->assertEquals( 20, strlen( $ret->password ) );
 	}
@@ -59,7 +61,7 @@ class TemporaryPasswordAuthenticationRequestTest extends AuthenticationRequestTe
 		$this->assertNull( $ret->password );
 	}
 
-	public function provideLoadFromSubmission() {
+	public static function provideLoadFromSubmission() {
 		return [
 			'Empty request' => [
 				[ AuthManager::ACTION_REMOVE ],
@@ -80,9 +82,10 @@ class TemporaryPasswordAuthenticationRequestTest extends AuthenticationRequestTe
 	}
 
 	public function testDescribeCredentials() {
+		$username = 'TestDescribeCredentials';
 		$req = new TemporaryPasswordAuthenticationRequest;
 		$req->action = AuthManager::ACTION_LOGIN;
-		$req->username = 'UTSysop';
+		$req->username = $username;
 		$ret = $req->describeCredentials();
 		$this->assertIsArray( $ret );
 		$this->assertArrayHasKey( 'provider', $ret );
@@ -90,6 +93,6 @@ class TemporaryPasswordAuthenticationRequestTest extends AuthenticationRequestTe
 		$this->assertSame( 'authmanager-provider-temporarypassword', $ret['provider']->getKey() );
 		$this->assertArrayHasKey( 'account', $ret );
 		$this->assertInstanceOf( \Message::class, $ret['account'] );
-		$this->assertSame( [ 'UTSysop' ], $ret['account']->getParams() );
+		$this->assertSame( [ $username ], $ret['account']->getParams() );
 	}
 }

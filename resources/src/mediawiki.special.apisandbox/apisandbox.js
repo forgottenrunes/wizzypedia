@@ -11,11 +11,11 @@
 		updatingBooklet = false,
 		pages = {},
 		moduleInfoCache = {},
+		baseRequestParams = {},
 		OptionalParamWidget = require( './OptionalParamWidget.js' ),
 		ParamLabelWidget = require( './ParamLabelWidget.js' ),
 		BooleanToggleSwitchParamWidget = require( './BooleanToggleSwitchParamWidget.js' ),
 		DateTimeParamWidget = require( './DateTimeParamWidget.js' ),
-		IntegerParamWidget = require( './IntegerParamWidget.js' ),
 		LimitParamWidget = require( './LimitParamWidget.js' ),
 		PasswordParamWidget = require( './PasswordParamWidget.js' ),
 		UploadSelectFileParamWidget = require( './UploadSelectFileParamWidget.js' );
@@ -79,8 +79,8 @@
 
 		dropdownWidget: {
 			getApiValue: function () {
-				var item = this.getMenu().findSelectedItem();
-				return item === null ? undefined : item.getData();
+				var selected = this.getMenu().findFirstSelectedItem();
+				return selected ? selected.getData() : undefined;
 			},
 			setApiValue: function ( v ) {
 				if ( v === undefined ) {
@@ -352,11 +352,14 @@
 					break;
 
 				case 'integer':
-					widget = new IntegerParamWidget( {
+					widget = new OO.ui.NumberInputWidget( {
+						step: 1,
+						min: pi.min || -Infinity,
+						max: pi.max || Infinity,
 						required: Util.apiBool( pi.required )
 					} );
 					widget.paramInfo = pi;
-					widget.setRange( pi.min || -Infinity, pi.max || Infinity );
+					$.extend( widget, WidgetMethods.textInputWidget );
 					multiModeAllowed = true;
 					multiModeInput = widget;
 					break;
@@ -700,10 +703,10 @@
 		 */
 		onFormatDropdownChange: function () {
 			var menu = formatDropdown.getMenu(),
-				items = menu.getItems(),
-				selectedField = menu.findSelectedItem() ? menu.findSelectedItem().getData() : null;
+				selected = menu.findFirstSelectedItem(),
+				selectedField = selected ? selected.getData() : null;
 
-			items.forEach( function ( item ) {
+			menu.getItems().forEach( function ( item ) {
 				item.getData().toggle( item.getData() === selectedField );
 			} );
 		}
@@ -778,22 +781,22 @@
 		 * @return {boolean} Successful
 		 */
 		loadFromHash: function () {
-			var hash = location.hash;
+			var fragment = location.hash;
 
-			if ( oldhash === hash ) {
+			if ( oldhash === fragment ) {
 				return false;
 			}
-			oldhash = hash;
-			if ( hash === '' ) {
+			oldhash = fragment;
+			if ( fragment === '' ) {
 				return false;
 			}
 
 			// I'm surprised this doesn't seem to exist in jQuery or mw.util.
 			var params = {};
-			hash = hash.replace( /\+/g, '%20' );
+			fragment = fragment.replace( /\+/g, '%20' );
 			var pattern = /([^&=#]+)=?([^&#]*)/g;
 			var match;
-			while ( ( match = pattern.exec( hash ) ) ) {
+			while ( ( match = pattern.exec( fragment ) ) ) {
 				params[ decodeURIComponent( match[ 1 ] ) ] = decodeURIComponent( match[ 2 ] );
 			}
 
@@ -926,7 +929,6 @@
 				} );
 			}
 
-			var baseRequestParams;
 			if ( !paramsAreForced ) {
 				// forced params means we are continuing a query; the base query should be preserved
 				baseRequestParams = $.extend( {}, params );
@@ -1339,10 +1341,7 @@
 
 		if ( ppi.info && ppi.info.length ) {
 			for ( var i = 0; i < ppi.info.length; i++ ) {
-				helpLabel.$element.append( $( '<div>' )
-					.addClass( 'info' )
-					.append( Util.parseHTML( ppi.info[ i ] ) )
-				);
+				helpLabel.addInfo( Util.parseHTML( ppi.info[ i ].text ) );
 			}
 		}
 		var flag = true;
@@ -1355,14 +1354,14 @@
 				break;
 
 			case 'limit':
-				helpLabel.addInfo(
-					Util.parseMsg(
+				tmp = [
+					mw.message(
 						'paramvalidator-help-type-number-minmax', 1,
 						widget.paramInfo.min, widget.paramInfo.apiSandboxMax
-					),
-					' ',
-					Util.parseMsg( 'apisandbox-param-limit' )
-				);
+					).parse(),
+					mw.message( 'apisandbox-param-limit' ).parse()
+				];
+				helpLabel.addInfo( Util.parseHTML( tmp.join( mw.msg( 'word-separator' ) ) ) );
 				break;
 
 			case 'integer':
@@ -1407,7 +1406,7 @@
 				);
 			}
 			if ( tmp.length ) {
-				helpLabel.addInfo( Util.parseHTML( tmp.join( ' ' ) ) );
+				helpLabel.addInfo( Util.parseHTML( tmp.join( mw.msg( 'word-separator' ) ) ) );
 			}
 		}
 		if ( 'maxbytes' in ppi ) {
@@ -1722,9 +1721,20 @@
 				}
 
 				// Hide the 'wrappedhtml' parameter on format modules
+				// and make formatversion default to the latest version for humans
+				// (even though machines get a different default for b/c)
 				if ( pi.group === 'format' ) {
 					pi.parameters = pi.parameters.filter( function ( p ) {
 						return p.name !== 'wrappedhtml';
+					} ).map( function ( p ) {
+						if ( p.name === 'formatversion' ) {
+							// Use the highest numeric value
+							p.default = p.type.reduce( function ( prev, current ) {
+								return !isNaN( current ) ? Math.max( prev, current ) : prev;
+							} );
+							p.required = true;
+						}
+						return p;
 					} );
 				}
 

@@ -217,7 +217,7 @@ class ReplicatedBagOStuff extends BagOStuff {
 		return $this->writeStore->proxyCall(
 			__FUNCTION__,
 			self::ARG0_KEYMAP,
-			self::RES_KEYMAP,
+			self::RES_NONKEY,
 			func_get_args(),
 			$this
 		);
@@ -247,66 +247,12 @@ class ReplicatedBagOStuff extends BagOStuff {
 		);
 	}
 
-	public function incr( $key, $value = 1, $flags = 0 ) {
-		$this->remarkRecentSessionWrite( [ $key ] );
-
-		return $this->writeStore->proxyCall(
-			__FUNCTION__,
-			self::ARG0_KEY,
-			self::RES_NONKEY,
-			func_get_args(),
-			$this
-		);
-	}
-
-	public function decr( $key, $value = 1, $flags = 0 ) {
-		$this->remarkRecentSessionWrite( [ $key ] );
-
-		return $this->writeStore->proxyCall(
-			__FUNCTION__,
-			self::ARG0_KEY,
-			self::RES_NONKEY,
-			func_get_args(),
-			$this
-		);
-	}
-
 	public function incrWithInit( $key, $exptime, $step = 1, $init = null, $flags = 0 ) {
 		$this->remarkRecentSessionWrite( [ $key ] );
 
 		return $this->writeStore->proxyCall(
 			__FUNCTION__,
 			self::ARG0_KEY,
-			self::RES_NONKEY,
-			func_get_args(),
-			$this
-		);
-	}
-
-	public function makeKeyInternal( $keyspace, $components ) {
-		return $this->genericKeyFromComponents( $keyspace, ...$components );
-	}
-
-	public function makeKey( $collection, ...$components ) {
-		return $this->genericKeyFromComponents( $this->keyspace, $collection, ...$components );
-	}
-
-	public function makeGlobalKey( $collection, ...$components ) {
-		return $this->genericKeyFromComponents( self::GLOBAL_KEYSPACE, $collection, ...$components );
-	}
-
-	protected function convertGenericKey( $key ) {
-		return $key; // short-circuit; already uses "generic" keys
-	}
-
-	public function addBusyCallback( callable $workCallback ) {
-		return $this->writeStore->addBusyCallback( $workCallback );
-	}
-
-	public function setNewPreparedValues( array $valueByKey ) {
-		return $this->writeStore->proxyCall(
-			__FUNCTION__,
-			self::ARG0_KEYMAP,
 			self::RES_NONKEY,
 			func_get_args(),
 			$this
@@ -341,7 +287,8 @@ class ReplicatedBagOStuff extends BagOStuff {
 	private function remarkRecentSessionWrite( array $keys ) {
 		$now = $this->getCurrentTime();
 		foreach ( $keys as $key ) {
-			unset( $this->lastKeyWrites[$key] ); // move to the end
+			// move to the end
+			unset( $this->lastKeyWrites[$key] );
 			$this->lastKeyWrites[$key] = $now;
 		}
 		// Prune out the map if the first key is obsolete

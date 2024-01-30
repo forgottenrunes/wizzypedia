@@ -17,6 +17,8 @@
  *
  * @file
  */
+
+use MediaWiki\Status\Status;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -32,6 +34,7 @@ use Psr\Log\LoggerInterface;
  *                                 used for tracking waiting processes (and wait time).
  *   - poolcounter:l-wakeup-*    : A list pushed to for the sake of waking up processes
  *                                 when a any process in the pool finishes (lasts for 1ms).
+ *
  * For a given pool key, all the redis keys start off non-existing and are deleted if not
  * used for a while to prevent garbage from building up on the server. They are atomically
  * re-initialized as needed. The "z-renewtime" key is used for detecting sessions which got
@@ -47,7 +50,6 @@ use Psr\Log\LoggerInterface;
  * pools to appear as full when they are not. Using volatile-ttl and bumping memory-samples
  * in redis.conf can be helpful otherwise.
  *
- * @ingroup Redis
  * @since 1.23
  */
 class PoolCounterRedis extends PoolCounter {
@@ -63,7 +65,6 @@ class PoolCounterRedis extends PoolCounter {
 	protected $keySha1;
 	/** @var int TTL for locks to expire (work should finish in this time) */
 	protected $lockTTL;
-
 	/** @var RedisConnRef */
 	protected $conn;
 	/** @var string|null Pool slot value */
@@ -72,7 +73,7 @@ class PoolCounterRedis extends PoolCounter {
 	protected $onRelease;
 	/** @var string Unique string to identify this process */
 	protected $session;
-	/** @var int|null UNIX timestamp */
+	/** @var float|null UNIX timestamp */
 	protected $slotTime;
 
 	private const AWAKE_ONE = 1; // wake-up if when a slot can be taken from an existing process
@@ -246,7 +247,7 @@ LUA;
 		'@phan-var RedisConnRef $conn';
 
 		$now = microtime( true );
-		$timeout = $timeout ?? $this->timeout;
+		$timeout ??= $this->timeout;
 		try {
 			$slot = $this->initAndPopPoolSlotList( $conn, $now );
 			if ( ctype_digit( $slot ) ) {
@@ -282,7 +283,7 @@ LUA;
 
 		if ( $slot !== 'w' ) {
 			$this->slot = $slot;
-			$this->slotTime = (int)$slotTime;
+			$this->slotTime = $slotTime;
 			$this->onRelease = $doWakeup;
 			self::$active[$this->session] = $this;
 		}

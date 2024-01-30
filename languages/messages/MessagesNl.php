@@ -1,10 +1,8 @@
 <?php
 /** Dutch (Nederlands)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Annabel
  * @author Arent
@@ -348,6 +346,7 @@ $specialPageAliases = [
 	'Recentchanges'             => [ 'RecenteWijzigingen' ],
 	'Recentchangeslinked'       => [ 'RecenteWijzigingenGelinkt', 'VerwanteWijzigingen' ],
 	'Redirect'                  => [ 'Doorverwijzen' ],
+	'Renameuser'                => [ 'GebruikerHernoemen' ],
 	'ResetTokens'               => [ 'TokensOpnieuwInstellen' ],
 	'Revisiondelete'            => [ 'VersieVerwijderen', 'HerzieningVerwijderen', 'RevisieVerwijderen' ],
 	'RunJobs'                   => [ 'TakenUitvoeren' ],

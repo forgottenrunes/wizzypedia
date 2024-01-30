@@ -24,8 +24,8 @@
  * @ingroup Maintenance
  */
 
-use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\RevisionLookup;
+use MediaWiki\Title\Title;
 
 require_once __DIR__ . '/Maintenance.php';
 
@@ -51,14 +51,15 @@ class AttachLatest extends Maintenance {
 		if ( $this->hasOption( 'regenerate-all' ) ) {
 			$conds = '';
 		}
-		$result = $dbw->select( 'page',
-			[ 'page_id', 'page_namespace', 'page_title' ],
-			$conds,
-			__METHOD__ );
+		$result = $dbw->newSelectQueryBuilder()
+			->select( [ 'page_id', 'page_namespace', 'page_title' ] )
+			->from( 'page' )
+			->where( $conds )
+			->caller( __METHOD__ )
+			->fetchResultSet();
 
-		$services = MediaWikiServices::getInstance();
-		$lbFactory = $services->getDBLoadBalancerFactory();
-		$dbDomain = $lbFactory->getLocalDomainID();
+		$services = $this->getServiceContainer();
+		$dbDomain = $services->getDBLoadBalancerFactory()->getLocalDomainID();
 		$wikiPageFactory = $services->getWikiPageFactory();
 		$revisionLookup = $services->getRevisionLookup();
 
@@ -67,10 +68,12 @@ class AttachLatest extends Maintenance {
 			$pageId = intval( $row->page_id );
 			$title = Title::makeTitle( $row->page_namespace, $row->page_title );
 			$name = $title->getPrefixedText();
-			$latestTime = $dbw->selectField( 'revision',
-				'MAX(rev_timestamp)',
-				[ 'rev_page' => $pageId ],
-				__METHOD__ );
+			$latestTime = $dbw->newSelectQueryBuilder()
+				->select( 'MAX(rev_timestamp)' )
+				->from( 'revision' )
+				->where( [ 'rev_page' => $pageId ] )
+				->caller( __METHOD__ )
+				->fetchField();
 			if ( !$latestTime ) {
 				$this->output( "$dbDomain $pageId [[$name]] can't find latest rev time?!\n" );
 				continue;
@@ -89,7 +92,7 @@ class AttachLatest extends Maintenance {
 			if ( $this->hasOption( 'fix' ) ) {
 				$page = $wikiPageFactory->newFromTitle( $title );
 				$page->updateRevisionOn( $dbw, $revRecord );
-				$lbFactory->waitForReplication();
+				$this->waitForReplication();
 			}
 			$n++;
 		}

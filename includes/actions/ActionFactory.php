@@ -29,11 +29,13 @@ use McrRestoreAction;
 use McrUndoAction;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\Page\PageIdentity;
+use MediaWiki\Title\Title;
 use Psr\Log\LoggerInterface;
 use RawAction;
+use RequestContext;
 use RevertAction;
 use RollbackAction;
-use SpecialPageAction;
 use UnwatchAction;
 use WatchAction;
 use Wikimedia\ObjectFactory\ObjectFactory;
@@ -50,14 +52,10 @@ class ActionFactory {
 	 */
 	private $actionsConfig;
 
-	/** @var LoggerInterface */
-	private $logger;
-
-	/** @var ObjectFactory */
-	private $objectFactory;
-
-	/** @var HookRunner */
-	private $hookRunner;
+	private LoggerInterface $logger;
+	private ObjectFactory $objectFactory;
+	private HookContainer $hookContainer;
+	private HookRunner $hookRunner;
 
 	/**
 	 * Core default action specifications
@@ -89,26 +87,14 @@ class ActionFactory {
 				'UserFactory',
 			],
 		],
-		'editchangetags' => [
-			'class' => SpecialPageAction::class,
-			'services' => [
-				'SpecialPageFactory',
-			],
-			'args' => [
-				// SpecialPageAction is used for both 'editchangetags' and 'revisiondelete'
-				// actions, tell it which one this is
-				'editchangetags',
-			],
-		],
 		'info' => [
 			'class' => InfoAction::class,
 			'services' => [
 				'ContentLanguage',
-				'HookContainer',
 				'LanguageNameUtils',
 				'LinkBatchFactory',
 				'LinkRenderer',
-				'DBLoadBalancer',
+				'DBLoadBalancerFactory',
 				'MagicWordFactory',
 				'NamespaceInfo',
 				'PageProps',
@@ -117,7 +103,8 @@ class ActionFactory {
 				'MainWANObjectCache',
 				'WatchedItemStore',
 				'RedirectLookup',
-				'MainConfig'
+				'RestrictionStore',
+				'LinksMigration',
 			],
 		],
 		'markpatrolled' => [
@@ -129,28 +116,32 @@ class ActionFactory {
 		'mcrundo' => [
 			'class' => McrUndoAction::class,
 			'services' => [
+				// Same as for McrRestoreAction
 				'ReadOnlyMode',
 				'RevisionLookup',
 				'RevisionRenderer',
+				'CommentFormatter',
 				'MainConfig',
 			],
 		],
 		'mcrrestore' => [
 			'class' => McrRestoreAction::class,
 			'services' => [
+				// Same as for McrUndoAction
 				'ReadOnlyMode',
 				'RevisionLookup',
 				'RevisionRenderer',
+				'CommentFormatter',
 				'MainConfig',
 			],
 		],
 		'raw' => [
 			'class' => RawAction::class,
 			'services' => [
-				'HookContainer',
 				'Parser',
 				'PermissionManager',
 				'RevisionLookup',
+				'RestrictionStore',
 			],
 		],
 		'revert' => [
@@ -158,17 +149,6 @@ class ActionFactory {
 			'services' => [
 				'ContentLanguage',
 				'RepoGroup',
-			],
-		],
-		'revisiondelete' => [
-			'class' => SpecialPageAction::class,
-			'services' => [
-				'SpecialPageFactory',
-			],
-			'args' => [
-				// SpecialPageAction is used for both 'editchangetags' and 'revisiondelete'
-				// actions, tell it which one this is
-				'revisiondelete',
 			],
 		],
 		'rollback' => [
@@ -212,12 +192,13 @@ class ActionFactory {
 		$this->actionsConfig = $actionsConfig;
 		$this->logger = $logger;
 		$this->objectFactory = $objectFactory;
+		$this->hookContainer = $hookContainer;
 		$this->hookRunner = new HookRunner( $hookContainer );
 	}
 
 	/**
 	 * @param string $actionName should already be in all lowercase
-	 * @return string|callable|bool|Action|array|null The spec for the action, in any valid form,
+	 * @return class-string|callable|false|Action|array|null The spec for the action, in any valid form,
 	 *   based on $this->actionsConfig, or if not included there, CORE_ACTIONS, or null if the
 	 *   action does not exist.
 	 */
@@ -239,13 +220,13 @@ class ActionFactory {
 	 * taking into account Article-specific overrides
 	 *
 	 * @param string $actionName
-	 * @param Article $article
+	 * @param Article|PageIdentity $article The target on which the action is to be performed.
 	 * @param IContextSource $context
-	 * @return Action|bool|null False if the action is disabled, null if not recognized
+	 * @return Action|false|null False if the action is disabled, null if not recognized
 	 */
 	public function getAction(
 		string $actionName,
-		Article $article,
+		$article,
 		IContextSource $context
 	) {
 		// Normalize to lowercase
@@ -255,6 +236,21 @@ class ActionFactory {
 		if ( $spec === false ) {
 			// The action is disabled
 			return $spec;
+		}
+
+		if ( $article instanceof PageIdentity ) {
+			if ( !$article->canExist() ) {
+				// Encountered a non-proper PageIdentity (e.g. a special page).
+				// We can't construct an Article object for a SpecialPage,
+				// so give up here. Actions are only defined for proper pages anyway.
+				// See T348451.
+				return null;
+			}
+
+			$article = Article::newFromTitle(
+				Title::newFromPageIdentity( $article ),
+				$context
+			);
 		}
 
 		// Check action overrides even for nonexistent actions, so that actions
@@ -308,7 +304,60 @@ class ActionFactory {
 				'assertClass' => Action::class
 			]
 		);
+		$actionObj->setHookContainer( $this->hookContainer );
 		return $actionObj;
+	}
+
+	/**
+	 * Returns an object containing information about the given action, or null if the action is not
+	 * known. Currently, this will also return null if the action is known but disabled. This may
+	 * change in the future.
+	 *
+	 * @note If $target refers to a non-proper page (such as a special page), this method will
+	 * currently return null due to limitations in the way it is implemented (T346036). This
+	 * will also happen when $target is null if the wiki's main page is not a proper page
+	 * (e.g. Special:MyLanguage/Main_Page, see T348451).
+	 *
+	 * @param string $name
+	 * @param Article|PageIdentity|null $target The target on which the action is to be performed,
+	 *     if known. This is used to apply page-specific action overrides.
+	 *
+	 * @return ?ActionInfo
+	 * @since 1.41
+	 */
+	public function getActionInfo( string $name, $target = null ): ?ActionInfo {
+		$context = RequestContext::getMain();
+
+		if ( !$target ) {
+			// If no target is given, check if the action is even defined before
+			// falling back to the main page. If $target is given, we can't
+			// exit early, since there may be action overrides defined for the page.
+			$spec = $this->getActionSpec( $name );
+			if ( !$spec ) {
+				return null;
+			}
+
+			$target = Title::newMainPage();
+		}
+
+		// TODO: In the future, this information should be taken directly from the action spec,
+		// without the need to instantiate an action object. However, action overrides will have
+		// to be taken into account if a target is given. (T346036)
+		$actionObj = $this->getAction( $name, $target, $context );
+
+		// TODO: When we no longer need to instantiate the action in order to determine the info,
+		// we will be able to return info for disabled actions as well.
+		if ( !$actionObj ) {
+			return null;
+		}
+
+		return new ActionInfo( [
+			'name' => $actionObj->getName(),
+			'restriction' => $actionObj->getRestriction(),
+			'needsReadRights' => $actionObj->needsReadRights(),
+			'requiresWrite' => $actionObj->requiresWrite(),
+			'requiresUnblock' => $actionObj->requiresUnblock(),
+		] );
 	}
 
 	/**
@@ -342,16 +391,10 @@ class ActionFactory {
 			return 'nosuchaction';
 		}
 
-		// Workaround for T22966: inability of IE to provide an action dependent
-		// on which submit button is clicked.
 		if ( $actionName === 'historysubmit' ) {
-			if ( $request->getBool( 'revisiondelete' ) ) {
-				$actionName = 'revisiondelete';
-			} elseif ( $request->getBool( 'editchangetags' ) ) {
-				$actionName = 'editchangetags';
-			} else {
-				$actionName = 'view';
-			}
+			// Compatibility with old URLs for no-JS form submissions from action=history (T323338, T22966).
+			// (This is needed to handle diff links; other uses of 'historysubmit' are handled in MediaWiki.php.)
+			$actionName = 'view';
 		} elseif ( $actionName === 'editredlink' ) {
 			$actionName = 'edit';
 		}
@@ -372,20 +415,6 @@ class ActionFactory {
 		}
 
 		return 'nosuchaction';
-	}
-
-	/**
-	 * @deprecated since 1.38
-	 * @param string $actionName
-	 * @return bool
-	 */
-	public function actionExists( string $actionName ): bool {
-		wfDeprecated( __METHOD__, '1.38' );
-		// Normalize to lowercase
-		$actionName = strtolower( $actionName );
-
-		// Null means no such action
-		return ( $this->getActionSpec( $actionName ) !== null );
 	}
 
 	/**

@@ -4,6 +4,11 @@ use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\StaticHookRegistry;
 use MediaWiki\Page\PageReference;
 use MediaWiki\Page\PageReferenceValue;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleArrayFromResult;
+use Wikimedia\EventRelayer\EventRelayer;
+use Wikimedia\EventRelayer\EventRelayerGroup;
+use Wikimedia\Rdbms\FakeResultWrapper;
 
 /**
  * @group Cache
@@ -56,7 +61,7 @@ class HtmlCacheUpdaterIntegrationTest extends MediaWikiIntegrationTestCase {
 		return $group;
 	}
 
-	public function providePurgeTitleUrls() {
+	public static function providePurgeTitleUrls() {
 		yield [ [], [] ];
 
 		yield [

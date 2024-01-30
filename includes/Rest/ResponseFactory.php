@@ -15,7 +15,6 @@ use Wikimedia\Message\MessageValue;
  * Generates standardized response objects.
  */
 class ResponseFactory {
-	private const CT_PLAIN = 'text/plain; charset=utf-8';
 	private const CT_HTML = 'text/html; charset=utf-8';
 	private const CT_JSON = 'application/json';
 
@@ -23,7 +22,7 @@ class ResponseFactory {
 	private $textFormatters;
 
 	/** @var bool Whether to send exception backtraces to the client */
-	private $sendExceptionBacktrace = false;
+	private $showExceptionDetails = false;
 
 	/**
 	 * @param ITextFormatter[] $textFormatters
@@ -33,12 +32,14 @@ class ResponseFactory {
 	}
 
 	/**
-	 * Controls whether error responses should include a backtrace
+	 * Control whether web responses may include a exception messager and backtrace
+	 *
+	 * @see $wgShowExceptionDetails
 	 * @since 1.39
-	 * @param bool $sendExceptionBacktrace
+	 * @param bool $showExceptionDetails
 	 */
-	public function setSendExceptionBacktrace( bool $sendExceptionBacktrace ): void {
-		$this->sendExceptionBacktrace = $sendExceptionBacktrace;
+	public function setShowExceptionDetails( bool $showExceptionDetails ): void {
+		$this->showExceptionDetails = $showExceptionDetails;
 	}
 
 	/**
@@ -74,7 +75,7 @@ class ResponseFactory {
 	 * @return Response
 	 */
 	public function createJson( $value, $contentType = null ) {
-		$contentType = $contentType ?? self::CT_JSON;
+		$contentType ??= self::CT_JSON;
 		$response = new Response( $this->encodeJson( $value ) );
 		$response->setHeader( 'Content-Type', $contentType );
 		return $response;
@@ -221,7 +222,9 @@ class ResponseFactory {
 			$response = $this->createLocalizedHttpError(
 				$exception->getCode(),
 				$exception->getMessageValue(),
-				(array)$exception->getErrorData()
+				$exception->getErrorData() + [
+					'errorKey' => $exception->getErrorKey(),
+				]
 			);
 		} elseif ( $exception instanceof ResponseException ) {
 			return $exception->getResponse();
@@ -237,22 +240,25 @@ class ResponseFactory {
 					$exception->getCode(),
 					array_merge(
 						[ 'message' => $exception->getMessage() ],
-						(array)$exception->getErrorData()
+						$exception->getErrorData()
 					)
 				);
 			}
-		} else {
+		} elseif ( $this->showExceptionDetails ) {
 			$response = $this->createHttpError( 500, [
 				'message' => 'Error: exception of type ' . get_class( $exception ) . ': '
 					. $exception->getMessage(),
 				'exception' => MWExceptionHandler::getStructuredExceptionData(
 					$exception,
-					MWExceptionHandler::CAUGHT_BY_OTHER,
-					$this->sendExceptionBacktrace
+					MWExceptionHandler::CAUGHT_BY_OTHER
 				)
 			] );
 			// XXX: should we try to do something useful with ILocalizedException?
 			// XXX: should we try to do something useful with common MediaWiki errors like ReadOnlyError?
+		} else {
+			$response = $this->createHttpError( 500, [
+				'message' => 'Error: exception of type ' . get_class( $exception ),
+			] );
 		}
 		return $response;
 	}

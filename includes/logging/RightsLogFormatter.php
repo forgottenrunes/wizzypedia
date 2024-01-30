@@ -23,7 +23,10 @@
  * @since 1.22
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
+use MediaWiki\WikiMap\WikiMap;
 
 /**
  * This class formats rights log entries.
@@ -32,8 +35,8 @@ use MediaWiki\MediaWikiServices;
  */
 class RightsLogFormatter extends LogFormatter {
 	protected function makePageLink( Title $title = null, $parameters = [], $html = null ) {
-		$userrightsInterwikiDelimiter = MediaWikiServices::getInstance()
-			->getMainConfig()->get( 'UserrightsInterwikiDelimiter' );
+		$userrightsInterwikiDelimiter = $this->context->getConfig()
+			->get( MainConfigNames::UserrightsInterwikiDelimiter );
 
 		if ( !$this->plaintext ) {
 			$text = MediaWikiServices::getInstance()->getContentLanguage()->
@@ -84,14 +87,15 @@ class RightsLogFormatter extends LogFormatter {
 		$newGroups = $this->makeGroupArray( $params[4] );
 
 		$userName = $this->entry->getTarget()->getText();
+		$lang = $this->context->getLanguage();
 		if ( !$this->plaintext && count( $oldGroups ) ) {
 			foreach ( $oldGroups as &$group ) {
-				$group = UserGroupMembership::getGroupMemberName( $group, $userName );
+				$group = $lang->getGroupMemberName( $group, $userName );
 			}
 		}
 		if ( !$this->plaintext && count( $newGroups ) ) {
 			foreach ( $newGroups as &$group ) {
-				$group = UserGroupMembership::getGroupMemberName( $group, $userName );
+				$group = $lang->getGroupMemberName( $group, $userName );
 			}
 		}
 
@@ -106,7 +110,7 @@ class RightsLogFormatter extends LogFormatter {
 		}
 		if ( count( $newGroups ) ) {
 			// Array_values is used here because of T44211
-			// see use of array_unique in UserrightsPage::doSaveUserGroups on $newGroups.
+			// see use of array_unique in SpecialUserRights::doSaveUserGroups on $newGroups.
 			$params[4] = Message::rawParam( $this->formatRightsList( array_values( $newGroups ),
 				$allParams['newmetadata'] ?? [] ) );
 		} else {
@@ -142,7 +146,7 @@ class RightsLogFormatter extends LogFormatter {
 					$expiryFormatted, $expiryFormattedD, $expiryFormattedT )->parse();
 			} else {
 				// the right does not expire; just insert the group name
-				$permList[] = $group;
+				$permList[] = htmlspecialchars( $group );
 			}
 
 			next( $groups );

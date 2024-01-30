@@ -1,4 +1,12 @@
 <?php
+
+namespace MediaWiki\Specials;
+
+use HTMLForm;
+use MediaWiki\SpecialPage\RedirectSpecialPage;
+use MediaWiki\Title\Title;
+use SearchEngineFactory;
+
 /**
  * Redirect from Special:NewSection/$1 to index.php?title=$1&action=edit&section=new.
  *
@@ -22,10 +30,19 @@
  * @author DannyS712
  */
 class SpecialNewSection extends RedirectSpecialPage {
-	public function __construct() {
+
+	private SearchEngineFactory $searchEngineFactory;
+
+	/**
+	 * @param SearchEngineFactory $searchEngineFactory
+	 */
+	public function __construct(
+		SearchEngineFactory $searchEngineFactory
+	) {
 		parent::__construct( 'NewSection' );
 		$this->mAllowedRedirectParams = [ 'preloadtitle', 'nosummary', 'editintro',
 			'preload', 'preloadparams', 'summary' ];
+		$this->searchEngineFactory = $searchEngineFactory;
 	}
 
 	/**
@@ -75,7 +92,25 @@ class SpecialNewSection extends RedirectSpecialPage {
 		return true;
 	}
 
+	/**
+	 * Return an array of subpages beginning with $search that this special page will accept.
+	 *
+	 * @param string $search Prefix to search for
+	 * @param int $limit Maximum number of results to return (usually 10)
+	 * @param int $offset Number of results to skip (usually 0)
+	 * @return string[] Matching subpages
+	 */
+	public function prefixSearchSubpages( $search, $limit, $offset ) {
+		return $this->prefixSearchString( $search, $limit, $offset, $this->searchEngineFactory );
+	}
+
 	protected function getGroupName() {
 		return 'redirects';
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialNewSection::class, 'SpecialNewSection' );

@@ -1,11 +1,8 @@
 <?php
 /** Franco-Provençal (arpetan)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
- *
+ * @ingroup Languages
  */
 
 $fallback = 'fr';
@@ -112,6 +109,7 @@ $specialPageAliases = [
 	'Randomredirect'            => [ 'Redirèccion_a_l\'hasârd', 'RedirèccionALHasârd' ],
 	'Recentchanges'             => [ 'Dèrriérs_changements', 'DèrriérsChangements' ],
 	'Recentchangeslinked'       => [ 'Survelyence_des_lims', 'SurvelyenceDesLims' ],
+	'Renameuser'                => [ 'Renomar_l\'usanciér', 'RenomarLUsanciér' ],
 	'Revisiondelete'            => [ 'Vèrsions_suprimâs', 'VèrsionsSuprimâs' ],
 	'Search'                    => [ 'Rechèrchiér', 'Rechèrche' ],
 	'Shortpages'                => [ 'Pâges_côrtes', 'PâgesCôrtes' ],

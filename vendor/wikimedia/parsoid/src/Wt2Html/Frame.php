@@ -21,7 +21,7 @@ use Wikimedia\Parsoid\Utils\TokenUtils;
  * exceed the maximum expansion depth.
  */
 class Frame {
-	/** @var Frame */
+	/** @var ?Frame */
 	private $parentFrame;
 
 	/** @var Env */
@@ -186,8 +186,8 @@ class Frame {
 			return [ $arg ];
 		} else {
 			return $this->expand( $arg, [
-				'expandTemplates' => false,
-				'inTemplate' => false,
+				'expandTemplates' => true,
+				'inTemplate' => true,
 				'srcOffsets' => $srcOffsets,
 			] );
 		}

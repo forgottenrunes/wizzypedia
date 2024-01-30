@@ -5,6 +5,7 @@ use MediaWiki\Block\Restriction\PageRestriction;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
+use MediaWiki\Title\Title;
 
 /**
  * Tests for action=revisiondelete
@@ -16,15 +17,15 @@ use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
 class ApiRevisionDeleteTest extends ApiTestCase {
 	use MockAuthorityTrait;
 
-	public static $page = 'Help:ApiRevDel_test';
 	public $revs = [];
 
 	protected function setUp(): void {
 		parent::setUp();
 		// Make a few edits for us to play with
+		$title = Title::makeTitle( NS_HELP, 'ApiRevDel_test' );
 		for ( $i = 1; $i <= 5; $i++ ) {
-			$this->editPage( self::$page, MWCryptRand::generateHex( 10 ), 'summary' );
-			$this->revs[] = Title::newFromText( self::$page )->getLatestRevID( Title::READ_LATEST );
+			$status = $this->editPage( $title, MWCryptRand::generateHex( 10 ), 'summary' );
+			$this->revs[] = $status->getNewRevision()->getId();
 		}
 	}
 
@@ -33,8 +34,9 @@ class ApiRevisionDeleteTest extends ApiTestCase {
 		$revid = array_shift( $this->revs );
 		$out = $this->doApiRequestWithToken( [
 			'action' => 'revisiondelete',
+			'reason' => __METHOD__,
 			'type' => 'revision',
-			'target' => self::$page,
+			'target' => 'Help:ApiRevDel_test',
 			'ids' => $revid,
 			'hide' => 'content|user|comment',
 		], null, $performer );
@@ -59,8 +61,9 @@ class ApiRevisionDeleteTest extends ApiTestCase {
 		// Now test unhiding!
 		$out2 = $this->doApiRequestWithToken( [
 			'action' => 'revisiondelete',
+			'reason' => __METHOD__,
 			'type' => 'revision',
-			'target' => self::$page,
+			'target' => 'Help:ApiRevDel_test',
 			'ids' => $revid,
 			'show' => 'content|user|comment',
 		], null, $performer );
@@ -92,16 +95,18 @@ class ApiRevisionDeleteTest extends ApiTestCase {
 		// Hide revisions
 		$this->doApiRequestWithToken( [
 			'action' => 'revisiondelete',
+			'reason' => __METHOD__,
 			'type' => 'revision',
-			'target' => self::$page,
+			'target' => 'Help:ApiRevDel_test',
 			'ids' => $revid,
 			'hide' => 'content|user|comment',
 		], null, $performer );
 
 		$out = $this->doApiRequestWithToken( [
 			'action' => 'revisiondelete',
+			'reason' => __METHOD__,
 			'type' => 'revision',
-			'target' => self::$page,
+			'target' => 'Help:ApiRevDel_test',
 			'ids' => $revid,
 			'show' => 'comment',
 		], null, $performer );
@@ -118,7 +123,7 @@ class ApiRevisionDeleteTest extends ApiTestCase {
 	}
 
 	public function testPartiallyBlockedPage() {
-		$this->setExpectedApiException( 'apierror-blocked-partial' );
+		$this->expectApiErrorCode( 'blocked' );
 		$performer = $this->mockAnonAuthorityWithPermissions( [ 'writeapi', 'deleterevision' ] );
 
 		$block = new DatabaseBlock( [
@@ -127,8 +132,9 @@ class ApiRevisionDeleteTest extends ApiTestCase {
 			'sitewide' => false,
 		] );
 
+		$title = Title::makeTitle( NS_HELP, 'ApiRevDel_test' );
 		$block->setRestrictions( [
-			new PageRestriction( 0, Title::newFromText( self::$page )->getArticleID() )
+			new PageRestriction( 0, $title->getArticleID() )
 		] );
 		$this->getServiceContainer()->getDatabaseBlockStore()->insertBlock( $block );
 
@@ -136,8 +142,9 @@ class ApiRevisionDeleteTest extends ApiTestCase {
 
 		$this->doApiRequestWithToken( [
 			'action' => 'revisiondelete',
+			'reason' => __METHOD__,
 			'type' => 'revision',
-			'target' => self::$page,
+			'target' => $title->getPrefixedText(),
 			'ids' => $revid,
 			'hide' => 'content|user|comment',
 		], null, $performer );

@@ -31,7 +31,12 @@ use MediaWiki\Content\Renderer\ContentParseParams;
 use MediaWiki\Content\Transform\PreloadTransformParamsValue;
 use MediaWiki\Content\Transform\PreSaveTransformParamsValue;
 use MediaWiki\Content\ValidationParams;
+use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Parser\MagicWord;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 
 /**
  * Base implementation for content objects.
@@ -175,6 +180,29 @@ abstract class AbstractContent implements Content {
 	}
 
 	/**
+	 * Returns native representation of the data. Interpretation depends on
+	 * the data model used, as given by getDataModel().
+	 *
+	 * @stable to override
+	 * @since 1.21
+	 *
+	 * @deprecated since 1.33. Use getText() for TextContent instances.
+	 *             For other content models, use specialized getters.
+	 *             Emitting deprecation warnings since 1.41.
+	 *
+	 * @return mixed The native representation of the content. Could be a
+	 *    string, a nested array structure, an object, a binary blob...
+	 *    anything, really.
+	 * @throws LogicException
+	 *
+	 * @note Caller must be aware of content model!
+	 */
+	public function getNativeData() {
+		wfDeprecated( __METHOD__, '1.33' );
+		throw new LogicException( __METHOD__ . ': not implemented' );
+	}
+
+	/**
 	 * @stable to override
 	 * @since 1.21
 	 *
@@ -267,46 +295,6 @@ abstract class AbstractContent implements Content {
 	}
 
 	/**
-	 * @since 1.21
-	 * @deprecated since 1.38 Support for $wgMaxRedirect will be removed
-	 *   soon so this will go away with it. See T296430.
-	 *
-	 * @return Title[]|null
-	 *
-	 * @see Content::getRedirectChain
-	 */
-	public function getRedirectChain() {
-		$maxRedirects = MediaWikiServices::getInstance()->getMainConfig()->get( 'MaxRedirects' );
-		$title = $this->getRedirectTarget();
-		if ( $title === null ) {
-			return null;
-		}
-		$wikiPageFactory = MediaWikiServices::getInstance()->getWikiPageFactory();
-		// recursive check to follow double redirects
-		$recurse = $maxRedirects;
-		$titles = [ $title ];
-		while ( --$recurse > 0 ) {
-			if ( $title->isRedirect() ) {
-				$page = $wikiPageFactory->newFromTitle( $title );
-				$newtitle = $page->getRedirectTarget();
-			} else {
-				break;
-			}
-			// Redirects to some special pages are not permitted
-			if ( $newtitle instanceof Title && $newtitle->isValidRedirectTarget() ) {
-				// The new title passes the checks, so make that our current
-				// title so that further recursion can be checked
-				$title = $newtitle;
-				$titles[] = $newtitle;
-			} else {
-				break;
-			}
-		}
-
-		return $titles;
-	}
-
-	/**
 	 * Subclasses that implement redirects should override this.
 	 *
 	 * @stable to override
@@ -318,23 +306,6 @@ abstract class AbstractContent implements Content {
 	 */
 	public function getRedirectTarget() {
 		return null;
-	}
-
-	/**
-	 * @note Migrated here from Title::newFromRedirectRecurse.
-	 *
-	 * @since 1.21
-	 * @deprecated since 1.38 Support for $wgMaxRedirect will be removed
-	 *   soon so this will go away with it. See T296430.
-	 *
-	 * @return Title|null
-	 *
-	 * @see Content::getUltimateRedirectTarget
-	 */
-	public function getUltimateRedirectTarget() {
-		$titles = $this->getRedirectChain();
-
-		return $titles ? array_pop( $titles ) : null;
 	}
 
 	/**
@@ -382,7 +353,7 @@ abstract class AbstractContent implements Content {
 	 * @stable to override
 	 * @since 1.21
 	 *
-	 * @param string|int|null|bool $sectionId
+	 * @param string|int|null|false $sectionId
 	 * @param Content $with
 	 * @param string $sectionTitle
 	 * @return null
@@ -513,7 +484,7 @@ abstract class AbstractContent implements Content {
 	 * @param string $toModel
 	 * @param string $lossy
 	 *
-	 * @return Content|bool
+	 * @return Content|false
 	 *
 	 * @see Content::convert()
 	 */
@@ -526,7 +497,8 @@ abstract class AbstractContent implements Content {
 		$lossy = ( $lossy === 'lossy' ); // string flag, convert to boolean for convenience
 		$result = false;
 
-		Hooks::runner()->onConvertContent( $this, $toModel, $lossy, $result );
+		( new HookRunner( MediaWikiServices::getInstance()->getHookContainer() ) )
+			->onConvertContent( $this, $toModel, $lossy, $result );
 
 		return $result;
 	}
@@ -570,14 +542,13 @@ abstract class AbstractContent implements Content {
 		);
 
 		if ( $detectGPODeprecatedOverride || $detectFPODeprecatedOverride ) {
-			if ( $options === null ) {
-				$options = ParserOptions::newCanonical( 'canonical' );
-			}
+			$options ??= ParserOptions::newFromAnon();
 
 			$po = new ParserOutput();
 			$options->registerWatcher( [ $po, 'recordOption' ] );
 
-			if ( Hooks::runner()->onContentGetParserOutput(
+			$hookRunner = new HookRunner( MediaWikiServices::getInstance()->getHookContainer() );
+			if ( $hookRunner->onContentGetParserOutput(
 				$this, $title, $revId, $options, $generateHtml, $po )
 			) {
 				// Save and restore the old value, just in case something is reusing
@@ -588,7 +559,7 @@ abstract class AbstractContent implements Content {
 				$options->setRedirectTarget( $oldRedir );
 			}
 
-			Hooks::runner()->onContentAlterParserOutput( $this, $title, $po );
+			$hookRunner->onContentAlterParserOutput( $this, $title, $po );
 			$options->registerWatcher( null );
 
 			return $po;
@@ -627,6 +598,6 @@ abstract class AbstractContent implements Content {
 	) {
 		wfDeprecated( __METHOD__, '1.38' );
 		$cpoParams = new ContentParseParams( $title, $revId, $options, $generateHtml );
-		return $this->getContentHandler()->fillParserOutputInternal( $this, $cpoParams, $output );
+		$this->getContentHandler()->fillParserOutputInternal( $this, $cpoParams, $output );
 	}
 }

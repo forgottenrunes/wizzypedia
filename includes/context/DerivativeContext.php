@@ -18,8 +18,15 @@
  * @author Daniel Friesen
  * @file
  */
+
+use MediaWiki\Config\Config;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Output\OutputPage;
 use MediaWiki\Permissions\Authority;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
+use Wikimedia\Assert\Assert;
 
 /**
  * An IContextSource implementation which will inherit context from another source
@@ -46,9 +53,9 @@ class DerivativeContext extends ContextSource implements MutableContext {
 	private $wikipage;
 
 	/**
-	 * @var string
+	 * @var string|null|false
 	 */
-	private $action;
+	private $action = false;
 
 	/**
 	 * @var OutputPage
@@ -56,7 +63,7 @@ class DerivativeContext extends ContextSource implements MutableContext {
 	private $output;
 
 	/**
-	 * @var User
+	 * @var User|null
 	 */
 	private $user;
 
@@ -108,15 +115,6 @@ class DerivativeContext extends ContextSource implements MutableContext {
 	}
 
 	/**
-	 * @deprecated since 1.27 use a StatsdDataFactory from MediaWikiServices (preferably injected)
-	 *
-	 * @return IBufferingStatsdDataFactory
-	 */
-	public function getStats() {
-		return MediaWikiServices::getInstance()->getStatsdDataFactory();
-	}
-
-	/**
 	 * @return Timing
 	 */
 	public function getTiming() {
@@ -142,6 +140,7 @@ class DerivativeContext extends ContextSource implements MutableContext {
 	 */
 	public function setTitle( Title $title ) {
 		$this->title = $title;
+		$this->action = null;
 	}
 
 	/**
@@ -176,7 +175,12 @@ class DerivativeContext extends ContextSource implements MutableContext {
 	 * @param WikiPage $wikiPage
 	 */
 	public function setWikiPage( WikiPage $wikiPage ) {
+		$pageTitle = $wikiPage->getTitle();
+		if ( !$this->title || !$pageTitle->equals( $this->title ) ) {
+			$this->setTitle( $pageTitle );
+		}
 		$this->wikipage = $wikiPage;
+		$this->action = null;
 	}
 
 	/**
@@ -189,6 +193,10 @@ class DerivativeContext extends ContextSource implements MutableContext {
 	 * @return WikiPage
 	 */
 	public function getWikiPage() {
+		if ( !$this->wikipage && $this->title ) {
+			$this->wikipage = MediaWikiServices::getInstance()->getWikiPageFactory()->newFromTitle( $this->title );
+		}
+
 		return $this->wikipage ?: $this->getContext()->getWikiPage();
 	}
 
@@ -207,7 +215,15 @@ class DerivativeContext extends ContextSource implements MutableContext {
 	 * @return string Action
 	 */
 	public function getActionName(): string {
-		return $this->action ?: $this->getContext()->getActionName();
+		if ( $this->action === false ) {
+			return $this->getContext()->getActionName();
+		}
+
+		$this->action ??= MediaWikiServices::getInstance()
+			->getActionFactory()
+			->getActionName( $this );
+
+		return $this->action;
 	}
 
 	/**
@@ -236,14 +252,19 @@ class DerivativeContext extends ContextSource implements MutableContext {
 	 * @return User
 	 */
 	public function getUser() {
+		if ( !$this->user && $this->authority ) {
+			// Keep user consistent by using a possible set authority
+			$this->user = MediaWikiServices::getInstance()
+				->getUserFactory()
+				->newFromAuthority( $this->authority );
+		}
 		return $this->user ?: $this->getContext()->getUser();
 	}
 
 	public function setAuthority( Authority $authority ) {
 		$this->authority = $authority;
-		$this->user = MediaWikiServices::getInstance()
-			->getUserFactory()
-			->newFromAuthority( $authority );
+		// If needed, a User object is constructed from this authority
+		$this->user = null;
 	}
 
 	/**
@@ -256,18 +277,16 @@ class DerivativeContext extends ContextSource implements MutableContext {
 
 	/**
 	 * @param Language|string $language Language instance or language code
-	 * @throws MWException
 	 * @since 1.19
 	 */
 	public function setLanguage( $language ) {
+		Assert::parameterType( [ Language::class, 'string' ], $language, '$language' );
 		if ( $language instanceof Language ) {
 			$this->lang = $language;
-		} elseif ( is_string( $language ) ) {
+		} else {
 			$language = RequestContext::sanitizeLangCode( $language );
 			$obj = MediaWikiServices::getInstance()->getLanguageFactory()->getLanguage( $language );
 			$this->lang = $obj;
-		} else {
-			throw new MWException( __METHOD__ . " was passed an invalid type of data." );
 		}
 	}
 

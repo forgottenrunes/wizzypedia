@@ -1,11 +1,15 @@
 <?php
 
 use MediaWiki\Interwiki\ClassicInterwikiLookup;
+use MediaWiki\MainConfigNames;
 
 /**
  * @group Upload
  */
 class UploadBaseTest extends MediaWikiIntegrationTestCase {
+
+	/** @var string */
+	protected const UPLOAD_PATH = "/tests/phpunit/data/upload/";
 
 	/** @var UploadTestHandler */
 	protected $upload;
@@ -15,11 +19,12 @@ class UploadBaseTest extends MediaWikiIntegrationTestCase {
 
 		$this->upload = new UploadTestHandler;
 
-		$this->setMwGlobals( [
-			'wgInterwikiCache' => ClassicInterwikiLookup::buildCdbHash( [
+		$this->overrideConfigValue(
+			MainConfigNames::InterwikiCache,
+			ClassicInterwikiLookup::buildCdbHash( [
 				// no entries, no interwiki prefixes
-			] ),
-		] );
+			] )
+		);
 	}
 
 	/**
@@ -110,9 +115,9 @@ class UploadBaseTest extends MediaWikiIntegrationTestCase {
 	 * This method should be abstracted so we can test different settings.
 	 */
 	public function testMaxUploadSize() {
-		$this->setMwGlobals( [
-			'wgMaxUploadSize' => 100,
-			'wgFileExtensions' => [
+		$this->overrideConfigValues( [
+			MainConfigNames::MaxUploadSize => 100,
+			MainConfigNames::FileExtensions => [
 				'txt',
 			],
 		] );
@@ -132,7 +137,7 @@ class UploadBaseTest extends MediaWikiIntegrationTestCase {
 	 * @dataProvider provideCheckSvgScriptCallback
 	 */
 	public function testCheckSvgScriptCallback( $svg, $wellFormed, $filterMatch, $message ) {
-		list( $formed, $match ) = $this->upload->checkSvgString( $svg );
+		[ $formed, $match ] = $this->upload->checkSvgString( $svg );
 		$this->assertSame( $wellFormed, $formed, $message . " (well-formed)" );
 		$this->assertSame( $filterMatch, $match, $message . " (filter match)" );
 	}
@@ -157,6 +162,13 @@ class UploadBaseTest extends MediaWikiIntegrationTestCase {
 				true,
 				true,
 				'SVG with onload property (http://html5sec.org/#65)'
+			],
+			[
+				'<svg xmlns="http://www.w3.org/2000/svg" xmlns:svg="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   ><defs><inkscape:path-effect svg:onload="javascript:alert(1)" /></defs></svg>',
+				true,
+				true,
+				'SVG with svg:onload on a non-svg element (probably not a thing)'
 			],
 			[
 				'<svg xmlns="http://www.w3.org/2000/svg"> <a xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="javascript:alert(1)"><rect width="1000" height="1000" fill="white"/></a> </svg>',
@@ -540,27 +552,32 @@ class UploadBaseTest extends MediaWikiIntegrationTestCase {
 		global $IP;
 		return [
 			[
-				"$IP/tests/phpunit/data/upload/buggynamespace-original.svg",
+				$IP . self::UPLOAD_PATH . "buggynamespace-original.svg",
 				false,
 				'SVG with a weird but valid namespace definition created by Adobe Illustrator'
 			],
 			[
-				"$IP/tests/phpunit/data/upload/buggynamespace-okay.svg",
+				$IP . self::UPLOAD_PATH . "buggynamespace-okay.svg",
 				false,
 				'SVG with a namespace definition created by Adobe Illustrator and mangled by Inkscape'
 			],
 			[
-				"$IP/tests/phpunit/data/upload/buggynamespace-okay2.svg",
+				$IP . self::UPLOAD_PATH . "buggynamespace-okay2.svg",
 				false,
 				'SVG with a namespace definition created by Adobe Illustrator and mangled by Inkscape (twice)'
 			],
 			[
-				"$IP/tests/phpunit/data/upload/buggynamespace-bad.svg",
+				$IP . self::UPLOAD_PATH . "inkscape-only-selected.svg",
+				false,
+				'SVG with an inkscape only-selected attribute'
+			],
+			[
+				$IP . self::UPLOAD_PATH . "buggynamespace-bad.svg",
 				[ 'uploadscriptednamespace', 'i' ],
 				'SVG with a namespace definition using an undefined entity'
 			],
 			[
-				"$IP/tests/phpunit/data/upload/buggynamespace-evilhtml.svg",
+				$IP . self::UPLOAD_PATH . "buggynamespace-evilhtml.svg",
 				[ 'uploadscriptednamespace', 'http://www.w3.org/1999/xhtml' ],
 				'SVG with an html namespace encoded as an entity'
 			],
@@ -577,11 +594,12 @@ class UploadBaseTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( $evil, UploadBase::checkXMLEncodingMissmatch( $filename ) );
 	}
 
-	public function provideCheckXMLEncodingMissmatch() {
+	public static function provideCheckXMLEncodingMissmatch() {
 		return [
 			[ '<?xml version="1.0" encoding="utf-7"?><svg></svg>', true ],
 			[ '<?xml version="1.0" encoding="utf-8"?><svg></svg>', false ],
 			[ '<?xml version="1.0" encoding="WINDOWS-1252"?><svg></svg>', false ],
+			[ '<?xml version="1.0" encoding="us-ascii"?><svg></svg>', false ],
 		];
 	}
 
@@ -598,25 +616,25 @@ class UploadBaseTest extends MediaWikiIntegrationTestCase {
 		global $IP;
 		return [
 			[
-				"$IP/tests/phpunit/data/upload/png-plain.png",
+				$IP . self::UPLOAD_PATH . "png-plain.png",
 				'image/png',
 				'png',
 				false,
-				'PNG with no suspicious things in it, should pass.'
+				'PNG with no suspicious things in it; should pass.'
 			],
 			[
-				"$IP/tests/phpunit/data/upload/png-embedded-breaks-ie5.png",
+				$IP . self::UPLOAD_PATH . "png-embedded-breaks-ie5.png",
 				'image/png',
 				'png',
 				true,
 				'PNG with embedded data that IE5/6 interprets as HTML; should be rejected.'
 			],
 			[
-				"$IP/tests/phpunit/data/upload/jpeg-a-href-in-metadata.jpg",
+				$IP . self::UPLOAD_PATH . "jpeg-a-href-in-metadata.jpg",
 				'image/jpeg',
 				'jpeg',
 				false,
-				'JPEG with innocuous HTML in metadata from a flickr photo; should pass (T27707).'
+				'JPEG with innocuous HTML in metadata from a flickr photo; should pass (T27707).',
 			],
 		];
 	}

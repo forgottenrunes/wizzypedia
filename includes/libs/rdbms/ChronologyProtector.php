@@ -1,7 +1,5 @@
 <?php
 /**
- * Generator of database load balancing objects.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,16 +16,15 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Database
  */
-
 namespace Wikimedia\Rdbms;
 
 use BagOStuff;
+use EmptyBagOStuff;
+use LogicException;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
-use Wikimedia\WaitConditionLoop;
 
 /**
  * Provide a given client with protection against visible database lag.
@@ -131,11 +128,17 @@ use Wikimedia\WaitConditionLoop;
  *   that writes may be slower (due to cross-dc latency).
  *   See [T91820](https://phabricator.wikimedia.org/T91820) for %Wikimedia Foundation's routing.
  *
+ * @ingroup Database
  * @internal
  */
 class ChronologyProtector implements LoggerAwareInterface {
+	/** @var array Web request information about the client */
+	private $requestInfo;
+	/** @var string Secret string for HMAC hashing */
+	private string $secret;
+	private bool $cliMode;
 	/** @var BagOStuff */
-	protected $store;
+	private $store;
 	/** @var LoggerInterface */
 	protected $logger;
 
@@ -150,15 +153,13 @@ class ChronologyProtector implements LoggerAwareInterface {
 
 	/** @var bool Whether reading/writing session consistency replication positions is enabled */
 	protected $enabled = true;
-	/** @var bool Whether waiting on DB servers to reach replication positions is enabled */
-	protected $positionWaitsEnabled = true;
 	/** @var float|null UNIX timestamp when the client data was loaded */
 	protected $startupTimestamp;
 
-	/** @var array<string,DBPrimaryPos> Map of (DB primary name => position) */
-	protected $startupPositionsByMaster = [];
-	/** @var array<string,DBPrimaryPos> Map of (DB primary name => position) */
-	protected $shutdownPositionsByMaster = [];
+	/** @var array<string,DBPrimaryPos> Map of (primary server name => position) */
+	protected $startupPositionsByPrimary = [];
+	/** @var array<string,DBPrimaryPos> Map of (primary server name => position) */
+	protected $shutdownPositionsByPrimary = [];
 	/** @var array<string,float> Map of (DB cluster name => UNIX timestamp) */
 	protected $startupTimestampsByCluster = [];
 	/** @var array<string,float> Map of (DB cluster name => UNIX timestamp) */
@@ -167,12 +168,23 @@ class ChronologyProtector implements LoggerAwareInterface {
 	/** @var float|null */
 	private $wallClockOverride;
 
+	/**
+	 * Whether a clientId is new during this request.
+	 *
+	 * If the clientId wasn't passed by the incoming request, lazyStartup()
+	 * can skip fetching position data, and thus LoadBalancer can skip
+	 * its IDatabase::primaryPosWait() call.
+	 *
+	 * See also: <https://phabricator.wikimedia.org/T314434>
+	 *
+	 * @var bool
+	 */
+	private $hasNewClientId = false;
+
 	/** Seconds to store position write index cookies (safely less than POSITION_STORE_TTL) */
 	public const POSITION_COOKIE_TTL = 10;
 	/** Seconds to store replication positions */
 	private const POSITION_STORE_TTL = 60;
-	/** Max seconds to wait for positions write indexes to appear (e.g. replicate) in storage */
-	private const POSITION_INDEX_WAIT_TIMEOUT = 5;
 
 	/** Lock timeout to use for key updates */
 	private const LOCK_TIMEOUT = 3;
@@ -184,40 +196,72 @@ class ChronologyProtector implements LoggerAwareInterface {
 	private const FLD_WRITE_INDEX = 'writeIndex';
 
 	/**
-	 * @param BagOStuff $store
-	 * @param array $client Map of (ip: <IP>, agent: <user-agent> [, clientId: <hash>] )
-	 * @param int|null $clientPosIndex Write counter index of replication positions for this client
-	 * @param string $secret Secret string for HMAC hashing [optional]
+	 * @param BagOStuff|null $cpStash
+	 * @param string|null $secret Secret string for HMAC hashing [optional]
+	 * @param bool|null $cliMode Whether the context is CLI or not, setting it to true would disable CP
+	 * @param LoggerInterface|null $logger
 	 * @since 1.27
 	 */
-	public function __construct(
-		BagOStuff $store,
-		array $client,
-		?int $clientPosIndex,
-		string $secret = ''
-	) {
-		$this->store = $store;
+	public function __construct( $cpStash = null, $secret = null, $cliMode = null, $logger = null ) {
+		$this->requestInfo = [
+			'IPAddress' => $_SERVER['REMOTE_ADDR'] ?? '',
+			'UserAgent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+			// Headers application can inject via LBFactory::setRequestInfo()
+			'ChronologyClientId' => null, // prior $cpClientId value from LBFactory::shutdown()
+			'ChronologyPositionIndex' => null // prior $cpIndex value from LBFactory::shutdown()
+		];
+		$this->store = $cpStash ?? new EmptyBagOStuff();
+		$this->secret = $secret ?? '';
+		$this->logger = $logger ?? new NullLogger();
+		$this->cliMode = $cliMode ?? ( PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg' );
+	}
+
+	private function load() {
+		// Not enabled or already loaded, short-circuit.
+		if ( !$this->enabled || $this->clientId ) {
+			return;
+		}
+		$client = [
+			'ip' => $this->requestInfo['IPAddress'],
+			'agent' => $this->requestInfo['UserAgent'],
+			'clientId' => $this->requestInfo['ChronologyClientId'] ?: null
+		];
+		if ( $this->cliMode ) {
+			$this->setEnabled( false );
+		} elseif ( $this->store instanceof EmptyBagOStuff ) {
+			// No where to store any DB positions and wait for them to appear
+			$this->setEnabled( false );
+			$this->logger->debug( 'Cannot use ChronologyProtector with EmptyBagOStuff' );
+		}
 
 		if ( isset( $client['clientId'] ) ) {
 			$this->clientId = $client['clientId'];
 		} else {
-			$this->clientId = ( $secret != '' )
-				? hash_hmac( 'md5', $client['ip'] . "\n" . $client['agent'], $secret )
+			$this->hasNewClientId = true;
+			$this->clientId = ( $this->secret != '' )
+				? hash_hmac( 'md5', $client['ip'] . "\n" . $client['agent'], $this->secret )
 				: md5( $client['ip'] . "\n" . $client['agent'] );
 		}
-		$this->key = $store->makeGlobalKey( __CLASS__, $this->clientId, 'v2' );
-		$this->waitForPosIndex = $clientPosIndex;
+		$this->key = $this->store->makeGlobalKey( __CLASS__, $this->clientId, 'v4' );
+		$this->waitForPosIndex = $this->requestInfo['ChronologyPositionIndex'];
 
 		$this->clientLogInfo = [
 			'clientIP' => $client['ip'],
 			'clientAgent' => $client['agent'],
 			'clientId' => $client['clientId'] ?? null
 		];
+	}
 
-		$this->logger = new NullLogger();
+	public function setRequestInfo( array $info ) {
+		if ( $this->clientId ) {
+			throw new LogicException( 'ChronologyProtector already initialized' );
+		}
+
+		$this->requestInfo = $info + $this->requestInfo;
 	}
 
 	public function setLogger( LoggerInterface $logger ) {
+		$this->load();
 		$this->logger = $logger;
 	}
 
@@ -226,6 +270,7 @@ class ChronologyProtector implements LoggerAwareInterface {
 	 * @since 1.32
 	 */
 	public function getClientId() {
+		$this->load();
 		return $this->clientId;
 	}
 
@@ -238,41 +283,35 @@ class ChronologyProtector implements LoggerAwareInterface {
 	}
 
 	/**
-	 * @param bool $enabled Whether session replication position wait barriers are enable
-	 * @since 1.27
-	 */
-	public function setWaitEnabled( $enabled ) {
-		$this->positionWaitsEnabled = $enabled;
-	}
-
-	/**
-	 * Apply client "session consistency" replication position to a new ILoadBalancer
+	 * Yield client "session consistency" replication position for a new ILoadBalancer
 	 *
 	 * If the stash has a previous primary position recorded, this will try to make
-	 * sure that the next query to a replica DB of that primary DB will see changes up
+	 * sure that the next query to a replica server of that primary will see changes up
 	 * to that position by delaying execution. The delay may timeout and allow stale
-	 * data if no non-lagged replica DBs are available.
+	 * data if no non-lagged replica servers are available.
 	 *
 	 * @internal This method should only be called from LBFactory.
 	 *
 	 * @param ILoadBalancer $lb
-	 * @return void
+	 * @return DBPrimaryPos|null
 	 */
-	public function applySessionReplicationPosition( ILoadBalancer $lb ) {
-		if ( !$this->enabled || !$this->positionWaitsEnabled ) {
-			return;
+	public function getSessionPrimaryPos( ILoadBalancer $lb ) {
+		$this->load();
+		if ( !$this->enabled ) {
+			return null;
 		}
 
 		$cluster = $lb->getClusterName();
-		$masterName = $lb->getServerName( $lb->getWriterIndex() );
+		$primaryName = $lb->getServerName( $lb->getWriterIndex() );
 
-		$pos = $this->getStartupSessionPositions()[$masterName] ?? null;
+		$pos = $this->getStartupSessionPositions()[$primaryName] ?? null;
 		if ( $pos instanceof DBPrimaryPos ) {
-			$this->logger->debug( __METHOD__ . ": $cluster ($masterName) position is '$pos'" );
-			$lb->waitFor( $pos );
+			$this->logger->debug( "ChronologyProtector will wait for '$pos' on $cluster ($primaryName)'" );
 		} else {
-			$this->logger->debug( __METHOD__ . ": $cluster ($masterName) has no position" );
+			$this->logger->debug( "ChronologyProtector skips wait on $cluster ($primaryName)" );
 		}
+
+		return $pos;
 	}
 
 	/**
@@ -286,7 +325,8 @@ class ChronologyProtector implements LoggerAwareInterface {
 	 * @param ILoadBalancer $lb
 	 * @return void
 	 */
-	public function stageSessionReplicationPosition( ILoadBalancer $lb ) {
+	public function stageSessionPrimaryPos( ILoadBalancer $lb ) {
+		$this->load();
 		if ( !$this->enabled || !$lb->hasOrMadeRecentPrimaryChanges( INF ) ) {
 			return;
 		}
@@ -295,10 +335,14 @@ class ChronologyProtector implements LoggerAwareInterface {
 		$masterName = $lb->getServerName( $lb->getWriterIndex() );
 
 		if ( $lb->hasStreamingReplicaServers() ) {
-			$pos = $lb->getReplicaResumePos();
+			$primaryConn = $lb->getAnyOpenConnection( ServerInfo::WRITER_INDEX );
+			$pos = null;
+			if ( $primaryConn ) {
+				$pos = $primaryConn->getPrimaryPos();
+			}
 			if ( $pos ) {
 				$this->logger->debug( __METHOD__ . ": $cluster ($masterName) position now '$pos'" );
-				$this->shutdownPositionsByMaster[$masterName] = $pos;
+				$this->shutdownPositionsByPrimary[$masterName] = $pos;
 				$this->shutdownTimestampsByCluster[$cluster] = $pos->asOfTime();
 			} else {
 				$this->logger->debug( __METHOD__ . ": $cluster ($masterName) position unknown" );
@@ -319,26 +363,29 @@ class ChronologyProtector implements LoggerAwareInterface {
 	 * @return DBPrimaryPos[] Empty on success; map of (db name => unsaved position) on failure
 	 */
 	public function persistSessionReplicationPositions( &$clientPosIndex = null ) {
+		$this->load();
 		if ( !$this->enabled ) {
 			return [];
 		}
 
 		if ( !$this->shutdownTimestampsByCluster ) {
-			$this->logger->debug( __METHOD__ . ": no primary positions/timestamps to save" );
+			$this->logger->debug( __METHOD__ . ": no primary positions data to save" );
 
 			return [];
 		}
 
 		$scopeLock = $this->store->getScopedLock( $this->key, self::LOCK_TIMEOUT, self::LOCK_TTL );
 		if ( $scopeLock ) {
+			$positions = $this->mergePositions(
+				$this->unmarshalPositions( $this->store->get( $this->key ) ),
+				$this->shutdownPositionsByPrimary,
+				$this->shutdownTimestampsByCluster,
+				$clientPosIndex
+			);
+
 			$ok = $this->store->set(
 				$this->key,
-				$this->mergePositions(
-					$this->store->get( $this->key ),
-					$this->shutdownPositionsByMaster,
-					$this->shutdownTimestampsByCluster,
-					$clientPosIndex
-				),
+				$this->marshalPositions( $positions ),
 				self::POSITION_STORE_TTL
 			);
 			unset( $scopeLock );
@@ -349,18 +396,13 @@ class ChronologyProtector implements LoggerAwareInterface {
 		$clusterList = implode( ', ', array_keys( $this->shutdownTimestampsByCluster ) );
 
 		if ( $ok ) {
+			$this->logger->debug( "ChronologyProtector saved position data for $clusterList" );
 			$bouncedPositions = [];
-			$this->logger->debug(
-				__METHOD__ . ": saved primary positions/timestamp for DB cluster(s) $clusterList"
-			);
-
 		} else {
-			$clientPosIndex = null; // nothing saved
-			$bouncedPositions = $this->shutdownPositionsByMaster;
-			// Raced out too many times or stash is down
-			$this->logger->warning(
-				__METHOD__ . ": failed to save primary positions for DB cluster(s) $clusterList"
-			);
+			// Maybe position store is down
+			$this->logger->warning( "ChronologyProtector failed to save position data for $clusterList" );
+			$clientPosIndex = null;
+			$bouncedPositions = $this->shutdownPositionsByPrimary;
 		}
 
 		return $bouncedPositions;
@@ -376,6 +418,7 @@ class ChronologyProtector implements LoggerAwareInterface {
 	 * @since 1.35
 	 */
 	public function getTouched( ILoadBalancer $lb ) {
+		$this->load();
 		if ( !$this->enabled ) {
 			return false;
 		}
@@ -407,7 +450,7 @@ class ChronologyProtector implements LoggerAwareInterface {
 	protected function getStartupSessionPositions() {
 		$this->lazyStartup();
 
-		return $this->startupPositionsByMaster;
+		return $this->startupPositionsByPrimary;
 	}
 
 	/**
@@ -430,69 +473,51 @@ class ChronologyProtector implements LoggerAwareInterface {
 		}
 
 		$this->startupTimestamp = $this->getCurrentTime();
-		$this->logger->debug(
-			__METHOD__ .
-			": client ID is {$this->clientId}; key is {$this->key}"
-		);
 
-		// If there is an expectation to see primary positions from a certain write
-		// index or higher, then block until it appears, or until a timeout is reached.
-		// Since the write index restarts each time the key is created, it is possible that
-		// a lagged store has a matching key write index. However, in that case, it should
-		// already be expired and thus treated as non-existing, maintaining correctness.
-		if ( $this->positionWaitsEnabled && $this->waitForPosIndex > 0 ) {
-			$data = null;
-			$indexReached = null; // highest index reached in the position store
-			$loop = new WaitConditionLoop(
-				function () use ( &$data, &$indexReached ) {
-					$data = $this->store->get( $this->key );
-					if ( !is_array( $data ) ) {
-						return WaitConditionLoop::CONDITION_CONTINUE; // not found yet
-					} elseif ( !isset( $data[self::FLD_WRITE_INDEX] ) ) {
-						return WaitConditionLoop::CONDITION_REACHED; // b/c
-					}
-					$indexReached = max( $data[self::FLD_WRITE_INDEX], $indexReached );
-
-					return ( $data[self::FLD_WRITE_INDEX] >= $this->waitForPosIndex )
-						? WaitConditionLoop::CONDITION_REACHED
-						: WaitConditionLoop::CONDITION_CONTINUE;
-				},
-				self::POSITION_INDEX_WAIT_TIMEOUT
-			);
-			$result = $loop->invoke();
-			$waitedMs = $loop->getLastWaitTime() * 1e3;
-
-			if ( $result == $loop::CONDITION_REACHED ) {
-				$this->logger->debug(
-					__METHOD__ . ": expected and found position index {cpPosIndex}.",
-					[
-						'cpPosIndex' => $this->waitForPosIndex,
-						'waitTimeMs' => $waitedMs
-					] + $this->clientLogInfo
-				);
-			} else {
-				$this->logger->warning(
-					__METHOD__ . ": expected but failed to find position index {cpPosIndex}.",
-					[
-						'cpPosIndex' => $this->waitForPosIndex,
-						'indexReached' => $indexReached,
-						'waitTimeMs' => $waitedMs
-					] + $this->clientLogInfo
-				);
-			}
-		} else {
-			$data = $this->store->get( $this->key );
-			$indexReached = $data[self::FLD_WRITE_INDEX] ?? null;
-			if ( $indexReached ) {
-				$this->logger->debug(
-					__METHOD__ . ": found position/timestamp data with index {indexReached}.",
-					[ 'indexReached' => $indexReached ] + $this->clientLogInfo
-				);
-			}
+		// There wasn't a client id in the cookie so we built one
+		// There is no point in looking it up.
+		if ( $this->hasNewClientId ) {
+			$this->startupPositionsByPrimary = [];
+			$this->startupTimestampsByCluster = [];
+			return;
 		}
 
-		$this->startupPositionsByMaster = $data ? $data[self::FLD_POSITIONS] : [];
+		$this->logger->debug( 'ChronologyProtector using store ' . get_class( $this->store ) );
+		$this->logger->debug( "ChronologyProtector fetching positions for {$this->clientId}" );
+
+		$data = $this->unmarshalPositions( $this->store->get( $this->key ) );
+
+		$this->startupPositionsByPrimary = $data ? $data[self::FLD_POSITIONS] : [];
 		$this->startupTimestampsByCluster = $data[self::FLD_TIMESTAMPS] ?? [];
+
+		// When a stored array expires and is re-created under the same (deterministic) key,
+		// the array value naturally starts again from index zero. As such, it is possible
+		// that if certain store writes were lost (e.g. store down), that we unintentionally
+		// point to an offset in an older incarnation of the array.
+		// We don't try to detect or do something about this because:
+		// 1. Waiting for an older offset is harmless and generally no-ops.
+		// 2. The older value will have expired by now and thus treated as non-existing,
+		//    which means we wouldn't even "see" it here.
+		$indexReached = is_array( $data ) ? $data[self::FLD_WRITE_INDEX] : null;
+		if ( $this->waitForPosIndex > 0 ) {
+			if ( $indexReached >= $this->waitForPosIndex ) {
+				$this->logger->debug( 'expected and found position index {cpPosIndex}', [
+					'cpPosIndex' => $this->waitForPosIndex,
+				] + $this->clientLogInfo );
+			} else {
+				$this->logger->warning( 'expected but failed to find position index {cpPosIndex}', [
+					'cpPosIndex' => $this->waitForPosIndex,
+					'indexReached' => $indexReached,
+					'exception' => new \RuntimeException(),
+				] + $this->clientLogInfo );
+			}
+		} else {
+			if ( $indexReached ) {
+				$this->logger->debug( 'found position data with index {indexReached}', [
+					'indexReached' => $indexReached
+				] + $this->clientLogInfo );
+			}
+		}
 	}
 
 	/**
@@ -566,6 +591,82 @@ class ChronologyProtector implements LoggerAwareInterface {
 	 * @codeCoverageIgnore
 	 */
 	public function setMockTime( &$time ) {
+		$this->load();
 		$this->wallClockOverride =& $time;
+	}
+
+	private function marshalPositions( array $positions ) {
+		foreach ( $positions[ self::FLD_POSITIONS ] as $key => $pos ) {
+			$positions[ self::FLD_POSITIONS ][ $key ] = $pos->toArray();
+		}
+
+		return $positions;
+	}
+
+	/**
+	 * @param array|false $positions
+	 * @return array|false
+	 */
+	private function unmarshalPositions( $positions ) {
+		if ( !$positions ) {
+			return $positions;
+		}
+
+		foreach ( $positions[ self::FLD_POSITIONS ] as $key => $pos ) {
+			$class = $pos[ '_type_' ];
+			$positions[ self::FLD_POSITIONS ][ $key ] = $class::newFromArray( $pos );
+		}
+
+		return $positions;
+	}
+
+	/**
+	 * Build a string conveying the client and write index of the chronology protector data
+	 *
+	 * @param int $writeIndex
+	 * @param int $time UNIX timestamp; can be used to detect stale cookies (T190082)
+	 * @param string $clientId Client ID hash from ILBFactory::shutdown()
+	 * @return string Value to use for "cpPosIndex" cookie
+	 * @since 1.32 in LBFactory, moved to CP in 1.41
+	 */
+	public static function makeCookieValueFromCPIndex(
+		int $writeIndex,
+		int $time,
+		string $clientId
+	) {
+		// Format is "<write index>@<write timestamp>#<client ID hash>"
+		return "{$writeIndex}@{$time}#{$clientId}";
+	}
+
+	/**
+	 * Parse a string conveying the client and write index of the chronology protector data
+	 *
+	 * @param string|null $value Value of "cpPosIndex" cookie
+	 * @param int $minTimestamp Lowest UNIX timestamp that a non-expired value can have
+	 * @return array (index: int or null, clientId: string or null)
+	 * @since 1.32 in LBFactory, moved to CP in 1.41
+	 */
+	public static function getCPInfoFromCookieValue( ?string $value, int $minTimestamp ) {
+		static $placeholder = [ 'index' => null, 'clientId' => null ];
+
+		if ( $value === null ) {
+			return $placeholder; // not set
+		}
+
+		// Format is "<write index>@<write timestamp>#<client ID hash>"
+		if ( !preg_match( '/^(\d+)@(\d+)#([0-9a-f]{32})$/', $value, $m ) ) {
+			return $placeholder; // invalid
+		}
+
+		$index = (int)$m[1];
+		if ( $index <= 0 ) {
+			return $placeholder; // invalid
+		} elseif ( isset( $m[2] ) && $m[2] !== '' && (int)$m[2] < $minTimestamp ) {
+			return $placeholder; // expired
+		}
+
+		$clientId = ( isset( $m[3] ) && $m[3] !== '' ) ? $m[3] : null;
+
+		return [ 'index' => $index, 'clientId' => $clientId ];
 	}
 }

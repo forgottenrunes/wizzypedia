@@ -2,9 +2,10 @@
 
 namespace MediaWiki\Tests\Unit\Auth;
 
-use Config;
 use MediaWiki\Auth\AbstractAuthenticationProvider;
 use MediaWiki\Auth\AuthManager;
+use MediaWiki\Config\Config;
+use MediaWiki\Config\HashConfig;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\User\UserNameUtils;
 use Psr\Log\LoggerInterface;
@@ -43,7 +44,7 @@ trait AuthenticationProviderTestTrait {
 			$logger ?? new NullLogger(),
 			$manager ?? $this->createNoOpMock( AuthManager::class ),
 			$hookContainer ?? $this->createHookContainer(),
-			$config ?? $this->createNoOpAbstractMock( Config::class ),
+			$config ?? new HashConfig(),
 			$userNameUtils ?? $this->createNoOpMock( UserNameUtils::class )
 		);
 	}

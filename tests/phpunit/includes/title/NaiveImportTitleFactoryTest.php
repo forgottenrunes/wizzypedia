@@ -19,6 +19,11 @@
  * @author This, that and the other
  */
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\Title\ForeignTitle;
+use MediaWiki\Title\NaiveImportTitleFactory;
+use MediaWiki\Title\Title;
+
 /**
  * @covers NaiveImportTitleFactory
  *
@@ -31,13 +36,13 @@ class NaiveImportTitleFactoryTest extends MediaWikiIntegrationTestCase {
 	protected function setUp(): void {
 		parent::setUp();
 
-		$this->setContentLang( 'en' );
-		$this->setMwGlobals( [
-			'wgExtraNamespaces' => [ 100 => 'Portal' ],
+		$this->overrideConfigValues( [
+			MainConfigNames::LanguageCode => 'en',
+			MainConfigNames::ExtraNamespaces => [ 100 => 'Portal' ],
 		] );
 	}
 
-	public function basicProvider() {
+	public static function basicProvider() {
 		return [
 			[
 				new ForeignTitle( 0, '', 'MainNamespaceArticle' ),

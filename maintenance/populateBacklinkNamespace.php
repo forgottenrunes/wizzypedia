@@ -23,8 +23,6 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
-use MediaWiki\MediaWikiServices;
-
 /**
  * Maintenance script to populate *_from_namespace fields
  *
@@ -52,24 +50,32 @@ class PopulateBacklinkNamespace extends LoggedUpdateMaintenance {
 
 		$start = $this->getOption( 'lastUpdatedId' );
 		if ( !$start ) {
-			$start = $db->selectField( 'page', 'MIN(page_id)', '', __METHOD__ );
+			$start = $db->newSelectQueryBuilder()
+				->select( 'MIN(page_id)' )
+				->from( 'page' )
+				->caller( __METHOD__ )->fetchField();
 		}
 		if ( !$start ) {
 			$this->output( "Nothing to do." );
 			return false;
 		}
-		$end = $db->selectField( 'page', 'MAX(page_id)', '', __METHOD__ );
+		$end = $db->newSelectQueryBuilder()
+			->select( 'MAX(page_id)' )
+			->from( 'page' )
+			->caller( __METHOD__ )->fetchField();
 		$batchSize = $this->getBatchSize();
 
 		# Do remaining chunk
 		$end += $batchSize - 1;
 		$blockStart = $start;
 		$blockEnd = $start + $batchSize - 1;
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 		while ( $blockEnd <= $end ) {
 			$this->output( "...doing page_id from $blockStart to $blockEnd\n" );
-			$cond = "page_id BETWEEN " . (int)$blockStart . " AND " . (int)$blockEnd;
-			$res = $db->select( 'page', [ 'page_id', 'page_namespace' ], $cond, __METHOD__ );
+			$res = $db->newSelectQueryBuilder()
+				->select( [ 'page_id', 'page_namespace' ] )
+				->from( 'page' )
+				->where( "page_id BETWEEN " . (int)$blockStart . " AND " . (int)$blockEnd )
+				->caller( __METHOD__ )->fetchResultSet();
 			foreach ( $res as $row ) {
 				$db->update( 'pagelinks',
 					[ 'pl_from_namespace' => $row->page_namespace ],
@@ -89,7 +95,7 @@ class PopulateBacklinkNamespace extends LoggedUpdateMaintenance {
 			}
 			$blockStart += $batchSize - 1;
 			$blockEnd += $batchSize - 1;
-			$lbFactory->waitForReplication();
+			$this->waitForReplication();
 		}
 		return true;
 	}

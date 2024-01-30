@@ -21,8 +21,8 @@
  * @ingroup Media
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
-use Wikimedia\RequestTimeout\TimeoutException;
 
 /**
  * Handler for Tiff images.
@@ -47,7 +47,8 @@ class TiffHandler extends ExifBitmapHandler {
 	 * @return bool
 	 */
 	public function canRender( $file ) {
-		$tiffThumbnailType = MediaWikiServices::getInstance()->getMainConfig()->get( 'TiffThumbnailType' );
+		$tiffThumbnailType = MediaWikiServices::getInstance()->getMainConfig()
+			->get( MainConfigNames::TiffThumbnailType );
 
 		return (bool)$tiffThumbnailType
 			|| $file->getRepo() instanceof ForeignAPIRepo;
@@ -71,19 +72,20 @@ class TiffHandler extends ExifBitmapHandler {
 	 * @return array
 	 */
 	public function getThumbType( $ext, $mime, $params = null ) {
-		$tiffThumbnailType = MediaWikiServices::getInstance()->getMainConfig()->get( 'TiffThumbnailType' );
+		$tiffThumbnailType = MediaWikiServices::getInstance()->getMainConfig()
+			->get( MainConfigNames::TiffThumbnailType );
 
 		return $tiffThumbnailType;
 	}
 
 	public function getSizeAndMetadata( $state, $filename ) {
-		$showEXIF = MediaWikiServices::getInstance()->getMainConfig()->get( 'ShowEXIF' );
+		$showEXIF = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::ShowEXIF );
 
 		try {
 			$meta = BitmapMetadataHandler::Tiff( $filename );
 			if ( !is_array( $meta ) ) {
 				// This should never happen, but doesn't hurt to be paranoid.
-				throw new MWException( 'Metadata array is not an array' );
+				throw new InvalidTiffException( 'Metadata array is not an array' );
 			}
 			$info = [
 				'width' => $meta['ImageWidth'] ?? 0,
@@ -95,9 +97,7 @@ class TiffHandler extends ExifBitmapHandler {
 				$info['metadata'] = $meta;
 			}
 			return $info;
-		} catch ( TimeoutException $e ) {
-			throw $e;
-		} catch ( Exception $e ) {
+		} catch ( InvalidTiffException $e ) {
 			// BitmapMetadataHandler throws an exception in certain exceptional
 			// cases like if file does not exist.
 			wfDebug( __METHOD__ . ': ' . $e->getMessage() );

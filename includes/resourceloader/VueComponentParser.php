@@ -19,6 +19,12 @@
  * @author Roan Kattouw
  */
 
+namespace MediaWiki\ResourceLoader;
+
+use DOMDocument;
+use DOMElement;
+use DOMNode;
+use Exception;
 use Wikimedia\RemexHtml\DOM\DOMBuilder;
 use Wikimedia\RemexHtml\HTMLData;
 use Wikimedia\RemexHtml\Serializer\HtmlFormatter;
@@ -27,14 +33,14 @@ use Wikimedia\RemexHtml\Serializer\SerializerNode;
 use Wikimedia\RemexHtml\Tokenizer\Attributes;
 use Wikimedia\RemexHtml\Tokenizer\Tokenizer;
 use Wikimedia\RemexHtml\TreeBuilder\Dispatcher;
-use Wikimedia\RemexHtml\TreeBuilder\Element;
 use Wikimedia\RemexHtml\TreeBuilder\TreeBuilder;
+use Wikimedia\Zest\Zest;
 
 /**
  * Parser for Vue single file components (.vue files). See parse() for usage.
  *
  * @ingroup ResourceLoader
- * @internal For use within ResourceLoaderFileModule.
+ * @internal For use within FileModule.
  */
 class VueComponentParser {
 	/**
@@ -58,7 +64,7 @@ class VueComponentParser {
 	public function parse( string $html, array $options = [] ): array {
 		$dom = $this->parseHTML( $html );
 		// Remex wraps everything in <html><head>, unwrap that
-		$head = $dom->getElementsByTagName( 'head' )->item( 0 );
+		$head = Zest::getElementsByTagName( $dom, 'head' )[ 0 ];
 
 		// Find the <script>, <template> and <style> tags. They can appear in any order, but they
 		// must be at the top level, and there can only be one of each.
@@ -84,7 +90,7 @@ class VueComponentParser {
 		$template = $this->getTemplateHtml( $html, $options['minifyTemplate'] ?? false );
 
 		return [
-			'script' => trim( $nodes['script']->nodeValue ),
+			'script' => trim( $nodes['script']->nodeValue ?? '' ),
 			'template' => $template,
 			'style' => $styleData ? $styleData['style'] : null,
 			'styleLang' => $styleData ? $styleData['lang'] : null
@@ -153,7 +159,7 @@ class VueComponentParser {
 	 * @throws Exception If an invalid language is used, or if the 'scoped' attribute is set.
 	 */
 	private function getStyleAndLang( DOMElement $styleNode ): array {
-		$style = trim( $styleNode->nodeValue );
+		$style = trim( $styleNode->nodeValue ?? '' );
 		$styleLang = $styleNode->hasAttribute( 'lang' ) ?
 			$styleNode->getAttribute( 'lang' ) : 'css';
 		if ( $styleLang !== 'css' && $styleLang !== 'less' ) {
@@ -243,7 +249,8 @@ class VueComponentParser {
 						// Don't touch <pre>/<listing>/<textarea> nodes
 						$node->namespace !== HTMLData::NS_HTML ||
 						!isset( $this->prefixLfElements[ $node->name ] )
-					)
+					) &&
+					$contents !== null
 				) {
 					// Remove leading and trailing whitespace
 					$contents = preg_replace( '/(^[ \r\n\t]+)|([\r\n\t ]+$)/', '', $contents );
@@ -310,3 +317,6 @@ class VueComponentParser {
 		};
 	}
 }
+
+/** @deprecated since 1.39 */
+class_alias( VueComponentParser::class, 'VueComponentParser' );

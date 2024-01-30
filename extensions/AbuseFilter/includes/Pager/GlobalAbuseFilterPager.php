@@ -29,8 +29,9 @@ class GlobalAbuseFilterPager extends AbuseFilterPager {
 		CentralDBManager $centralDBManager,
 		array $conds
 	) {
-		parent::__construct( $page, $linkRenderer, $afPermManager, $specsFormatter, $conds, null, null );
+		// Set database before parent constructor to avoid setting it there with wfGetDB
 		$this->mDb = $centralDBManager->getConnection( DB_REPLICA );
+		parent::__construct( $page, $linkRenderer, null, $afPermManager, $specsFormatter, $conds, null, null );
 	}
 
 	/**
@@ -62,7 +63,7 @@ class GlobalAbuseFilterPager extends AbuseFilterPager {
 
 				return $lang->commaList( $statuses );
 			case 'af_hit_count':
-				// If the rule is hidden, don't show it, even to priviledged local admins
+				// If the rule is hidden, don't show it, even to privileged local admins
 				if ( $row->af_hidden ) {
 					return '';
 				}

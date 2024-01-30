@@ -21,17 +21,33 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use MediaWiki\SpecialPage\SpecialRedirectWithAction;
+use SearchEngineFactory;
+
 /**
  * @author Zabe
  *
  * @since 1.38
  */
 class SpecialDeletePage extends SpecialRedirectWithAction {
-	public function __construct() {
-		parent::__construct( 'DeletePage', 'delete', 'deletepage' );
+
+	/**
+	 * @param SearchEngineFactory $searchEngineFactory
+	 */
+	public function __construct(
+		SearchEngineFactory $searchEngineFactory
+	) {
+		parent::__construct( 'DeletePage', 'delete', 'deletepage', $searchEngineFactory );
 	}
 
 	// Messages, for grep:
 	// specialdeletepage-page
 	// specialdeletepage-submit
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialDeletePage::class, 'SpecialDeletePage' );

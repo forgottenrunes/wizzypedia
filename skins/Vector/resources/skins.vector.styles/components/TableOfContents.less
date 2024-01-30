@@ -1,103 +1,155 @@
-@import '../../common/variables.less';
+/**
+ * Checkbox hack used by collapsed TOC on narrow viewports for no JS users.
+ * Although it's display:none, the :checked state is still affected when clicking
+ * the associated label.
+ */
+#vector-toc-collapsed-checkbox {
+	display: none;
+}
 
-@subcategory-indent: 8px;
+.vector-toc {
+	max-height: 75vh;
+	box-sizing: border-box;
+	overflow-y: auto;
+	overflow-x: hidden;
+	background-color: @background-color-page-container;
+	font-size: @font-size-base;
 
-.sidebar-toc {
-	width: @width-sidebar;
-	max-height: 90vh;
-	padding: 20px 12px 20px 26px;
-	.box-sizing( border-box );
-	overflow: auto;
-	background-color: @border-color-sidebar;
-	border: @border-base;
-
-	.sidebar-toc-header {
-		padding-bottom: 12px;
+	.vector-pinnable-header-label {
+		// Override heading element styles in elements.less
+		overflow: unset;
 	}
 
-	.sidebar-toc-title {
-		font-weight: bold;
-		font-size: @font-size-heading-3;
-		margin: 0;
-		padding: 0;
-		border: 0;
-	}
-
-	.sidebar-toc-link > * {
-		// Prevent click events on the link's contents so that we can use event
-		// delegation and have the target be the anchor element instead.
-		pointer-events: none;
-	}
-
-	.sidebar-toc-numb {
+	.vector-toc-numb {
 		display: none;
 	}
 
-	.sidebar-toc-text {
-		padding-bottom: 5px;
+	.vector-toc-toggle {
+		// For no-js users, toggling is disabled and icon is hidden
+		display: none;
+		position: absolute;
+		top: 1px; // visually center icon
+		left: ~'calc( -1 * @{size-toc-subsection-toggle-icon} - 1px )'; // leaves 6px between icon + text
+		font-size: 0.75em; // reduces size of toggle icon to 12px @ 16
+		transition: @transition-duration-base;
+		color: transparent;
+		cursor: pointer;
+		// Vertically center the icon with the text
+		margin-top: 2px;
+		// Reset <button> default browser styles
+		border: 0;
+		background: none;
+		// Override .cdx-button styles
+		min-width: @spacing-subsection-toggle;
+		min-height: @spacing-subsection-toggle;
+		padding: 0;
 	}
 
-	#table-of-contents,
-	.sidebar-toc-list {
+	.vector-toc-link {
+		word-break: break-word;
+		color: @color-link;
+		display: block;
+	}
+
+	// Highlight and bold active sections, active top sections that are unexpanded
+	// and active top sections that are the only active element.
+	.vector-toc-list-item-active,
+	.vector-toc-level-1-active:not( .vector-toc-list-item-expanded ),
+	.vector-toc-list-item-active.vector-toc-level-1-active {
+		> .vector-toc-link {
+			// Highlight active section
+			color: @color-base;
+			font-weight: bold;
+
+			.vector-toc-text {
+				// Increase width to prevent line wrapping due to bold text
+				// Avoid applying on link element to avoid focus indicator changing size
+				width: ~'calc( 100% + @{padding-horizontal-dropdown-menu-item} )';
+			}
+		}
+	}
+
+	// Highlight active top sections that contain an active section
+	.vector-toc-level-1-active:not( .vector-toc-list-item-active ) > .vector-toc-link {
+		color: @color-base;
+	}
+
+	.vector-toc-text {
+		// Match .mixin-vector-dropdown-menu-item() vertical padding
+		padding: @padding-vertical-dropdown-menu-item 0;
+	}
+
+	.vector-toc-contents,
+	.vector-toc-list {
 		margin: 0;
 		list-style: none;
-		line-height: 18px;
 	}
 
-	.sidebar-toc-list-item {
+	.vector-toc-list-item {
 		display: block;
 		position: relative;
 		list-style-type: none;
-		padding-left: @subcategory-indent;
+		padding-left: 8px;
+		margin: 0;
+
+		&.vector-toc-level-1 {
+			padding-left: 0;
+		}
 
 		a {
-			color: @color-base;
-			font-size: @font-size-base;
-		}
-	}
-
-	.sidebar-toc-list-item.sidebar-toc-level-1 {
-		padding-left: 0;
-
-		& > a {
-			color: @color-link;
+			font-size: inherit;
 		}
 	}
 }
 
-// Highlight active section
-.sidebar-toc .sidebar-toc-list-item-active > .sidebar-toc-link {
-	font-weight: bold;
+// Collapse ToC sections by default, excluding no-js
+&.client-js .vector-toc {
+	.vector-toc-level-1 .vector-toc-list-item {
+		display: none;
+	}
+
+	.vector-toc-level-1.vector-toc-list-item-expanded .vector-toc-list-item {
+		display: block;
+	}
+
+	.vector-toc-toggle {
+		display: block;
+	}
+
+	.vector-toc-level-1.vector-toc-list-item-expanded .vector-toc-toggle {
+		transform: rotate( 0deg );
+	}
 }
 
-.sidebar-toc .sidebar-toc-toggle {
-	// For no-js users, toggling is disabled and icon is hidden
+&.client-js body.ltr .vector-toc .vector-toc-toggle {
+	transform: rotate( -90deg );
+}
+
+&.client-js body.rtl .vector-toc .vector-toc-toggle {
+	transform: rotate( 90deg );
+}
+
+// Ensure there is only 1 table of contents landmark at anytime
+.vector-toc-landmark {
 	display: none;
-	cursor: pointer;
 }
 
-// Collapse ToC sections by default, excluding no-js or prefers-reduced-motion
-@media ( prefers-reduced-motion: no-preference ) {
-	.client-js .sidebar-toc {
-		.sidebar-toc-level-1 .sidebar-toc-list-item {
-			display: none;
-		}
+&.vector-feature-toc-pinned-clientpref-0 body:not( .vector-sticky-header-visible ) .vector-page-titlebar,
+&.vector-feature-toc-pinned-clientpref-0 .vector-sticky-header-visible .vector-sticky-header-context-bar,
+&.vector-feature-toc-pinned-clientpref-1 .mw-page-container-inner {
+	> .vector-toc-landmark {
+		display: block;
+	}
+}
 
-		.sidebar-toc-level-1.sidebar-toc-list-item-expanded .sidebar-toc-list-item {
-			display: block;
-		}
+// On smaller viewports the TOC will always be moved to the page titlebar via JS
+// regardless of the TOC pinned classes
+@media ( max-width: @max-width-tablet ) {
+	&.client-js .vector-page-titlebar .vector-toc-landmark {
+		display: block;
+	}
 
-		.sidebar-toc-toggle {
-			position: absolute;
-			display: block;
-			font-size: 0.7em; // reduces size of toggle icon (by an arbitrary amount)
-			top: 4px; // visually center icon (at least at default font size)
-			left: -18px;
-			transform: rotate( -90deg );
-		}
-
-		.sidebar-toc-level-1.sidebar-toc-list-item-expanded .sidebar-toc-toggle {
-			transform: rotate( 0deg );
-		}
+	&.client-js .mw-table-of-contents-container.vector-toc-landmark {
+		display: none;
 	}
 }

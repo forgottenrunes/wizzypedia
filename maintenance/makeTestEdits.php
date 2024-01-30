@@ -22,7 +22,8 @@
  */
 require_once __DIR__ . '/Maintenance.php';
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 
 /**
  * Make test edits for a user to populate a test wiki
@@ -41,14 +42,13 @@ class MakeTestEdits extends Maintenance {
 
 	public function execute() {
 		$user = User::newFromName( $this->getOption( 'user' ) );
-		if ( !$user->getId() ) {
+		if ( !$user->isRegistered() ) {
 			$this->fatalError( "No such user exists." );
 		}
 
 		$count = $this->getOption( 'count' );
 		$namespace = (int)$this->getOption( 'namespace', 0 );
-		$services = MediaWikiServices::getInstance();
-		$lbFactory = $services->getDBLoadBalancerFactory();
+		$services = $this->getServiceContainer();
 		$wikiPageFactory = $services->getWikiPageFactory();
 
 		for ( $i = 0; $i < $count; ++$i ) {
@@ -61,7 +61,7 @@ class MakeTestEdits extends Maintenance {
 
 			$this->output( "Edited $title\n" );
 			if ( $i && ( $i % $this->getBatchSize() ) == 0 ) {
-				$lbFactory->waitForReplication();
+				$this->waitForReplication();
 			}
 		}
 

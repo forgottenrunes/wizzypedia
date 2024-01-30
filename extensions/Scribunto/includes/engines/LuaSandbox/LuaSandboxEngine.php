@@ -1,6 +1,17 @@
 <?php
 
-class Scribunto_LuaSandboxEngine extends Scribunto_LuaEngine {
+namespace MediaWiki\Extension\Scribunto\Engines\LuaSandbox;
+
+use Html;
+use LuaSandbox;
+use MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaEngine;
+use MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaInterpreterBadVersionError;
+use MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaInterpreterNotFoundError;
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
+use ParserOutput;
+
+class LuaSandboxEngine extends LuaEngine {
 	/** @var array */
 	public $options;
 	/** @var bool */
@@ -9,7 +20,7 @@ class Scribunto_LuaSandboxEngine extends Scribunto_LuaEngine {
 	protected $lineCache = [];
 
 	/**
-	 * @var Scribunto_LuaSandboxInterpreter
+	 * @var LuaSandboxInterpreter
 	 */
 	protected $interpreter;
 
@@ -23,13 +34,13 @@ class Scribunto_LuaSandboxEngine extends Scribunto_LuaEngine {
 	/** @inheritDoc */
 	public function getSoftwareInfo( array &$software ) {
 		try {
-			Scribunto_LuaSandboxInterpreter::checkLuaSandboxVersion();
-		} catch ( Scribunto_LuaInterpreterNotFoundError $e ) {
+			LuaSandboxInterpreter::checkLuaSandboxVersion();
+		} catch ( LuaInterpreterNotFoundError $e ) {
 			// They shouldn't be using this engine if the extension isn't
 			// loaded. But in case they do for some reason, let's not have
 			// Special:Version fatal.
 			return;
-		} catch ( Scribunto_LuaInterpreterBadVersionError $e ) {
+		} catch ( LuaInterpreterBadVersionError $e ) {
 			// @phan-suppress-previous-line PhanPluginDuplicateCatchStatementBody
 			// Same for if the extension is too old.
 			return;
@@ -84,13 +95,13 @@ class Scribunto_LuaSandboxEngine extends Scribunto_LuaEngine {
 		}
 
 		$percentProfile = $this->interpreter->getProfilerFunctionReport(
-			Scribunto_LuaSandboxInterpreter::PERCENT
+			LuaSandboxInterpreter::PERCENT
 		);
 		if ( !count( $percentProfile ) ) {
 			return $ret;
 		}
 		$timeProfile = $this->interpreter->getProfilerFunctionReport(
-			Scribunto_LuaSandboxInterpreter::SECONDS
+			LuaSandboxInterpreter::SECONDS
 		);
 
 		$lines = [];
@@ -132,7 +143,7 @@ class Scribunto_LuaSandboxEngine extends Scribunto_LuaEngine {
 	 * @return string
 	 */
 	private function fixTruncation( $s ) {
-		$lang = Language::factory( 'en' );
+		$lang = MediaWikiServices::getInstance()->getLanguageFactory()->getLanguage( 'en' );
 		return $lang->iconv( 'UTF-8', 'UTF-8', $s );
 	}
 
@@ -152,8 +163,6 @@ class Scribunto_LuaSandboxEngine extends Scribunto_LuaEngine {
 	 * @suppress SecurityCheck-DoubleEscaped phan false positive
 	 */
 	public function formatLimitData( $key, &$value, &$report, $isHTML, $localize ) {
-		global $wgLang;
-		$lang = $localize ? $wgLang : Language::factory( 'en' );
 		switch ( $key ) {
 			case 'scribunto-limitreport-logs':
 				if ( $isHTML ) {
@@ -188,6 +197,9 @@ class Scribunto_LuaSandboxEngine extends Scribunto_LuaEngine {
 				Html::openElement( 'tr' ) .
 				Html::openElement( 'td', [ 'colspan' => 2 ] ) .
 				Html::openElement( 'table' );
+
+			$linkRenderer = MediaWikiServices::getInstance()->getLinkRenderer();
+
 			foreach ( $value as $line ) {
 				$name = $line[0];
 				$location = '';
@@ -195,7 +207,8 @@ class Scribunto_LuaSandboxEngine extends Scribunto_LuaEngine {
 					$name = $m[1];
 					$title = Title::newFromText( $m[2] );
 					if ( $title && $title->hasContentModel( CONTENT_MODEL_SCRIBUNTO ) ) {
-						$location = '&lt;' . Linker::link( $title ) . ":{$m[3]}&gt;";
+						$location = '&lt;' .
+							$linkRenderer->makeLink( $title ) . ":{$m[3]}&gt;";
 					} else {
 						$location = htmlspecialchars( "<{$m[2]}:{$m[3]}>" );
 					}
@@ -241,6 +254,6 @@ class Scribunto_LuaSandboxEngine extends Scribunto_LuaEngine {
 	}
 
 	protected function newInterpreter() {
-		return new Scribunto_LuaSandboxInterpreter( $this, $this->options );
+		return new LuaSandboxInterpreter( $this, $this->options );
 	}
 }

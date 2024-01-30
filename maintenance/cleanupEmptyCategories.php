@@ -21,9 +21,9 @@
  * @ingroup Maintenance
  */
 
-require_once __DIR__ . '/Maintenance.php';
+use MediaWiki\Category\Category;
 
-use MediaWiki\MediaWikiServices;
+require_once __DIR__ . '/Maintenance.php';
 
 /**
  * Maintenance script to clean up empty categories in the category table.
@@ -88,7 +88,6 @@ TEXT
 		}
 
 		$dbw = $this->getDB( DB_PRIMARY );
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 
 		$throttle = intval( $throttle );
 
@@ -102,22 +101,15 @@ TEXT
 			$this->output( "Adding empty categories with description pages...\n" );
 			while ( true ) {
 				# Find which category to update
-				$rows = $dbw->select(
-					[ 'page', 'category' ],
-					'page_title',
-					array_merge( $where, [
-						'page_namespace' => NS_CATEGORY,
-						'cat_title' => null,
-					] ),
-					__METHOD__,
-					[
-						'ORDER BY' => 'page_title',
-						'LIMIT' => $this->getBatchSize(),
-					],
-					[
-						'category' => [ 'LEFT JOIN', 'page_title = cat_title' ],
-					]
-				);
+				$rows = $dbw->newSelectQueryBuilder()
+					->select( 'page_title' )
+					->from( 'page' )
+					->leftJoin( 'category', null, 'page_title = cat_title' )
+					->where( $where )
+					->andWhere( [ 'page_namespace' => NS_CATEGORY, 'cat_title' => null ] )
+					->orderBy( 'page_title' )
+					->limit( $this->getBatchSize() )
+					->caller( __METHOD__ )->fetchResultSet();
 				if ( !$rows || $rows->numRows() <= 0 ) {
 					break;
 				}
@@ -134,9 +126,10 @@ TEXT
 						$cat->refreshCounts();
 					}
 				}
+				// @phan-suppress-next-line PhanPossiblyUndeclaredVariable $rows has at at least one item
 				$this->output( "--mode=$mode --begin=$name\n" );
 
-				$lbFactory->waitForReplication();
+				$this->waitForReplication();
 				usleep( $throttle * 1000 );
 			}
 
@@ -153,24 +146,15 @@ TEXT
 			$this->output( "Removing empty categories without description pages...\n" );
 			while ( true ) {
 				# Find which category to update
-				$rows = $dbw->select(
-					[ 'category', 'page' ],
-					'cat_title',
-					array_merge( $where, [
-						'page_title' => null,
-						'cat_pages' => 0,
-					] ),
-					__METHOD__,
-					[
-						'ORDER BY' => 'cat_title',
-						'LIMIT' => $this->getBatchSize(),
-					],
-					[
-						'page' => [ 'LEFT JOIN', [
-							'page_namespace' => NS_CATEGORY, 'page_title = cat_title'
-						] ],
-					]
-				);
+				$rows = $dbw->newSelectQueryBuilder()
+					->select( 'cat_title' )
+					->from( 'category' )
+					->leftJoin( 'page', null, [ 'page_namespace' => NS_CATEGORY, 'page_title = cat_title' ] )
+					->where( $where )
+					->andWhere( [ 'page_title' => null, 'cat_pages' => 0 ] )
+					->orderBy( 'cat_title' )
+					->limit( $this->getBatchSize() )
+					->caller( __METHOD__ )->fetchResultSet();
 				if ( !$rows || $rows->numRows() <= 0 ) {
 					break;
 				}
@@ -187,9 +171,10 @@ TEXT
 					}
 				}
 
+				// @phan-suppress-next-line PhanPossiblyUndeclaredVariable rows contains at least one item
 				$this->output( "--mode=remove --begin=$name\n" );
 
-				$lbFactory->waitForReplication();
+				$this->waitForReplication();
 				usleep( $throttle * 1000 );
 			}
 		}

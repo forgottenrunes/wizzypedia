@@ -1,10 +1,8 @@
 <?php
 /** Dagbani (Dagbanli)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Sadik Shahadu
  * @author Amir E. Aharoni

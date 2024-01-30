@@ -23,6 +23,9 @@
  * @since 1.22
  */
 
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
+
 /**
  * This class formats move log entries.
  *

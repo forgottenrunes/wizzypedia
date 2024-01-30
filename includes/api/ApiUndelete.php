@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright © 2007 Roan Kattouw "<Firstname>.<Lastname>@gmail.com"
+ * Copyright © 2007 Roan Kattouw <roan.kattouw@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,12 +20,15 @@
  * @file
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\Page\UndeletePage;
 use MediaWiki\Page\UndeletePageFactory;
 use MediaWiki\Page\WikiPageFactory;
 use MediaWiki\Permissions\Authority;
+use MediaWiki\Title\Title;
 use MediaWiki\User\UserOptionsLookup;
 use MediaWiki\Watchlist\WatchlistManager;
+use Wikimedia\ParamValidator\ParamValidator;
 
 /**
  * @ingroup API
@@ -34,11 +37,8 @@ class ApiUndelete extends ApiBase {
 
 	use ApiWatchlistTrait;
 
-	/** @var UndeletePageFactory */
-	private $undeletePageFactory;
-
-	/** @var WikiPageFactory */
-	private $wikiPageFactory;
+	private UndeletePageFactory $undeletePageFactory;
+	private WikiPageFactory $wikiPageFactory;
 
 	/**
 	 * @param ApiMain $mainModule
@@ -59,8 +59,9 @@ class ApiUndelete extends ApiBase {
 		parent::__construct( $mainModule, $moduleName );
 
 		// Variables needed in ApiWatchlistTrait trait
-		$this->watchlistExpiryEnabled = $this->getConfig()->get( 'WatchlistExpiry' );
-		$this->watchlistMaxDuration = $this->getConfig()->get( 'WatchlistExpiryMaxDuration' );
+		$this->watchlistExpiryEnabled = $this->getConfig()->get( MainConfigNames::WatchlistExpiry );
+		$this->watchlistMaxDuration =
+			$this->getConfig()->get( MainConfigNames::WatchlistExpiryMaxDuration );
 		$this->watchlistManager = $watchlistManager;
 		$this->userOptionsLookup = $userOptionsLookup;
 		$this->undeletePageFactory = $undeletePageFactory;
@@ -82,6 +83,9 @@ class ApiUndelete extends ApiBase {
 		if ( !$titleObj || $titleObj->isExternal() ) {
 			$this->dieWithError( [ 'apierror-invalidtitle', wfEscapeWikiText( $params['title'] ) ] );
 		}
+		if ( !$titleObj->canExist() ) {
+			$this->dieWithError( 'apierror-pagecannotexist' );
+		}
 
 		// Convert timestamps
 		if ( !isset( $params['timestamps'] ) ) {
@@ -95,15 +99,22 @@ class ApiUndelete extends ApiBase {
 		}
 
 		$undeletePage = $this->undeletePageFactory->newUndeletePage(
-			$this->wikiPageFactory->newFromTitle( $titleObj ),
-			$this->getAuthority()
-		);
-		$status = $undeletePage
+				$this->wikiPageFactory->newFromTitle( $titleObj ),
+				$this->getAuthority()
+			)
 			->setUndeleteOnlyTimestamps( $params['timestamps'] ?? [] )
 			->setUndeleteOnlyFileVersions( $params['fileids'] ?: [] )
-			->setTags( $params['tags'] ?: [] )
-			->undeleteIfAllowed( $params['reason'] );
-		if ( !$status->isGood() ) {
+			->setTags( $params['tags'] ?: [] );
+
+		if ( $params['undeletetalk'] ) {
+			$undeletePage->setUndeleteAssociatedTalk( true );
+		}
+
+		$status = $undeletePage->undeleteIfAllowed( $params['reason'] );
+		if ( $status->isOK() ) {
+			// in case there are warnings
+			$this->addMessagesFromStatus( $status );
+		} else {
 			$this->dieStatus( $status );
 		}
 
@@ -144,22 +155,23 @@ class ApiUndelete extends ApiBase {
 	public function getAllowedParams() {
 		return [
 			'title' => [
-				ApiBase::PARAM_TYPE => 'string',
-				ApiBase::PARAM_REQUIRED => true
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_REQUIRED => true
 			],
 			'reason' => '',
 			'tags' => [
-				ApiBase::PARAM_TYPE => 'tags',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'tags',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'timestamps' => [
-				ApiBase::PARAM_TYPE => 'timestamp',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'timestamp',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'fileids' => [
-				ApiBase::PARAM_TYPE => 'integer',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
+			'undeletetalk' => false,
 		] + $this->getWatchlistParams();
 	}
 
@@ -168,10 +180,13 @@ class ApiUndelete extends ApiBase {
 	}
 
 	protected function getExamplesMessages() {
+		$title = Title::newMainPage()->getPrefixedText();
+		$mp = rawurlencode( $title );
+
 		return [
-			'action=undelete&title=Main%20Page&token=123ABC&reason=Restoring%20main%20page'
+			"action=undelete&title={$mp}&token=123ABC&reason=Restoring%20{$mp}"
 				=> 'apihelp-undelete-example-page',
-			'action=undelete&title=Main%20Page&token=123ABC' .
+			"action=undelete&title={$mp}&token=123ABC" .
 				'&timestamps=2007-07-03T22:00:45Z|2007-07-02T19:48:56Z'
 				=> 'apihelp-undelete-example-revisions',
 		];

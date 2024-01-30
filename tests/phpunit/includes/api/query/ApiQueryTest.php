@@ -1,6 +1,9 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\Request\FauxRequest;
 use MediaWiki\Tests\Unit\DummyServicesTrait;
+use MediaWiki\Title\Title;
 
 /**
  * @group API
@@ -23,9 +26,9 @@ class ApiQueryTest extends ApiTestCase {
 	}
 
 	public function testTitlesGetNormalized() {
-		$this->setMwGlobals( [
-			'wgCapitalLinks' => true,
-			'wgMetaNamespace' => 'TestWiki',
+		$this->overrideConfigValues( [
+			MainConfigNames::CapitalLinks => true,
+			MainConfigNames::MetaNamespace => 'TestWiki',
 		] );
 
 		$data = $this->doApiRequest( [
@@ -98,9 +101,7 @@ class ApiQueryTest extends ApiTestCase {
 	 * @dataProvider provideTestTitlePartToKey
 	 */
 	public function testTitlePartToKey( $titlePart, $namespace, $expected, $expectException ) {
-		$this->setMwGlobals( [
-			'wgCapitalLinks' => true,
-		] );
+		$this->overrideConfigValue( MainConfigNames::CapitalLinks, true );
 
 		$api = new MockApiQueryBase();
 		$exceptionCaught = false;
@@ -113,7 +114,7 @@ class ApiQueryTest extends ApiTestCase {
 			'ApiUsageException thrown by titlePartToKey' );
 	}
 
-	public function provideTestTitlePartToKey() {
+	public static function provideTestTitlePartToKey() {
 		return [
 			[ 'a  b  c', NS_MAIN, 'A_b_c', false ],
 			[ 'x', NS_MAIN, 'X', false ],

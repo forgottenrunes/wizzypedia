@@ -21,7 +21,9 @@
  * @ingroup Maintenance
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\StubObject\StubGlobalUser;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 
 require_once __DIR__ . '/Maintenance.php';
 
@@ -47,12 +49,13 @@ class ImportSiteScripts extends Maintenance {
 		} else {
 			$user = User::newFromName( $username );
 		}
+		'@phan-var User $user';
 		StubGlobalUser::setUser( $user );
 
 		$baseUrl = $this->getArg( 1 );
 		$pageList = $this->fetchScriptList();
 		$this->output( 'Importing ' . count( $pageList ) . " pages\n" );
-		$services = MediaWikiServices::getInstance();
+		$services = $this->getServiceContainer();
 		$wikiPageFactory = $services->getWikiPageFactory();
 		$httpRequestFactory = $services->getHttpRequestFactory();
 
@@ -89,13 +92,13 @@ class ImportSiteScripts extends Maintenance {
 
 		while ( true ) {
 			$url = wfAppendQuery( $baseUrl, $data );
-			$strResult = MediaWikiServices::getInstance()->getHttpRequestFactory()->
+			$strResult = $this->getServiceContainer()->getHttpRequestFactory()->
 				get( $url, [], __METHOD__ );
 			$result = FormatJson::decode( $strResult, true );
 
 			$page = null;
 			foreach ( $result['query']['allpages'] as $page ) {
-				if ( substr( $page['title'], -3 ) === '.js' ) {
+				if ( str_ends_with( $page['title'], '.js' ) ) {
 					strtok( $page['title'], ':' );
 					$pages[] = strtok( '' );
 				}

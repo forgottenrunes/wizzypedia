@@ -22,6 +22,8 @@ namespace MediaWiki\User;
 
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\DAO\WikiAwareEntity;
+use MediaWiki\MainConfigNames;
+use MediaWiki\User\TempUser\TempUserConfig;
 use Psr\Log\LoggerInterface;
 use Wikimedia\Rdbms\ILBFactory;
 use Wikimedia\Rdbms\ILoadBalancer;
@@ -36,18 +38,14 @@ class ActorStoreFactory {
 
 	/** @internal */
 	public const CONSTRUCTOR_OPTIONS = [
-		'SharedDB',
-		'SharedTables',
+		MainConfigNames::SharedDB,
+		MainConfigNames::SharedTables,
 	];
 
-	/** @var ILBFactory */
-	private $loadBalancerFactory;
-
-	/** @var UserNameUtils */
-	private $userNameUtils;
-
-	/** @var LoggerInterface */
-	private $logger;
+	private ILBFactory $loadBalancerFactory;
+	private UserNameUtils $userNameUtils;
+	private TempUserConfig $tempUserConfig;
+	private LoggerInterface $logger;
 
 	/** @var string|false */
 	private $sharedDB;
@@ -62,19 +60,22 @@ class ActorStoreFactory {
 	 * @param ServiceOptions $options
 	 * @param ILBFactory $loadBalancerFactory
 	 * @param UserNameUtils $userNameUtils
+	 * @param TempUserConfig $tempUserConfig
 	 * @param LoggerInterface $logger
 	 */
 	public function __construct(
 		ServiceOptions $options,
 		ILBFactory $loadBalancerFactory,
 		UserNameUtils $userNameUtils,
+		TempUserConfig $tempUserConfig,
 		LoggerInterface $logger
 	) {
 		$options->assertRequiredOptions( self::CONSTRUCTOR_OPTIONS );
 		$this->loadBalancerFactory = $loadBalancerFactory;
-		$this->sharedDB = $options->get( 'SharedDB' );
-		$this->sharedTables = $options->get( 'SharedTables' );
+		$this->sharedDB = $options->get( MainConfigNames::SharedDB );
+		$this->sharedTables = $options->get( MainConfigNames::SharedTables );
 		$this->userNameUtils = $userNameUtils;
+		$this->tempUserConfig = $tempUserConfig;
 		$this->logger = $logger;
 	}
 
@@ -103,6 +104,7 @@ class ActorStoreFactory {
 			$this->storeCache[$storeCacheKey] = new ActorStore(
 				$this->getLoadBalancerForTable( 'actor', $wikiId ),
 				$this->userNameUtils,
+				$this->tempUserConfig,
 				$this->logger,
 				$wikiId
 			);
@@ -111,7 +113,7 @@ class ActorStoreFactory {
 	}
 
 	/**
-	 * @param bool $wikiId
+	 * @param string|false $wikiId
 	 * @return UserIdentityLookup
 	 */
 	public function getUserIdentityLookup(
@@ -133,7 +135,7 @@ class ActorStoreFactory {
 	 * for the given $wikiId.
 	 *
 	 * @param string $table
-	 * @param bool $wikiId
+	 * @param string|false $wikiId
 	 * @return ILoadBalancer
 	 */
 	private function getLoadBalancerForTable(

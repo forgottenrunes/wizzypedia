@@ -2,8 +2,10 @@
 
 use MediaWiki\HookContainer\HookContainer;
 use PHPUnit\Framework\Constraint\Constraint;
+use PHPUnit\Framework\ExpectationFailedException;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Container\ContainerInterface;
+use SebastianBergmann\Comparator\ComparisonFailure;
 use Wikimedia\ObjectFactory\ObjectFactory;
 use Wikimedia\Services\NoSuchServiceException;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
@@ -14,6 +16,12 @@ use Wikimedia\Timestamp\ConvertibleTimestamp;
 trait MediaWikiTestCaseTrait {
 	/** @var int|null */
 	private $originalPhpErrorFilter;
+
+	/** @var array */
+	private $expectedDeprecations = [];
+
+	/** @var array */
+	private $actualDeprecations = [];
 
 	/**
 	 * Returns a PHPUnit constraint that matches (with `===`) anything other than a fixed set of values.
@@ -38,10 +46,15 @@ trait MediaWikiTestCaseTrait {
 	/**
 	 * Return a PHPUnit mock that is expected to never have any methods called on it.
 	 *
-	 * @param string $type
-	 * @param string[] $allow methods to allow
+	 * @psalm-template RealInstanceType of object
 	 *
-	 * @return MockObject
+	 * @psalm-param class-string<RealInstanceType> $type
+	 * @psalm-param list<string> $allow Methods to allow
+	 *
+	 * @param string $type
+	 * @param string[] $allow Methods to allow
+	 *
+	 * @return MockObject&RealInstanceType
 	 */
 	protected function createNoOpMock( $type, $allow = [] ) {
 		$mock = $this->createMock( $type );
@@ -52,9 +65,15 @@ trait MediaWikiTestCaseTrait {
 	/**
 	 * Return a PHPUnit mock that is expected to never have any methods called on it.
 	 *
+	 * @psalm-template RealInstanceType of object
+	 *
+	 * @psalm-param class-string<RealInstanceType> $type
+	 * @psalm-param list<string> $allow Methods to allow
+	 *
 	 * @param string $type
 	 * @param string[] $allow methods to allow
-	 * @return MockObject
+	 *
+	 * @return MockObject&RealInstanceType
 	 */
 	protected function createNoOpAbstractMock( $type, $allow = [] ) {
 		$mock = $this->getMockBuilder( $type )
@@ -102,24 +121,6 @@ trait MediaWikiTestCaseTrait {
 	}
 
 	/**
-	 * Check if $extName is a loaded PHP extension, will skip the
-	 * test whenever it is not loaded.
-	 *
-	 * @since 1.21 added to MediaWikiIntegrationTestCase
-	 * @since 1.37 moved to MediaWikiTestCaseTrait to be available in unit tests
-	 * @param string $extName
-	 * @return bool
-	 */
-	protected function checkPHPExtension( $extName ) {
-		$loaded = extension_loaded( $extName );
-		if ( !$loaded ) {
-			$this->markTestSkipped( "PHP extension '$extName' is not loaded, skipping." );
-		}
-
-		return $loaded;
-	}
-
-	/**
 	 * Don't throw a warning if $function is deprecated and called later
 	 *
 	 * @since 1.19
@@ -141,6 +142,32 @@ trait MediaWikiTestCaseTrait {
 	 */
 	public function filterDeprecated( $regex ) {
 		MWDebug::filterDeprecationForTest( $regex );
+	}
+
+	/**
+	 * Expect a deprecation notice, but suppress it and continue operation so we can test that the
+	 * deprecated functionality works as intended for compatibility.
+	 *
+	 * @since 1.39
+	 *
+	 * @param string $regex Deprecation message that must be triggered.
+	 */
+	public function expectDeprecationAndContinue( string $regex ): void {
+		$this->expectedDeprecations[] = $regex;
+		MWDebug::filterDeprecationForTest( $regex, function () use ( $regex ): void {
+			$this->actualDeprecations[] = $regex;
+		} );
+	}
+
+	/**
+	 * @after
+	 */
+	public function checkExpectedDeprecationsOnTearDown(): void {
+		if ( $this->expectedDeprecations ) {
+			$this->assertSame( [],
+				array_diff( $this->expectedDeprecations, $this->actualDeprecations ),
+				'Expected deprecation warning(s) were not emitted' );
+		}
 	}
 
 	/**
@@ -170,7 +197,51 @@ trait MediaWikiTestCaseTrait {
 	}
 
 	/**
-	 * Assert that two arrays are equal. By default this means that both arrays need to hold
+	 * Assert that an associative array contains the subset of an expected array.
+	 *
+	 * The internal key order does not matter.
+	 * Values are compared with strict equality.
+	 *
+	 * @since 1.41
+	 * @param array $expected
+	 * @param array $actual
+	 * @param string $message
+	 */
+	protected function assertArrayContains(
+		array $expected,
+		array $actual,
+		$message = ''
+	) {
+		$patched = array_replace_recursive( $actual, $expected );
+
+		ksort( $patched );
+		ksort( $actual );
+		$result = ( $actual === $patched );
+
+		if ( !$result ) {
+			$comparisonFailure = new ComparisonFailure(
+				$patched,
+				$actual,
+				var_export( $patched, true ),
+				var_export( $actual, true )
+			);
+
+			$failureDescription = 'Failed asserting that array contains the expected submap.';
+			if ( $message != '' ) {
+				$failureDescription = $message . "\n" . $failureDescription;
+			}
+
+			throw new ExpectationFailedException(
+				$failureDescription,
+				$comparisonFailure
+			);
+		} else {
+			$this->assertTrue( true, $message );
+		}
+	}
+
+	/**
+	 * Assert that two arrays are equal. By default, this means that both arrays need to hold
 	 * the same set of values. Using additional arguments, order and associated key can also
 	 * be set as relevant.
 	 *
@@ -181,14 +252,9 @@ trait MediaWikiTestCaseTrait {
 	 * @param bool $ordered If the order of the values should match
 	 * @param bool $named If the keys should match
 	 * @param string $message
-	 * @param float $delta Deprecated in assertEquals()
-	 * @param int $maxDepth Deprecated in assertEquals()
-	 * @param bool $canonicalize Deprecated in assertEquals()
-	 * @param bool $ignoreCase Deprecated in assertEquals()
 	 */
 	public function assertArrayEquals(
-		array $expected, array $actual, $ordered = false, $named = false, string $message = '',
-		float $delta = 0.0, int $maxDepth = 10, bool $canonicalize = false, bool $ignoreCase = false
+		array $expected, array $actual, $ordered = false, $named = false, string $message = ''
 	) {
 		if ( !$ordered ) {
 			$this->objectAssociativeSort( $expected );
@@ -200,11 +266,7 @@ trait MediaWikiTestCaseTrait {
 			$actual = array_values( $actual );
 		}
 
-		$this->assertEquals(
-			$expected, $actual, $message,
-			// Deprecated args
-			$delta, $maxDepth, $canonicalize, $ignoreCase
-		);
+		$this->assertEquals( $expected, $actual, $message );
 	}
 
 	/**
@@ -275,9 +337,7 @@ trait MediaWikiTestCaseTrait {
 	 */
 	protected function getMockMessage( $text = '', $params = [] ) {
 		/** @var MockObject $msg */
-		$msg = $this->getMockBuilder( Message::class )
-			->disableOriginalConstructor()
-			->getMock();
+		$msg = $this->createMock( Message::class );
 		$msg->method( 'toString' )->willReturn( $text );
 		$msg->method( '__toString' )->willReturn( $text );
 		$msg->method( 'text' )->willReturn( $text );
@@ -298,4 +358,110 @@ trait MediaWikiTestCaseTrait {
 		$msg->method( 'exists' )->willReturn( true );
 		return $msg;
 	}
+
+	private function failStatus( StatusValue $status, $reason, $message = '' ) {
+		$reason = $message === '' ? $reason : "$message\n$reason";
+		$this->fail( "$reason\n$status" );
+	}
+
+	protected function assertStatusOK( StatusValue $status, $message = '' ) {
+		if ( !$status->isOK() ) {
+			$errors = $status->splitByErrorType()[0];
+			$this->failStatus( $errors, 'Status should be OK', $message );
+		} else {
+			$this->addToAssertionCount( 1 );
+		}
+	}
+
+	protected function assertStatusGood( StatusValue $status, $message = '' ) {
+		if ( !$status->isGood() ) {
+			$this->failStatus( $status, 'Status should be Good', $message );
+		} else {
+			$this->addToAssertionCount( 1 );
+		}
+	}
+
+	protected function assertStatusNotOK( StatusValue $status, $message = '' ) {
+		if ( $status->isOK() ) {
+			$this->failStatus( $status, 'Status should not be OK', $message );
+		} else {
+			$this->addToAssertionCount( 1 );
+		}
+	}
+
+	protected function assertStatusNotGood( StatusValue $status, $message = '' ) {
+		if ( $status->isGood() ) {
+			$this->failStatus( $status, 'Status should not be Good', $message );
+		} else {
+			$this->addToAssertionCount( 1 );
+		}
+	}
+
+	protected function assertStatusMessage( $messageKey, StatusValue $status, $message = '' ) {
+		if ( !$status->hasMessage( $messageKey ) ) {
+			$this->failStatus( $status, "Status should have message $messageKey", $message );
+		} else {
+			$this->addToAssertionCount( 1 );
+		}
+	}
+
+	protected function assertStatusValue( $expected, StatusValue $status, $message = 'Status value' ) {
+		$this->assertEquals( $expected, $status->getValue(), $message );
+	}
+
+	protected function assertStatusError( $messageKey, StatusValue $status, $message = '' ) {
+		$this->assertStatusNotOK( $status, $message );
+		$this->assertStatusMessage( $messageKey, $status, $message );
+	}
+
+	protected function assertStatusWarning( $messageKey, StatusValue $status, $message = '' ) {
+		$this->assertStatusNotGood( $status, $message );
+		$this->assertStatusOK( $status, $message );
+		$this->assertStatusMessage( $messageKey, $status, $message );
+	}
+
+	/**
+	 * Put each HTML element on its own line and then equals() the results
+	 *
+	 * Use for nicely formatting of PHPUnit diff output when comparing very
+	 * simple HTML
+	 *
+	 * @since 1.20
+	 * @since 1.39 available in MediaWikiUnitTestCase
+	 *
+	 * @param string $expected HTML on oneline
+	 * @param string $actual HTML on oneline
+	 * @param string $msg Optional message
+	 */
+	protected function assertHTMLEquals( $expected, $actual, $msg = '' ) {
+		$expected = str_replace( '>', ">\n", $expected );
+		$actual = str_replace( '>', ">\n", $actual );
+
+		$this->assertEquals( $expected, $actual, $msg );
+	}
+
+	/**
+	 * Forward-compatibility method to replace assertObjectHasAttribute in PHPUnit 9. This can be removed when
+	 * upgrading to PHPUnit 10, which introduces this method upstream.
+	 */
+	protected function assertObjectHasProperty( string $propertyName, object $object, string $message = '' ): void {
+		$this->assertTrue(
+			( new ReflectionObject( $object ) )->hasProperty( $propertyName ),
+			$message ?: 'Failed asserting that object of class "' . get_class( $object ) .
+					"\" has property \"$propertyName\""
+		);
+	}
+
+	/**
+	 * Forward-compatibility method to replace assertObjectNotHasAttribute in PHPUnit 9. This can be removed when
+	 * upgrading to PHPUnit 10, which introduces this method upstream.
+	 */
+	protected function assertObjectNotHasProperty( string $propertyName, object $object, string $message = '' ): void {
+		$this->assertFalse(
+			( new ReflectionObject( $object ) )->hasProperty( $propertyName ),
+			$message ?: 'Failed asserting that object of class "' . get_class( $object ) .
+				"\" does not have property \"$propertyName\""
+		);
+	}
+
 }

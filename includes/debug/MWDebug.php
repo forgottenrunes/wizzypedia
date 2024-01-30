@@ -1,7 +1,5 @@
 <?php
 /**
- * Debug toolbar related code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -20,17 +18,25 @@
  * @file
  */
 
+use MediaWiki\Html\Html;
 use MediaWiki\Logger\LegacyLogger;
+use MediaWiki\Output\OutputPage;
+use MediaWiki\Parser\Sanitizer;
+use MediaWiki\ResourceLoader\ResourceLoader;
+use MediaWiki\Utils\GitInfo;
 use Wikimedia\WrappedString;
 use Wikimedia\WrappedStringList;
 
 /**
- * New debugger system that outputs a toolbar on page view.
+ * Debug toolbar.
  *
- * By default, most methods do nothing ( self::$enabled = false ). You have
- * to explicitly call MWDebug::init() to enabled them.
+ * By default most of these methods do nothing, as enforced by self::$enabled = false.
+ *
+ * To enable the debug toolbar, use $wgDebugToolbar = true in LocalSettings.php.
+ * That ensures MWDebug::init() is called from Setup.php.
  *
  * @since 1.19
+ * @ingroup Debug
  */
 class MWDebug {
 	/**
@@ -70,7 +76,7 @@ class MWDebug {
 	protected static $deprecationWarnings = [];
 
 	/**
-	 * @var string[] Deprecation filter regexes
+	 * @var array Keys are regexes, values are optional callbacks to call if the filter is hit
 	 */
 	protected static $deprecationFilters = [];
 
@@ -367,8 +373,11 @@ class MWDebug {
 	 *   caller column.
 	 */
 	public static function sendRawDeprecated( $msg, $sendToLog = true, $callerFunc = '' ) {
-		foreach ( self::$deprecationFilters as $filter ) {
+		foreach ( self::$deprecationFilters as $filter => $callback ) {
 			if ( preg_match( $filter, $msg ) ) {
+				if ( is_callable( $callback ) ) {
+					$callback();
+				}
 				return;
 			}
 		}
@@ -396,12 +405,15 @@ class MWDebug {
 	 * Use this to filter deprecation warnings when testing deprecated code.
 	 *
 	 * @param string $regex
+	 * @param ?callable $callback To call if $regex is hit
 	 */
-	public static function filterDeprecationForTest( $regex ) {
+	public static function filterDeprecationForTest(
+		string $regex, ?callable $callback = null
+	): void {
 		if ( !defined( 'MW_PHPUNIT_TEST' ) && !defined( 'MW_PARSER_TEST' ) ) {
-			throw new RuntimeException( __METHOD__ . ' can only be used in tests' );
+			throw new LogicException( __METHOD__ . ' can only be used in tests' );
 		}
-		self::$deprecationFilters[] = $regex;
+		self::$deprecationFilters[$regex] = $callback;
 	}
 
 	/**
@@ -620,8 +632,7 @@ class MWDebug {
 			// Cannot use OutputPage::addJsConfigVars because those are already outputted
 			// by the time this method is called.
 			$html[] = ResourceLoader::makeInlineScript(
-				ResourceLoader::makeConfigSetScript( [ 'debugInfo' => $debugInfo ] ),
-				$context->getOutput()->getCSP()->getNonce()
+				ResourceLoader::makeConfigSetScript( [ 'debugInfo' => $debugInfo ] )
 			);
 		}
 

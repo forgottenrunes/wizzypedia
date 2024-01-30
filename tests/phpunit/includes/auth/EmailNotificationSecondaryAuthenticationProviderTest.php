@@ -2,9 +2,12 @@
 
 namespace MediaWiki\Auth;
 
+use MediaWiki\Config\HashConfig;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Tests\Unit\Auth\AuthenticationProviderTestTrait;
+use MediaWiki\Tests\Unit\DummyServicesTrait;
+use MediaWiki\User\User;
 use MediaWiki\User\UserNameUtils;
-use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
 use Wikimedia\TestingAccessWrapper;
 
@@ -14,6 +17,7 @@ use Wikimedia\TestingAccessWrapper;
  */
 class EmailNotificationSecondaryAuthenticationProviderTest extends \MediaWikiIntegrationTestCase {
 	use AuthenticationProviderTestTrait;
+	use DummyServicesTrait;
 
 	/**
 	 * @param array $options
@@ -22,7 +26,7 @@ class EmailNotificationSecondaryAuthenticationProviderTest extends \MediaWikiInt
 	private function getProvider( array $options = [] ): EmailNotificationSecondaryAuthenticationProvider {
 		$services = $this->getServiceContainer();
 		$provider = new EmailNotificationSecondaryAuthenticationProvider(
-			$options['loadBalancer'] ?? $services->getDBLoadBalancer(),
+			$options['dbProvider'] ?? $services->getDBLoadBalancerFactory(),
 			$options // make things easier for tests by using the same options
 		);
 		$this->initProvider(
@@ -37,9 +41,9 @@ class EmailNotificationSecondaryAuthenticationProviderTest extends \MediaWikiInt
 	}
 
 	public function testConstructor() {
-		$config = new \HashConfig( [
-			'EnableEmail' => true,
-			'EmailAuthentication' => true,
+		$config = new HashConfig( [
+			MainConfigNames::EnableEmail => true,
+			MainConfigNames::EmailAuthentication => true,
 		] );
 
 		$provider = $this->getProvider( [
@@ -68,7 +72,7 @@ class EmailNotificationSecondaryAuthenticationProviderTest extends \MediaWikiInt
 		$this->assertSame( $expected, $provider->getAuthenticationRequests( $action, [] ) );
 	}
 
-	public function provideGetAuthenticationRequests() {
+	public static function provideGetAuthenticationRequests() {
 		return [
 			[ AuthManager::ACTION_LOGIN, [] ],
 			[ AuthManager::ACTION_CREATE, [] ],
@@ -83,19 +87,17 @@ class EmailNotificationSecondaryAuthenticationProviderTest extends \MediaWikiInt
 			'sendConfirmationEmail' => true,
 		] );
 		$this->assertEquals( AuthenticationResponse::newAbstain(),
-			$provider->beginSecondaryAuthentication( \User::newFromName( 'Foo' ), [] ) );
+			$provider->beginSecondaryAuthentication( User::newFromName( 'Foo' ), [] ) );
 	}
 
 	public function testBeginSecondaryAccountCreation() {
 		$mwServices = $this->getServiceContainer();
-		$services = $this->createNoOpAbstractMock( ContainerInterface::class );
-		$objectFactory = new \Wikimedia\ObjectFactory\ObjectFactory( $services );
 		$hookContainer = $this->createHookContainer();
 		$userNameUtils = $this->createNoOpMock( UserNameUtils::class );
 		$authManager = new AuthManager(
-			new \FauxRequest(),
-			new \HashConfig(),
-			$objectFactory,
+			new \MediaWiki\Request\FauxRequest(),
+			new HashConfig(),
+			$this->getDummyObjectFactory(),
 			$hookContainer,
 			$mwServices->getReadOnlyMode(),
 			$userNameUtils,
@@ -110,24 +112,24 @@ class EmailNotificationSecondaryAuthenticationProviderTest extends \MediaWikiInt
 			$mwServices->getUserOptionsManager()
 		);
 
-		$creator = $this->getMockBuilder( \User::class )->getMock();
-		$userWithoutEmail = $this->getMockBuilder( \User::class )->getMock();
+		$creator = $this->createMock( User::class );
+		$userWithoutEmail = $this->createMock( User::class );
 		$userWithoutEmail->method( 'getEmail' )->willReturn( '' );
 		$userWithoutEmail->method( 'getInstanceForUpdate' )->willReturnSelf();
 		$userWithoutEmail->expects( $this->never() )->method( 'sendConfirmationMail' );
-		$userWithEmailError = $this->getMockBuilder( \User::class )->getMock();
+		$userWithEmailError = $this->createMock( User::class );
 		$userWithEmailError->method( 'getEmail' )->willReturn( 'foo@bar.baz' );
 		$userWithEmailError->method( 'getInstanceForUpdate' )->willReturnSelf();
 		$userWithEmailError->method( 'sendConfirmationMail' )
-			->willReturn( \Status::newFatal( 'fail' ) );
-		$userExpectsConfirmation = $this->getMockBuilder( \User::class )->getMock();
+			->willReturn( \MediaWiki\Status\Status::newFatal( 'fail' ) );
+		$userExpectsConfirmation = $this->createMock( User::class );
 		$userExpectsConfirmation->method( 'getEmail' )
 			->willReturn( 'foo@bar.baz' );
 		$userExpectsConfirmation->method( 'getInstanceForUpdate' )
 			->willReturnSelf();
 		$userExpectsConfirmation->expects( $this->once() )->method( 'sendConfirmationMail' )
-			->willReturn( \Status::newGood() );
-		$userNotExpectsConfirmation = $this->getMockBuilder( \User::class )->getMock();
+			->willReturn( \MediaWiki\Status\Status::newGood() );
+		$userNotExpectsConfirmation = $this->createMock( User::class );
 		$userNotExpectsConfirmation->method( 'getEmail' )
 			->willReturn( 'foo@bar.baz' );
 		$userNotExpectsConfirmation->method( 'getInstanceForUpdate' )

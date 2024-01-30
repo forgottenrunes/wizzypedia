@@ -1,10 +1,8 @@
 <?php
 /** Turkish (Türkçe)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author 82-145
  * @author Bekiroflaz
@@ -164,6 +162,7 @@ $specialPageAliases = [
 	'Randomredirect'            => [ 'RastgeleYönlendirme' ],
 	'Recentchanges'             => [ 'SonDeğişiklikler' ],
 	'Recentchangeslinked'       => [ 'İlgiliDeğişiklikler' ],
+	'Renameuser'                => [ 'KullanıcıAdınıDeğiştir', 'KullanıcıİsminiDeğiştir' ],
 	'Revisiondelete'            => [ 'RevizyonSil' ],
 	'Search'                    => [ 'Ara', 'Arama' ],
 	'Shortpages'                => [ 'KısaSayfalar' ],
@@ -316,7 +315,7 @@ $magicWords = [
 	'plural'                    => [ '0', 'ÇOĞUL:', 'PLURAL:' ],
 	'protectionlevel'           => [ '1', 'KORUMASEVİYESİ', 'PROTECTIONLEVEL' ],
 	'raw'                       => [ '0', 'HAM:', 'RAW:' ],
-	'redirect'                  => [ '0', '#YÖNLENDİRME', '#YÖNLENDİR', '#REDIRECT' ],
+	'redirect'                  => [ '0', '#YÖNLENDİRME', '#YÖNLENDİR', '#yönlendirme', '#yönlendir', '#REDIRECT' ],
 	'revisionday'               => [ '1', 'SÜRÜMGÜNÜ', 'REVISIONDAY' ],
 	'revisionday2'              => [ '1', 'SÜRÜMGÜNÜ2', 'REVISIONDAY2' ],
 	'revisionid'                => [ '1', 'SÜRÜMNU', 'SÜRÜMNO', 'REVİZYONNU', 'REVİZYONNO', 'REVISIONID' ],

@@ -1,6 +1,6 @@
 <?php
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
 
 /**
  * Parse some wikitext.
@@ -105,7 +105,7 @@ class CLIParser extends Maintenance {
 	}
 
 	protected function initParser() {
-		$this->parser = MediaWikiServices::getInstance()->getParserFactory()->create();
+		$this->parser = $this->getServiceContainer()->getParserFactory()->create();
 	}
 
 	/**
@@ -126,7 +126,7 @@ class CLIParser extends Maintenance {
 	 * @return ParserOutput
 	 */
 	protected function parse( $wikitext ) {
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$options->setOption( 'enableLimitReport', false );
 		return $this->parser->parse(
 			$wikitext,

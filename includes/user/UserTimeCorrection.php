@@ -26,6 +26,7 @@ use DateInterval;
 use DateTime;
 use DateTimeZone;
 use Exception;
+use MediaWiki\Utils\MWTimestamp;
 use Wikimedia\RequestTimeout\TimeoutException;
 
 /**
@@ -53,36 +54,35 @@ class UserTimeCorrection {
 	/** @var string Time correction based on a user defined timezone */
 	public const ZONEINFO = 'ZoneInfo';
 
-	/* @var DateTime */
+	/** @var DateTime */
 	private $date;
 
-	/* @var bool */
+	/** @var bool */
 	private $valid;
 
-	/* @var string */
+	/** @var string */
 	private $correctionType;
 
-	/* @var int Offset in minutes */
+	/** @var int Offset in minutes */
 	private $offset;
 
-	/* @var DateTimeZone|null */
+	/** @var DateTimeZone|null */
 	private $timeZone;
 
 	/**
 	 * @param string $timeCorrection Original time correction string
 	 * @param DateTime|null $relativeToDate The date used to calculate the time zone offset of.
 	 *            This defaults to the current date and time.
-	 * @param int $offset An offset in minutes (default 0)
+	 * @param int $systemOffset Offset for self::SYSTEM in minutes
 	 */
 	public function __construct(
 		string $timeCorrection,
 		DateTime $relativeToDate = null,
-		int $offset = 0
+		int $systemOffset = 0
 	) {
-		$this->date = $relativeToDate ?? new DateTime();
-		$this->offset = $offset;
+		$this->date = $relativeToDate ?? new DateTime( '@' . MWTimestamp::time() );
 		$this->valid = false;
-		$this->parse( $timeCorrection );
+		$this->parse( $timeCorrection, $systemOffset );
 	}
 
 	/**
@@ -141,7 +141,8 @@ class UserTimeCorrection {
 	 * There can be two forms of these strings:
 	 * 1. A pipe separated tuple of a maximum of 3 fields
 	 *    - Field 1 is the type of offset definition
-	 *    - Field 2 is the offset in minutes from UTC (optional for System type)
+	 *    - Field 2 is the offset in minutes from UTC (ignored for System type)
+	 *      FIXME Since it's ignored, remove the offset from System everywhere.
 	 *    - Field 3 is a timezone identifier from the tz database (only required for ZoneInfo type)
 	 *    - The offset for a ZoneInfo type is unreliable because of DST.
 	 *      After retrieving it from the database, it should be recalculated based on the TZ identifier.
@@ -160,8 +161,9 @@ class UserTimeCorrection {
 	 *    - 10
 	 *
 	 * @param string $timeCorrection
+	 * @param int $systemOffset
 	 */
-	private function parse( string $timeCorrection ) {
+	private function parse( string $timeCorrection, int $systemOffset ) {
 		$data = explode( '|', $timeCorrection, 3 );
 
 		// First handle the case of an actual timezone being specified.
@@ -169,7 +171,7 @@ class UserTimeCorrection {
 			try {
 				$this->correctionType = self::ZONEINFO;
 				$this->timeZone = new DateTimeZone( $data[2] );
-				$this->offset = floor( $this->timeZone->getOffset( $this->date ) / 60 );
+				$this->offset = (int)floor( $this->timeZone->getOffset( $this->date ) / 60 );
 				$this->valid = true;
 				return;
 			} catch ( TimeoutException $e ) {
@@ -190,45 +192,57 @@ class UserTimeCorrection {
 				$this->offset = (int)( $data[1] ?? 0 );
 				// If this is ZoneInfo, then we didn't recognize the TimeZone
 				$this->valid = isset( $data[1] ) && $data[0] === self::OFFSET;
-				return;
+				break;
 			case self::SYSTEM:
 				$this->correctionType = self::SYSTEM;
+				$this->offset = $systemOffset;
 				$this->valid = true;
-				return;
-		}
-
-		// $timeCorrection actually isn't a pipe separated value, but instead
-		// a colon separated value. This is only used by the userinput of the preferences
-		// but can also still be present in the Db. (but shouldn't be)
-		$diff = 0;
-		$data = explode( ':', $timeCorrection, 2 );
-		if ( count( $data ) >= 2 ) {
-			// Combination hours and minutes.
-			$diff = abs( (int)$data[0] ) * 60 + (int)$data[1];
-			if ( (int)$data[0] < 0 ) {
-				$diff *= -1;
-			}
-		} elseif ( ctype_digit( $data[0] ) ) {
-			// Just hours.
-			$diff = (int)$data[0] * 60;
-		} else {
-			// We really don't know this. Fallback to System
-			$this->correctionType = self::SYSTEM;
-			return;
+				break;
+			default:
+				// $timeCorrection actually isn't a pipe separated value, but instead
+				// a colon separated value. This is only used by the HTMLTimezoneField userinput
+				// but can also still be present in the Db. (but shouldn't be)
+				$this->correctionType = self::OFFSET;
+				$data = explode( ':', $timeCorrection, 2 );
+				if ( count( $data ) >= 2 ) {
+					// Combination hours and minutes.
+					$this->offset = abs( (int)$data[0] ) * 60 + (int)$data[1];
+					if ( (int)$data[0] < 0 ) {
+						$this->offset *= -1;
+					}
+					$this->valid = true;
+				} elseif ( preg_match( '/^[+-]?\d+$/', $data[0] ) ) {
+					// Just hours.
+					$this->offset = (int)$data[0] * 60;
+					$this->valid = true;
+				} else {
+					// We really don't know this. Fallback to System
+					$this->correctionType = self::SYSTEM;
+					$this->offset = $systemOffset;
+					return;
+				}
+				break;
 		}
 
 		// Max is +14:00 and min is -12:00, see:
 		// https://en.wikipedia.org/wiki/Timezone
-		if ( $diff >= -12 * 60 && $diff <= 14 * 60 ) {
-			$this->valid = true;
+		if ( $this->offset < -12 * 60 || $this->offset > 14 * 60 ) {
+			$this->valid = false;
 		}
 		// 14:00
-		$diff = min( $diff, 14 * 60 );
+		$this->offset = min( $this->offset, 14 * 60 );
 		// -12:00
-		$diff = max( $diff, -12 * 60 );
+		$this->offset = max( $this->offset, -12 * 60 );
+	}
 
-		$this->correctionType = self::OFFSET;
-		$this->offset = $diff;
+	/**
+	 * Converts a timezone offset in minutes (e.g., "120") to an hh:mm string like "+02:00".
+	 * @param int $offset
+	 * @return string
+	 */
+	public static function formatTimezoneOffset( int $offset ): string {
+		$hours = $offset > 0 ? floor( $offset / 60 ) : ceil( $offset / 60 );
+		return sprintf( '%+03d:%02d', $hours, abs( $offset ) % 60 );
 	}
 
 	/**

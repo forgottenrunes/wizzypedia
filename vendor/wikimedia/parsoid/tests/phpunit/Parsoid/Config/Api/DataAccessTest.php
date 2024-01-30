@@ -75,6 +75,7 @@ class DataAccessTest extends \PHPUnit\Framework\TestCase {
 				"descriptionshorturl" => "//commons.wikimedia.org/w/index.php?curid=937952",
 				'mime' => 'image/svg+xml',
 				'mediatype' => 'DRAWING',
+				'badFile' => false
 			],
 			'DoesNotExist.png' => null,
 		];
@@ -113,9 +114,8 @@ class DataAccessTest extends \PHPUnit\Framework\TestCase {
 			'ext.discussionTools.init.styles',
 		], $metadata->getModuleStyles() );
 		$this->assertEquals( [], $metadata->getJsConfigVars() );
-		$this->assertEquals( [
-			'Foo' => 'Bar',
-		], $metadata->getCategories() );
+		$this->assertEquals( [ 'Foo' ], $metadata->getCategoryNames() );
+		$this->assertEquals( 'Bar', $metadata->getCategorySortKey( 'Foo' ) );
 
 		// Test caching. Cache miss would make TestApiHelper throw.
 		$this->assertSame(
@@ -141,7 +141,7 @@ class DataAccessTest extends \PHPUnit\Framework\TestCase {
 		$this->assertEquals( [], $metadata->getModules() );
 		$this->assertEquals( [], $metadata->getModuleStyles() );
 		$this->assertEquals( [], $metadata->getJsConfigVars() );
-		$this->assertEquals( [], $metadata->getCategories() );
+		$this->assertEquals( [], $metadata->getCategoryNames() );
 
 		// Test caching. Cache miss would make TestApiHelper throw.
 		$this->assertSame(

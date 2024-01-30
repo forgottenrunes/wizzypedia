@@ -19,7 +19,11 @@
  * @ingroup Testing
  */
 
+use MediaWiki\Config\ConfigException;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\Logger\NullSpi;
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Settings\SettingsBuilder;
 use PHPUnit\Framework\Exception;
 use PHPUnit\Framework\TestCase;
 use Wikimedia\ObjectFactory\ObjectFactory;
@@ -55,7 +59,6 @@ abstract class MediaWikiUnitTestCase extends TestCase {
 			'wgAutoloadLocalClasses',
 			// Need for LoggerFactory. Default is NullSpi.
 			'wgMWLoggerDefaultSpi',
-			'wgAutoloadAttemptLowercase',
 			'wgLegalTitleChars',
 			'wgDevelopmentWarnings',
 			// Dependency of wfParseUrl()
@@ -73,7 +76,7 @@ abstract class MediaWikiUnitTestCase extends TestCase {
 	final public static function mediaWikiSetUpBeforeClass(): void {
 		$reflection = new ReflectionClass( static::class );
 		$dirSeparator = DIRECTORY_SEPARATOR;
-		if ( stripos( $reflection->getFileName(), "${dirSeparator}unit${dirSeparator}" ) === false ) {
+		if ( stripos( $reflection->getFileName(), "{$dirSeparator}unit{$dirSeparator}" ) === false ) {
 			self::fail( 'This unit test needs to be in "tests/phpunit/unit"!' );
 		}
 
@@ -101,6 +104,12 @@ abstract class MediaWikiUnitTestCase extends TestCase {
 		foreach ( self::$unitGlobals as $key => $value ) {
 			$GLOBALS[ $key ] = $value;
 		}
+
+		// Set DeferredUpdates into standalone mode
+		DeferredUpdates::setScopeStack( new DeferredUpdatesScopeStack() );
+		MediaWikiServices::disallowGlobalInstanceInUnitTests();
+		ExtensionRegistry::disableForTest();
+		SettingsBuilder::disableAccessForUnitTests();
 	}
 
 	/**
@@ -108,6 +117,10 @@ abstract class MediaWikiUnitTestCase extends TestCase {
 	 */
 	protected function runTest() {
 		try {
+			// Don't let LoggerFactory::getProvider() access globals or other things we don't want.
+			LoggerFactory::registerProvider( ObjectFactory::getObjectFromSpec( [
+				'class' => NullSpi::class
+			] ) );
 			return parent::runTest();
 		} catch ( ConfigException $exception ) {
 			throw new Exception(
@@ -117,11 +130,6 @@ abstract class MediaWikiUnitTestCase extends TestCase {
 				$exception
 			);
 		}
-
-		// Don't let LoggerFactory::getProvider() access globals or other things we don't want.
-		LoggerFactory::registerProvider( ObjectFactory::getObjectFromSpec( [
-			'class' => \MediaWiki\Logger\NullSpi::class
-		] ) );
 	}
 
 	/**
@@ -155,6 +163,12 @@ abstract class MediaWikiUnitTestCase extends TestCase {
 		foreach ( self::$originalGlobals as $key => &$value ) {
 			$GLOBALS[ $key ] =& $value;
 		}
+		unset( $value );
+
+		MediaWikiServices::allowGlobalInstanceAfterUnitTests();
+		DeferredUpdates::setScopeStack( new DeferredUpdatesScopeMediaWikiStack() );
+		ExtensionRegistry::enableForTest();
+		SettingsBuilder::enableAccessAfterUnitTests();
 	}
 
 }

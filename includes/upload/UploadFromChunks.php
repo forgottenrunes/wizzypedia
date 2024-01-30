@@ -1,6 +1,9 @@
 <?php
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Request\WebRequestUpload;
+use MediaWiki\Status\Status;
+use MediaWiki\User\User;
 
 /**
  * Backend for uploading files from chunks.
@@ -49,8 +52,8 @@ class UploadFromChunks extends UploadFromFile {
 	 * Setup local pointers to stash, repo and user (similar to UploadFromStash)
 	 *
 	 * @param User $user
-	 * @param UploadStash|bool $stash Default: false
-	 * @param FileRepo|bool $repo Default: false
+	 * @param UploadStash|false $stash Default: false
+	 * @param FileRepo|false $repo Default: false
 	 */
 	public function __construct( User $user, $stash = false, $repo = false ) {
 		$this->user = $user;
@@ -122,7 +125,6 @@ class UploadFromChunks extends UploadFromFile {
 		$this->getChunkStatus();
 
 		$metadata = $this->stash->getMetadata( $key );
-		// @phan-suppress-next-line SecurityCheckMulti,SecurityCheck-PathTraversal
 		$this->initializePathInfo( $name,
 			$this->getRealPath( $metadata['us_path'] ),
 			$metadata['us_size'],
@@ -196,6 +198,7 @@ class UploadFromChunks extends UploadFromFile {
 		}
 
 		$tAmount = microtime( true ) - $tStart;
+		// @phan-suppress-next-line PhanTypeMismatchArgumentNullable tmpFile is set when tmpPath is set here
 		$this->mStashFile->setLocalReference( $tmpFile ); // reuse (e.g. for getImageInfo())
 		wfDebugLog( 'fileconcatenate', "Stashed combined file ($i chunks) in $tAmount seconds." );
 
@@ -267,16 +270,15 @@ class UploadFromChunks extends UploadFromFile {
 			$this->getOffset() . ' inx:' . $this->getChunkIndex() );
 
 		$dbw = $this->repo->getPrimaryDB();
-		$dbw->update(
-			'uploadstash',
-			[
+		$dbw->newUpdateQueryBuilder()
+			->update( 'uploadstash' )
+			->set( [
 				'us_status' => 'chunks',
 				'us_chunk_inx' => $this->getChunkIndex(),
 				'us_size' => $this->getOffset()
-			],
-			[ 'us_key' => $this->mFileKey ],
-			__METHOD__
-		);
+			] )
+			->where( [ 'us_key' => $this->mFileKey ] )
+			->caller( __METHOD__ )->execute();
 	}
 
 	/**
@@ -286,16 +288,11 @@ class UploadFromChunks extends UploadFromFile {
 		// get primary db to avoid race conditions.
 		// Otherwise, if chunk upload time < replag there will be spurious errors
 		$dbw = $this->repo->getPrimaryDB();
-		$row = $dbw->selectRow(
-			'uploadstash',
-			[
-				'us_chunk_inx',
-				'us_size',
-				'us_path',
-			],
-			[ 'us_key' => $this->mFileKey ],
-			__METHOD__
-		);
+		$row = $dbw->newSelectQueryBuilder()
+			->select( [ 'us_chunk_inx', 'us_size', 'us_path' ] )
+			->from( 'uploadstash' )
+			->where( [ 'us_key' => $this->mFileKey ] )
+			->caller( __METHOD__ )->fetchRow();
 		// Handle result:
 		if ( $row ) {
 			$this->mChunkIndex = $row->us_chunk_inx;
@@ -355,19 +352,15 @@ class UploadFromChunks extends UploadFromFile {
 					$error = [ 'unknown', 'no error recorded' ];
 				}
 			}
-			throw new UploadChunkFileException( "Error storing file in '$chunkPath': " .
-				implode( '; ', $error ) );
+			throw new UploadChunkFileException( "Error storing file in '{chunkPath}': " .
+				implode( '; ', $error ), [ 'chunkPath' => $chunkPath ] );
 		}
 
 		return $storeStatus;
 	}
 
 	private function getChunkFileKey( $index = null ) {
-		if ( $index === null ) {
-			$index = $this->getChunkIndex();
-		}
-
-		return $this->mFileKey . '.' . $index;
+		return $this->mFileKey . '.' . ( $index ?? $this->getChunkIndex() );
 	}
 
 	/**

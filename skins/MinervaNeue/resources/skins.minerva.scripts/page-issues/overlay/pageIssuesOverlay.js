@@ -1,10 +1,9 @@
-( function ( M, mwMsg ) {
+( function ( M ) {
 	var
 		Overlay = M.require( 'mobile.startup' ).Overlay,
 		IssueList = require( './IssueList.js' ),
 		KEYWORD_ALL_SECTIONS = 'all',
 		NS_MAIN = 0,
-		NS_TALK = 1,
 		NS_CATEGORY = 14;
 
 	/**
@@ -22,7 +21,7 @@
 			// namespace.
 			headingText = section === '0' || section === KEYWORD_ALL_SECTIONS ?
 				getNamespaceHeadingText( namespaceID ) :
-				mwMsg( 'minerva-meta-data-issues-section-header' );
+				mw.msg( 'minerva-meta-data-issues-section-header' );
 
 		overlay = new Overlay( {
 			className: 'overlay overlay-issues',
@@ -45,8 +44,6 @@
 		switch ( namespaceID ) {
 			case NS_CATEGORY:
 				return mw.msg( 'mobile-frontend-meta-data-issues-categories' );
-			case NS_TALK:
-				return mw.msg( 'mobile-frontend-meta-data-issues-talk' );
 			case NS_MAIN:
 				return mw.msg( 'mobile-frontend-meta-data-issues' );
 			default:
@@ -57,4 +54,4 @@
 	module.exports = pageIssuesOverlay;
 
 // eslint-disable-next-line no-restricted-properties
-}( mw.mobileFrontend, mw.msg ) );
+}( mw.mobileFrontend ) );

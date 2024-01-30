@@ -3,17 +3,16 @@
 use MediaWiki\Auth\AuthManager;
 use MediaWiki\ParamValidator\TypeDef\UserDef;
 use MediaWiki\User\UserFactory;
+use MediaWiki\User\UserRigorOptions;
+use Wikimedia\ParamValidator\ParamValidator;
 
 /**
  * @ingroup API
  */
 class ApiValidatePassword extends ApiBase {
 
-	/** @var AuthManager */
-	private $authManager;
-
-	/** @var UserFactory */
-	private $userFactory;
+	private AuthManager $authManager;
+	private UserFactory $userFactory;
 
 	/**
 	 * @param ApiMain $mainModule
@@ -40,7 +39,7 @@ class ApiValidatePassword extends ApiBase {
 		if ( $params['user'] !== null ) {
 			$user = $this->userFactory->newFromName(
 				$params['user'],
-				UserFactory::RIGOR_CREATABLE
+				UserRigorOptions::RIGOR_CREATABLE
 			);
 			if ( !$user ) {
 				$encParamName = $this->encodeParamName( 'user' );
@@ -83,11 +82,11 @@ class ApiValidatePassword extends ApiBase {
 	public function getAllowedParams() {
 		return [
 			'password' => [
-				ApiBase::PARAM_TYPE => 'password',
-				ApiBase::PARAM_REQUIRED => true
+				ParamValidator::PARAM_TYPE => 'password',
+				ParamValidator::PARAM_REQUIRED => true
 			],
 			'user' => [
-				ApiBase::PARAM_TYPE => 'user',
+				ParamValidator::PARAM_TYPE => 'user',
 				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name', 'id' ],
 			],
 			'email' => null,

@@ -15,8 +15,7 @@ class SlotDiffRendererTest extends \MediaWikiIntegrationTestCase {
 		$oldContent, $newContent, $allowedClasses,
 		$expectedOldContent, $expectedNewContent, $expectedExceptionClass
 	) {
-		$slotDiffRenderer = $this->getMockBuilder( SlotDiffRenderer::class )
-			->getMock();
+		$slotDiffRenderer = $this->createMock( SlotDiffRenderer::class );
 		try {
 			// __call needs help deciding which parameter to take by reference
 			call_user_func_array( [ TestingAccessWrapper::newFromObject( $slotDiffRenderer ),
@@ -31,7 +30,7 @@ class SlotDiffRendererTest extends \MediaWikiIntegrationTestCase {
 		}
 	}
 
-	public function provideNormalizeContents() {
+	public static function provideNormalizeContents() {
 		return [
 			'both null' => [ null, null, null, null, null, InvalidArgumentException::class ],
 			'left null' => [
@@ -56,10 +55,20 @@ class SlotDiffRendererTest extends \MediaWikiIntegrationTestCase {
 			],
 			'type filter failure (left)' => [
 				new TextContent( 'abc' ), new WikitextContent( 'def' ), WikitextContent::class,
-				null, null, ParameterTypeException::class,
+				// Throws incompatible exception because the right content matches the filter and the
+				// left doesn't. All other kinds of mismatches should result in a parameter type exception.
+				null, null, IncompatibleDiffTypesException::class,
 			],
 			'type filter failure (right)' => [
 				new WikitextContent( 'abc' ), new TextContent( 'def' ), WikitextContent::class,
+				null, null, ParameterTypeException::class,
+			],
+			'type filter failure (left, with null)' => [
+				new TextContent( 'abc' ), null, WikitextContent::class,
+				null, null, ParameterTypeException::class,
+			],
+			'type filter failure (right, with null)' => [
+				null, new TextContent( 'def' ), WikitextContent::class,
 				null, null, ParameterTypeException::class,
 			],
 			'type filter (array syntax)' => [

@@ -21,6 +21,14 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use HTMLForm;
+use MediaWiki\Html\Html;
+use MediaWiki\MainConfigNames;
+use MediaWiki\SpecialPage\FormSpecialPage;
+use MediaWiki\SpecialPage\SpecialPage;
+
 /**
  * Let users reset tokens like the watchlist token.
  *
@@ -55,7 +63,7 @@ class SpecialResetTokens extends FormSpecialPage {
 			];
 			$this->getHookRunner()->onSpecialResetTokensTokens( $tokens );
 
-			$hiddenPrefs = $this->getConfig()->get( 'HiddenPrefs' );
+			$hiddenPrefs = $this->getConfig()->get( MainConfigNames::HiddenPrefs );
 			$tokens = array_filter( $tokens, static function ( $tok ) use ( $hiddenPrefs ) {
 				return !in_array( $tok['preference'], $hiddenPrefs );
 			} );
@@ -69,7 +77,7 @@ class SpecialResetTokens extends FormSpecialPage {
 	public function execute( $par ) {
 		// This is a preferences page, so no user JS for y'all.
 		$this->getOutput()->disallowUserJs();
-		$this->requireLogin();
+		$this->requireNamedUser();
 
 		parent::execute( $par );
 
@@ -152,10 +160,16 @@ class SpecialResetTokens extends FormSpecialPage {
 	}
 
 	protected function getGroupName() {
-		return 'users';
+		return 'login';
 	}
 
 	public function isListed() {
 		return (bool)$this->getTokensList();
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialResetTokens::class, 'SpecialResetTokens' );

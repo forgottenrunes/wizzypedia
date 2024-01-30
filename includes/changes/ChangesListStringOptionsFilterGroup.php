@@ -21,7 +21,9 @@
  * @author Matthew Flaschen
  */
 
-use Wikimedia\Rdbms\IDatabase;
+use MediaWiki\Html\FormOptions;
+use MediaWiki\SpecialPage\ChangesListSpecialPage;
+use Wikimedia\Rdbms\IReadableDatabase;
 
 /**
  * Represents a filter group with multiple string options. They are passed to the server as
@@ -110,7 +112,7 @@ class ChangesListStringOptionsFilterGroup extends ChangesListFilterGroup {
 	 */
 	public function __construct( array $groupDefinition ) {
 		if ( !isset( $groupDefinition['isFullCoverage'] ) ) {
-			throw new MWException( 'You must specify isFullCoverage' );
+			throw new InvalidArgumentException( 'You must specify isFullCoverage' );
 		}
 
 		$groupDefinition['type'] = self::TYPE;
@@ -122,7 +124,7 @@ class ChangesListStringOptionsFilterGroup extends ChangesListFilterGroup {
 		if ( isset( $groupDefinition['default'] ) ) {
 			$this->setDefault( $groupDefinition['default'] );
 		} else {
-			throw new MWException( 'You must specify a default' );
+			throw new InvalidArgumentException( 'You must specify a default' );
 		}
 	}
 
@@ -164,7 +166,7 @@ class ChangesListStringOptionsFilterGroup extends ChangesListFilterGroup {
 	/**
 	 * @inheritDoc
 	 */
-	public function modifyQuery( IDatabase $dbr, ChangesListSpecialPage $specialPage,
+	public function modifyQuery( IReadableDatabase $dbr, ChangesListSpecialPage $specialPage,
 		&$tables, &$fields, &$conds, &$query_options, &$join_conds,
 		FormOptions $opts, $isStructuredFiltersEnabled
 	) {

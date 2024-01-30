@@ -2,7 +2,7 @@
 
 namespace MediaWiki\Extension\AbuseFilter\Hooks\Handlers;
 
-use MediaWiki\Extension\AbuseFilter\AbuseFilterPreAuthenticationProvider;
+use InvalidArgumentException;
 
 /**
  * This class runs a callback when the extension is registered, right after configuration has been
@@ -12,10 +12,11 @@ use MediaWiki\Extension\AbuseFilter\AbuseFilterPreAuthenticationProvider;
 class RegistrationCallback {
 
 	public static function onRegistration(): void {
-		global $wgAuthManagerAutoConfig, $wgActionFilteredLogs, $wgAbuseFilterProfile,
-			   $wgAbuseFilterProfiling, $wgAbuseFilterPrivateLog, $wgAbuseFilterForceSummary,
-			   $wgGroupPermissions, $wgAbuseFilterRestrictions, $wgAbuseFilterDisallowGlobalLocalBlocks,
-			   $wgAbuseFilterActionRestrictions, $wgAbuseFilterLocallyDisabledGlobalActions;
+		global $wgAbuseFilterProfile,
+			$wgAbuseFilterProfiling, $wgAbuseFilterPrivateLog, $wgAbuseFilterForceSummary,
+			$wgGroupPermissions, $wgAbuseFilterRestrictions, $wgAbuseFilterDisallowGlobalLocalBlocks,
+			$wgAbuseFilterActionRestrictions, $wgAbuseFilterLocallyDisabledGlobalActions,
+			$wgAbuseFilterActorTableSchemaMigrationStage;
 
 		// @todo Remove this in a future release (added in 1.33)
 		if ( isset( $wgAbuseFilterProfile ) || isset( $wgAbuseFilterProfiling ) ) {
@@ -90,26 +91,19 @@ class RegistrationCallback {
 			$wgAbuseFilterActionRestrictions = $wgAbuseFilterRestrictions;
 		}
 
-		$wgAuthManagerAutoConfig['preauth'][AbuseFilterPreAuthenticationProvider::class] = [
-			'class' => AbuseFilterPreAuthenticationProvider::class,
-			// Run after normal preauth providers to keep the log cleaner
-			'sort' => 5,
+		// in order
+		$allowedStages = [
+			SCHEMA_COMPAT_OLD,
+			SCHEMA_COMPAT_WRITE_BOTH | SCHEMA_COMPAT_READ_OLD,
+			SCHEMA_COMPAT_WRITE_BOTH | SCHEMA_COMPAT_READ_NEW,
+			SCHEMA_COMPAT_NEW,
 		];
-
-		$wgActionFilteredLogs['suppress'] = array_merge(
-			$wgActionFilteredLogs['suppress'],
-			// Message: log-action-filter-suppress-abuselog
-			[ 'abuselog' => [ 'hide-afl', 'unhide-afl' ] ]
-		);
-		$wgActionFilteredLogs['rights'] = array_merge(
-			$wgActionFilteredLogs['rights'],
-			// Messages: log-action-filter-rights-blockautopromote,
-			// log-action-filter-rights-restoreautopromote
-			[
-				'blockautopromote' => [ 'blockautopromote' ],
-				'restoreautopromote' => [ 'restoreautopromote' ]
-			]
-		);
+		if ( !in_array( $wgAbuseFilterActorTableSchemaMigrationStage, $allowedStages ) ) {
+			throw new InvalidArgumentException(
+				'$wgAbuseFilterActorTableSchemaMigrationStage must specify a supported ' .
+				'combination of schema compatibility flags'
+			);
+		}
 	}
 
 }

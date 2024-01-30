@@ -53,6 +53,7 @@ ve.ui.UrlStringTransferHandler.static.urlRegExp = null; // Initialized below
 
 ve.init.Platform.static.initializedPromise.then( function () {
 	ve.ui.UrlStringTransferHandler.static.urlRegExp =
+		// eslint-disable-next-line security/detect-non-literal-regexp
 		new RegExp(
 			ve.init.platform.getExternalLinkUrlProtocolsRegExp().source +
 				'\\S+$',
@@ -87,7 +88,6 @@ ve.ui.UrlStringTransferHandler.prototype.process = function () {
 
 	var links;
 	switch ( this.item.type ) {
-
 		case 'text/uri-list':
 			// text/uri-list has embedded comments; remove them before
 			// autolinking.  In theory the embedded comments can be

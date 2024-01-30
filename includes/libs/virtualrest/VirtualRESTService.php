@@ -31,6 +31,7 @@
  * Such information should also be cached locally on the server and auth requests should
  * have reasonable timeouts.
  *
+ * @deprecated since 1.41, Use MultiHttpClient from the HttpRequestFactory.
  * @since 1.23
  */
 abstract class VirtualRESTService {
@@ -41,6 +42,10 @@ abstract class VirtualRESTService {
 	 * @param array $params Key/value map
 	 */
 	public function __construct( array $params ) {
+		wfDeprecated(
+			get_class( $this ) .
+			' is deprecated since 1.41. Use MultiHttpClient from the HttpRequestFactory.'
+		);
 		$this->params = $params;
 	}
 
@@ -70,7 +75,7 @@ abstract class VirtualRESTService {
 	 * or added request, the 'response' array can be filled in, which will prevent the
 	 * client from executing it. If an original request is removed, at some point it
 	 * must be added back (with the same key) in onRequests() or onResponses();
-	 * it's reponse may be filled in as with other requests.
+	 * its response may be filled in as with other requests.
 	 *
 	 * @param array[] $reqs Map of Virtual HTTP request arrays
 	 * @param Closure $idGeneratorFunc Method to generate unique keys for new requests
@@ -102,7 +107,7 @@ abstract class VirtualRESTService {
 	 * or added request, the 'response' array can be filled in, which will prevent the
 	 * client from executing it. If an original request is removed, at some point it
 	 * must be added back (with the same key) in onRequests() or onResponses();
-	 * it's reponse may be filled in as with other requests. All requests added to $reqs
+	 * its response may be filled in as with other requests. All requests added to $reqs
 	 * will be passed through onRequests() to handle any munging required as normal.
 	 *
 	 * The incoming URL parameter will be relative to the service mount point.

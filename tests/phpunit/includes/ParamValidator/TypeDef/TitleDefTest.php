@@ -2,23 +2,20 @@
 
 namespace MediaWiki\ParamValidator\TypeDef;
 
-use CommentStoreComment;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
-use MediaWiki\Revision\SlotRecord;
-use Title;
-use TitleValue;
-use User;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleValue;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\ParamValidator\SimpleCallbacks;
-use Wikimedia\ParamValidator\TypeDef\TypeDefTestCase;
-use WikitextContent;
 
 /**
  * @covers \MediaWiki\ParamValidator\TypeDef\TitleDef
+ * @group Database
  */
-class TitleDefTest extends TypeDefTestCase {
-
+class TitleDefTest extends TypeDefIntegrationTestCase {
 	protected function getInstance( SimpleCallbacks $callbacks, array $options ) {
+		$this->overrideConfigValue( MainConfigNames::LanguageCode, 'en' );
 		return new TitleDef(
 			$callbacks,
 			MediaWikiServices::getInstance()->getTitleFactory()
@@ -33,12 +30,8 @@ class TitleDefTest extends TypeDefTestCase {
 		$value, $expect, array $settings = [], array $options = [], array $expectConds = []
 	) {
 		if ( $this->dataName() === 'must exist (success)' ) {
-			$updater = MediaWikiServices::getInstance()->getWikiPageFactory()
-				->newFromTitle( Title::newFromText( 'exists' ) )
-				->newPageUpdater( new User )
-				->setContent( SlotRecord::MAIN, new WikitextContent( 'exists' ) );
-			$updater->saveRevision( CommentStoreComment::newUnsavedComment( 'test' ) );
-			$this->assertTrue( $updater->getStatus()->isOK() );
+			$status = $this->editPage( Title::makeTitle( NS_MAIN, 'Exists' ), 'exists' );
+			$this->assertTrue( $status->isOK() );
 		}
 		parent::testValidate( $value, $expect, $settings, $options, $expectConds );
 	}
@@ -94,7 +87,7 @@ class TitleDefTest extends TypeDefTestCase {
 			// Underscore-to-space conversion not happening here but later in validate().
 			'String' => [ 'User:John_Doe', 'User:John_Doe' ],
 			'TitleValue' => [ new TitleValue( NS_USER, 'John_Doe' ), 'User:John Doe' ],
-			'Title' => [ Title::newFromText( 'User:John_Doe' ), 'User:John Doe' ],
+			'Title' => [ Title::makeTitle( NS_USER, 'John_Doe' ), 'User:John Doe' ],
 		];
 	}
 

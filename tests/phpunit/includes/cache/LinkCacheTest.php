@@ -2,6 +2,8 @@
 
 use MediaWiki\Page\PageReference;
 use MediaWiki\Page\PageReferenceValue;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleValue;
 
 /**
  * @group Database
@@ -24,14 +26,14 @@ class LinkCacheTest extends MediaWikiIntegrationTestCase {
 		);
 	}
 
-	public function providePageAndLink() {
+	public static function providePageAndLink() {
 		return [
 			[ new PageReferenceValue( NS_USER, __METHOD__, PageReference::LOCAL ) ],
 			[ new TitleValue( NS_USER, __METHOD__ ) ]
 		];
 	}
 
-	public function providePageAndLinkAndArray() {
+	public static function providePageAndLinkAndArray() {
 		return [
 			[ new PageReferenceValue( NS_USER, __METHOD__, PageReference::LOCAL ) ],
 			[ new TitleValue( NS_USER, __METHOD__ ) ],
@@ -50,7 +52,6 @@ class LinkCacheTest extends MediaWikiIntegrationTestCase {
 			'page_content_model' => CONTENT_MODEL_TEXT,
 			'page_lang' => 'xyz',
 			'page_is_new' => 0,
-			'page_restrictions' => 'test',
 			'page_touched' => '20200202020202',
 		];
 	}
@@ -105,10 +106,6 @@ class LinkCacheTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame(
 			$row->page_lang,
 			$linkCache->getGoodLinkFieldObj( $page, 'lang' )
-		);
-		$this->assertSame(
-			$row->page_restrictions,
-			$linkCache->getGoodLinkFieldObj( $page, 'restrictions' )
 		);
 
 		$this->assertEquals(
@@ -184,7 +181,6 @@ class LinkCacheTest extends MediaWikiIntegrationTestCase {
 			'page_latest' => 0,
 			'page_content_model' => null,
 			'page_lang' => null,
-			'page_restrictions' => null
 		];
 
 		$actualRow = (array)$linkCache->getGoodLinkRow( $page->getNamespace(), $page->getDBkey() );
@@ -313,31 +309,22 @@ class LinkCacheTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @covers LinkCache::addLinkObj()
-	 * @covers LinkCache::getMutableCacheKeys()
 	 */
 	public function testAddLinkObjUsesWANCache() {
-		// Pages in some namespaces use the WAN cache: Template, File, Category, MediaWiki
+		// For some namespaces we cache data (Template, File, etc)
 		$existing = $this->getExistingTestPage( Title::makeTitle( NS_TEMPLATE, __METHOD__ ) );
-
-		$fakeRow = $this->getPageRow( $existing->getId() + 100 );
-
-		$cache = new HashBagOStuff();
-		$wanCache = new WANObjectCache( [ 'cache' => $cache ] );
+		$wanCache = new WANObjectCache( [ 'cache' => new HashBagOStuff() ] );
 		$linkCache = $this->newLinkCache( $wanCache );
 
 		// load the page row into the cache
 		$linkCache->addLinkObj( $existing );
 
-		$keys = $linkCache->getMutableCacheKeys( $wanCache, $existing );
-		$this->assertNotEmpty( $keys );
-
-		foreach ( $keys as $key ) {
-			$this->assertNotFalse( $wanCache->get( $key ) );
-		}
-
 		// replace real row data with fake, and assert that it gets used
+		$key = $wanCache->makeKey( 'page', $existing->getNamespace(), sha1( $existing->getDBkey() ) );
+		$fakeRow = $this->getPageRow( $existing->getId() + 100 );
 		$wanCache->set( $key, $fakeRow );
-		$linkCache->clearLink( $existing ); // clear local cache
+		// clear in-class cache
+		$linkCache->clearLink( $existing );
 		$this->assertSame( (int)$fakeRow->page_id, $linkCache->addLinkObj( $existing ) );
 
 		// set the "read latest" flag and try again
@@ -377,7 +364,7 @@ class LinkCacheTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( 0, $linkCache->getGoodLinkID( 'Xyzzy' ) );
 	}
 
-	public function provideInvalidPageParams() {
+	public static function provideInvalidPageParams() {
 		return [
 			'empty' => [ NS_MAIN, '' ],
 			'bad chars' => [ NS_MAIN, '_|_' ],
@@ -489,81 +476,6 @@ class LinkCacheTest extends MediaWikiIntegrationTestCase {
 			$linkCache->getGoodLinkRow(
 				$missing->getNamespace(),
 				$missing->getDBkey(),
-				$callback,
-				$flags
-			)
-		);
-	}
-
-	/**
-	 * @covers LinkCache::getGoodLinkRow()
-	 */
-	public function testGetGoodLinkRowGetsIncompleteCachedInfo() {
-		// Pages in some namespaces use the WAN cache: Template, File, Category, MediaWiki
-		$existing = new TitleValue( NS_TEMPLATE, 'Existing' );
-		$brokenRow = $this->getPageRow( 3 );
-		unset( $brokenRow->page_len ); // make incomplete row
-
-		$cache = new HashBagOStuff();
-		$wanCache = new WANObjectCache( [ 'cache' => $cache ] );
-		$linkCache = $this->newLinkCache( $wanCache );
-
-		// force the incomplete row into the cache
-		$keys = $linkCache->getMutableCacheKeys( $wanCache, $existing );
-		$wanCache->set( $keys[0], $brokenRow );
-
-		// check that we are not getting the broken row, but load a good row
-		$callback = [ $this, 'getRowIfExisting' ];
-		$row = $linkCache->getGoodLinkRow( $existing->getNamespace(), $existing->getDBkey(), $callback );
-
-		$this->assertNotEquals( $brokenRow, $row );
-	}
-
-	/**
-	 * @covers LinkCache::getGoodLinkRow()
-	 * @covers LinkCache::getMutableCacheKeys()
-	 */
-	public function testGetGoodLinkRowUsesWANCache() {
-		// Pages in some namespaces use the WAN cache: Template, File, Category, MediaWiki
-		$existing = new TitleValue( NS_TEMPLATE, 'Existing' );
-		$callback = [ $this, 'getRowIfExisting' ];
-
-		$existingRow = $this->getPageRow( 0 );
-		$fakeRow = $this->getPageRow( 3 );
-
-		$cache = new HashBagOStuff();
-		$wanCache = new WANObjectCache( [ 'cache' => $cache ] );
-		$linkCache = $this->newLinkCache( $wanCache );
-
-		// load the page row into the cache
-		$linkCache->getGoodLinkRow( $existing->getNamespace(), $existing->getDBkey(), $callback );
-
-		$keys = $linkCache->getMutableCacheKeys( $wanCache, $existing );
-		$this->assertNotEmpty( $keys );
-
-		foreach ( $keys as $key ) {
-			$this->assertNotFalse( $wanCache->get( $key ) );
-		}
-
-		// replace real row data with fake, and assert that it gets used
-		$wanCache->set( $key, $fakeRow );
-		$linkCache->clearLink( $existing ); // clear local cache
-		$this->assertSame(
-			$fakeRow,
-			$linkCache->getGoodLinkRow(
-				$existing->getNamespace(),
-				$existing->getDBkey(),
-				$callback
-			)
-		);
-
-		// set the "read latest" flag and try again
-		$flags = IDBAccessObject::READ_LATEST;
-		$this->assertEquals(
-			$existingRow,
-			$linkCache->getGoodLinkRow(
-				$existing->getNamespace(),
-				$existing->getDBkey(),
 				$callback,
 				$flags
 			)

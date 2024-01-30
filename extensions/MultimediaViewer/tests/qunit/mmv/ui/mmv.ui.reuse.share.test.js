@@ -15,9 +15,11 @@
  * along with MultimediaViewer.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+const { Share } = require( 'mmv.ui.reuse.shareembed' );
+
 ( function () {
 	function makeShare() {
-		return new mw.mmv.ui.reuse.Share( $( '#qunit-fixture' ) );
+		return new Share( $( '#qunit-fixture' ) );
 	}
 
 	QUnit.module( 'mmv.ui.reuse.share', QUnit.newMwEnvironment() );
@@ -25,15 +27,15 @@
 	QUnit.test( 'Sense test, object creation and UI construction', function ( assert ) {
 		var share = makeShare();
 
-		assert.ok( share, 'Share UI element is created.' );
+		assert.true( share instanceof Share, 'Share UI element is created.' );
 		assert.strictEqual( share.$pane.length, 1, 'Pane div created.' );
-		assert.ok( share.pageInput, 'Text field created.' );
-		assert.ok( share.$pageLink, 'Link created.' );
+		assert.true( share.pageInput instanceof mw.widgets.CopyTextLayout, 'Text field created.' );
+		assert.strictEqual( share.$pageLink.length, 1, 'Link created.' );
 	} );
 
 	QUnit.test( 'set()/empty():', function ( assert ) {
 		var share = makeShare(),
-			image = { // fake mw.mmv.model.Image
+			image = { // fake ImageModel
 				title: new mw.Title( 'File:Foobar.jpg' ),
 				url: 'https://upload.wikimedia.org/wikipedia/commons/3/3a/Foobar.jpg',
 				descriptionUrl: '//commons.wikimedia.org/wiki/File:Foobar.jpg'
@@ -42,7 +44,7 @@
 		assert.notStrictEqual( !share.pageInput.textInput.getValue(), '', 'pageInput is empty.' );
 
 		share.select = function () {
-			assert.ok( true, 'Text has been selected after data is set.' );
+			assert.true( true, 'Text has been selected after data is set.' );
 		};
 
 		share.set( image );

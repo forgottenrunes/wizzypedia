@@ -1,10 +1,8 @@
 <?php
 /** Pite Sami (bidumsámegiella)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Amir A. Aharoni
  */

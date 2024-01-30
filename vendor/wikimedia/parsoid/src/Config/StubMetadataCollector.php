@@ -9,6 +9,7 @@ use Psr\Log\LogLevel;
 use Psr\Log\NullLogger;
 use Wikimedia\Parsoid\Core\ContentMetadataCollector;
 use Wikimedia\Parsoid\Core\ContentMetadataCollectorCompat;
+use Wikimedia\Parsoid\Core\TOCData;
 
 /**
  * Minimal implementation of a ContentMetadataCollector which just
@@ -53,7 +54,8 @@ class StubMetadataCollector implements ContentMetadataCollector {
 
 	/** @inheritDoc */
 	public function addCategory( $c, $sort = '' ): void {
-		$this->collect( 'categories', $c, $sort, self::MERGE_STRATEGY_WRITE_ONCE );
+		// Numeric strings often become an `int` when passed to addCategory()
+		$this->collect( 'categories', (string)$c, $sort, self::MERGE_STRATEGY_WRITE_ONCE );
 	}
 
 	/** @inheritDoc */
@@ -69,6 +71,13 @@ class StubMetadataCollector implements ContentMetadataCollector {
 	/** @inheritDoc */
 	public function setOutputFlag( string $name, bool $value = true ): void {
 		$this->collect( 'outputflags', $name, (string)$value, self::MERGE_STRATEGY_WRITE_ONCE );
+	}
+
+	/** @inheritDoc */
+	public function appendOutputStrings( string $name, array $value ): void {
+		foreach ( $value as $v ) {
+			$this->collect( 'outputstrings', $name, $v );
+		}
 	}
 
 	/** @inheritDoc */
@@ -124,6 +133,11 @@ class StubMetadataCollector implements ContentMetadataCollector {
 		$this->collect( 'limitreportdata', $key, $value, self::MERGE_STRATEGY_WRITE_ONCE );
 	}
 
+	/** @inheritDoc */
+	public function setTOCData( TOCData $tocData ): void {
+		$this->collect( 'tocdata', '', $tocData, self::MERGE_STRATEGY_WRITE_ONCE );
+	}
+
 	/**
 	 * Unified internal implementation of metadata collection.
 	 * @param string $which Internal string identifying the type of metadata.
@@ -155,10 +169,10 @@ class StubMetadataCollector implements ContentMetadataCollector {
 			$this->collect( $which, $key, $value, $strategy );
 			return;
 		}
-		if ( $this->storage[$which][$key][$value] ?? false ) {
-			return; // already exists with the desired value
-		}
 		if ( $strategy === self::MERGE_STRATEGY_WRITE_ONCE ) {
+			if ( ( $this->storage[$which][$key]['value'] ?? null ) === $value ) {
+				return; // already exists with the desired value
+			}
 			$this->logger->log(
 				LogLevel::WARNING,
 				"Multiple writes to a write-once: $which $key"
@@ -199,7 +213,7 @@ class StubMetadataCollector implements ContentMetadataCollector {
 		}
 		$result = [];
 		foreach ( ( $this->storage[$which] ?? [] ) as $key => $ignore ) {
-			$result[$key] = $this->get( $which, $key );
+			$result[$key] = $this->get( $which, (string)$key );
 		}
 		return $result;
 	}
@@ -231,9 +245,19 @@ class StubMetadataCollector implements ContentMetadataCollector {
 		return $result;
 	}
 
-	/** @return array<string,string> */
-	public function getCategories(): array {
-		return $this->get( 'categories' );
+	/** @return list<string> */
+	public function getCategoryNames(): array {
+		// array keys can get converted to int if numeric, so ensure
+		// return value is all strings.
+		return array_map( 'strval', array_keys( $this->get( 'categories' ) ) );
+	}
+
+	/**
+	 * @param string $name Category name
+	 * @return ?string Sort key
+	 */
+	public function getCategorySortKey( string $name ): ?string {
+		return $this->get( 'categories', $name );
 	}
 
 	/**
@@ -241,9 +265,54 @@ class StubMetadataCollector implements ContentMetadataCollector {
 	 * @return ?string
 	 */
 	public function getPageProperty( string $name ): ?string {
-		// Note that core returns `false` (instead of null) for a
-		// missing key, which is something we should probably fix
-		// before 1.38 is released.
 		return $this->get( 'properties', $name, self::MERGE_STRATEGY_WRITE_ONCE );
+	}
+
+	/**
+	 * Return the collected extension data under the given key.
+	 * @param string $key
+	 * @return mixed|null
+	 */
+	public function getExtensionData( string $key ) {
+		return $this->get( 'extensiondata', $key, self::MERGE_STRATEGY_WRITE_ONCE );
+	}
+
+	/**
+	 * Return the active output flags.
+	 * @return string[]
+	 */
+	public function getOutputFlags() {
+		$result = [];
+		foreach ( $this->get( 'outputflags', null ) as $key => $value ) {
+			if ( $value ) {
+				$result[] = $key;
+			}
+		}
+		return $result;
+	}
+
+	/**
+	 * Return the collected TOC data, or null if no TOC data was collected.
+	 * @return ?TOCData
+	 */
+	public function getTOCData(): ?TOCData {
+		return $this->get( 'tocdata', '', self::MERGE_STRATEGY_WRITE_ONCE );
+	}
+
+	/**
+	 * Set the content for an indicator.
+	 * @param string $name
+	 * @param string $content
+	 */
+	public function setIndicator( $name, $content ): void {
+		$this->collect( 'indicators', $name, $content, self::MERGE_STRATEGY_WRITE_ONCE );
+	}
+
+	/**
+	 * Return a "name" => "content-id" mapping of recorded indicators
+	 * @return array
+	 */
+	public function getIndicators(): array {
+		return $this->get( 'indicators' );
 	}
 }

@@ -3,11 +3,12 @@
 namespace PageImages\Tests;
 
 use IContextSource;
+use MediaWiki\Request\FauxRequest;
+use MediaWiki\Title\Title;
 use MediaWikiIntegrationTestCase;
 use OutputPage;
 use PageImages\PageImages;
 use SkinTemplate;
-use Title;
 
 /**
  * @covers \PageImages\PageImages
@@ -26,7 +27,7 @@ class PageImagesTest extends MediaWikiIntegrationTestCase {
 	}
 
 	public function testConstructor() {
-		$pageImages = new PageImages();
+		$pageImages = new PageImages( $this->getServiceContainer()->getUserOptionsLookup() );
 		$this->assertInstanceOf( PageImages::class, $pageImages );
 	}
 
@@ -51,15 +52,29 @@ class PageImagesTest extends MediaWikiIntegrationTestCase {
 		);
 	}
 
+	public function testGivenDeactivedOpenGraphOnBeforePageDisplayDoesNotAddMeta() {
+		$outputPage = $this->mockOutputPage( [
+			'PageImagesOpenGraph' => false,
+		] );
+		$outputPage->expects( $this->never() )
+			->method( 'addMeta' );
+
+		$skinTemplate = new SkinTemplate();
+		( new PageImages( $this->getServiceContainer()->getUserOptionsLookup() ) )
+			->onBeforePageDisplay( $outputPage, $skinTemplate );
+	}
+
 	public function testGivenNonExistingPageOnBeforePageDisplayDoesNotAddMeta() {
 		$outputPage = $this->mockOutputPage( [
+			'PageImagesOpenGraph' => true,
 			'PageImagesOpenGraphFallbackImage' => false
 		] );
 		$outputPage->expects( $this->never() )
 			->method( 'addMeta' );
 
 		$skinTemplate = new SkinTemplate();
-		PageImages::onBeforePageDisplay( $outputPage, $skinTemplate );
+		( new PageImages( $this->getServiceContainer()->getUserOptionsLookup() ) )
+			->onBeforePageDisplay( $outputPage, $skinTemplate );
 	}
 
 	public static function provideFallbacks() {
@@ -76,6 +91,7 @@ class PageImagesTest extends MediaWikiIntegrationTestCase {
 	public function testGivenFallbackImageOnBeforePageDisplayAddMeta( $expected, $fallback ) {
 		$this->setMwGlobals( [ 'wgCanonicalServer' => 'http://wiki.test' ] );
 		$outputPage = $this->mockOutputPage( [
+			'PageImagesOpenGraph' => true,
 			'PageImagesOpenGraphFallbackImage' => $fallback
 		] );
 		$outputPage->expects( $this->once() )
@@ -83,7 +99,8 @@ class PageImagesTest extends MediaWikiIntegrationTestCase {
 			->with( $this->equalTo( 'og:image' ), $this->equalTo( $expected ) );
 
 		$skinTemplate = new SkinTemplate();
-		PageImages::onBeforePageDisplay( $outputPage, $skinTemplate );
+		( new PageImages( $this->getServiceContainer()->getUserOptionsLookup() ) )
+			->onBeforePageDisplay( $outputPage, $skinTemplate );
 	}
 
 	/**
@@ -94,7 +111,7 @@ class PageImagesTest extends MediaWikiIntegrationTestCase {
 		$context = $this->createMock( IContextSource::class );
 		$context->method( 'getTitle' )
 			->willReturn( $this->newTitle() );
-		$fauxRequest = new \FauxRequest();
+		$fauxRequest = new FauxRequest();
 		$config = new \HashConfig( $config );
 		$context->method( 'getRequest' )
 			->willReturn( $fauxRequest );

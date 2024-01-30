@@ -1,11 +1,8 @@
 <?php
 /** Bulgarian (български)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
- *
+ * @ingroup Languages
  */
 
 $fallback8bitEncoding = 'windows-1251';
@@ -95,6 +92,7 @@ $specialPageAliases = [
 	'Randomredirect'            => [ 'Случайно_пренасочване' ],
 	'Recentchanges'             => [ 'Последни_промени' ],
 	'Recentchangeslinked'       => [ 'Свързани_промени' ],
+	'Renameuser'                => [ 'Преименуване' ],
 	'Revisiondelete'            => [ 'Изтриване_на_версии' ],
 	'Search'                    => [ 'Търсене' ],
 	'Shortpages'                => [ 'Кратки_страници' ],

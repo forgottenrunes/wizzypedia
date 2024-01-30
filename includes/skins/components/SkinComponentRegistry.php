@@ -18,8 +18,8 @@
 
 namespace MediaWiki\Skin;
 
+use MediaWiki\SpecialPage\SpecialPage;
 use RuntimeException;
-use Skin;
 
 /**
  * @internal for use inside Skin and SkinTemplate classes only
@@ -29,14 +29,14 @@ class SkinComponentRegistry {
 	/** @var SkinComponent[]|null null if not initialized. */
 	private $components = null;
 
-	/** @var Skin */
-	private $skin;
+	/** @var SkinComponentRegistryContext */
+	private $skinContext;
 
 	/**
-	 * @param Skin $skin
+	 * @param SkinComponentRegistryContext $skinContext
 	 */
-	public function __construct( Skin $skin ) {
-		$this->skin = $skin;
+	public function __construct( SkinComponentRegistryContext $skinContext ) {
+		$this->skinContext = $skinContext;
 	}
 
 	/**
@@ -81,17 +81,36 @@ class SkinComponentRegistry {
 	 * @throws RuntimeException if given an unknown name
 	 */
 	private function registerComponent( string $name ) {
+		$skin = $this->skinContext;
 		switch ( $name ) {
+			case 'copyright':
+				$component = new SkinComponentCopyright(
+					$skin
+				);
+				break;
 			case 'logos':
 				$component = new SkinComponentLogo(
-					$this->skin->getConfig(),
-					$this->skin->getOutput()->getTitle()
+					$skin->getConfig(),
+					$skin->getLanguage()
+				);
+				break;
+			case 'search-box':
+				$component = new SkinComponentSearch(
+					$skin->getConfig(),
+					$skin->getMessageLocalizer(),
+					SpecialPage::newSearchPage( $skin->getUser() )
 				);
 				break;
 			case 'toc':
-				$component = new SkinComponentTableOfContents(
-					$this->skin->getOutput()
+				$component = new SkinComponentTableOfContents( $skin->getOutput() );
+				break;
+			case 'last-modified':
+				$component = new SkinComponentLastModified(
+					$skin, $skin->getOutput()->getRevisionTimestamp()
 				);
+				break;
+			case 'footer':
+				$component = new SkinComponentFooter( $skin );
 				break;
 			default:
 				throw new RuntimeException( 'Unknown component: ' . $name );
@@ -103,7 +122,11 @@ class SkinComponentRegistry {
 	 * Registers components used by skin.
 	 */
 	private function registerComponents() {
+		$this->registerComponent( 'copyright' );
+		$this->registerComponent( 'last-modified' );
 		$this->registerComponent( 'logos' );
 		$this->registerComponent( 'toc' );
+		$this->registerComponent( 'search-box' );
+		$this->registerComponent( 'footer' );
 	}
 }

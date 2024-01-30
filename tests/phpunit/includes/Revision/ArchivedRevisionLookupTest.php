@@ -8,9 +8,8 @@ use MediaWiki\Page\PageIdentityValue;
 use MediaWiki\Revision\MutableRevisionRecord;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Utils\MWTimestamp;
 use MediaWikiIntegrationTestCase;
-use MWTimestamp;
-use WikiPage;
 
 /**
  * @group Database
@@ -46,10 +45,6 @@ class ArchivedRevisionLookupTest extends MediaWikiIntegrationTestCase {
 	 */
 	protected $secondRev;
 
-	protected function addCoreDBData() {
-		// Blanked out to keep auto-increment values stable.
-	}
-
 	protected function setUp(): void {
 		parent::setUp();
 
@@ -58,7 +53,6 @@ class ArchivedRevisionLookupTest extends MediaWikiIntegrationTestCase {
 			[
 				'page',
 				'revision',
-				'revision_comment_temp',
 				'ip_changes',
 				'text',
 				'archive',
@@ -81,7 +75,7 @@ class ArchivedRevisionLookupTest extends MediaWikiIntegrationTestCase {
 
 		// First create our dummy page
 		$this->archivedPage = PageIdentityValue::localIdentity( 0, 0, 'ArchivedRevisionLookupTest_thePage' );
-		$page = new WikiPage( $this->archivedPage );
+		$page = $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( $this->archivedPage );
 		$content = ContentHandler::makeContent(
 			'testing',
 			$page->getTitle(),
@@ -110,8 +104,7 @@ class ArchivedRevisionLookupTest extends MediaWikiIntegrationTestCase {
 		$rev->setContent( SlotRecord::MAIN, $newContent );
 		$rev->setComment( CommentStoreComment::newUnsavedComment( 'just a test' ) );
 
-		$dbw = wfGetDB( DB_PRIMARY );
-		$this->secondRev = $revisionStore->insertRevisionOn( $rev, $dbw );
+		$this->secondRev = $revisionStore->insertRevisionOn( $rev, $this->getDb() );
 
 		// Delete the page
 		$timestamp += 10;
@@ -173,7 +166,7 @@ class ArchivedRevisionLookupTest extends MediaWikiIntegrationTestCase {
 		$this->assertEquals( 2, $revisions->numRows() );
 		// Get the rows as arrays
 		$row0 = (array)$revisions->current();
-		$row1 = (array)$revisions->next();
+		$row1 = (array)$revisions->fetchObject();
 
 		$expectedRows = $this->getExpectedArchiveRows();
 
@@ -198,15 +191,37 @@ class ArchivedRevisionLookupTest extends MediaWikiIntegrationTestCase {
 		$slotsQuery = $revisionStore->getSlotsQueryInfo( [ 'content' ] );
 
 		foreach ( $revisions as $row ) {
-			$this->assertSelect(
-				$slotsQuery['tables'],
-				'count(*)',
-				[ 'slot_revision_id' => $row->ar_rev_id ],
-				[ [ 1 ] ],
-				[],
-				$slotsQuery['joins']
-			);
+			$this->newSelectQueryBuilder()
+				->select( 'count(*)' )
+				->queryInfo( [
+					'tables' => $slotsQuery['tables'],
+					'joins' => $slotsQuery['joins']
+				] )
+				->where( [ 'slot_revision_id' => $row->ar_rev_id ] )
+				->assertFieldValue( 1 );
 		}
+	}
+
+	/**
+	 * @covers ::listRevisions
+	 */
+	public function testListRevisionsOffsetAndLimit() {
+		$lookup = $this->getServiceContainer()->getArchivedRevisionLookup();
+		$db = $this->getDb();
+		$revisions = $lookup->listRevisions(
+			$this->archivedPage,
+			[ 'ar_timestamp < ' . $db->addQuotes( $db->timestamp( $this->secondRev->getTimestamp() ) ) ],
+			1 );
+		$this->assertSame( 1, $revisions->numRows() );
+		// Get the rows as arrays
+		$row0 = (array)$revisions->fetchObject();
+
+		$expectedRows = $this->getExpectedArchiveRows();
+
+		$this->assertEquals(
+			$expectedRows[1],
+			$row0
+		);
 	}
 
 	/**
@@ -306,7 +321,7 @@ class ArchivedRevisionLookupTest extends MediaWikiIntegrationTestCase {
 		$timestamp = wfTimestamp( TS_UNIX, $this->secondRev->getTimestamp() ) + 10;
 		MWTimestamp::setFakeTime( $timestamp );
 
-		$page = new WikiPage( $this->archivedPage );
+		$page = $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( $this->archivedPage );
 
 		$content = ContentHandler::makeContent(
 			'recreated page',

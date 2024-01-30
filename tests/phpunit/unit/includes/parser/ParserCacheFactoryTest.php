@@ -2,9 +2,11 @@
 
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\Json\JsonCodec;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Page\WikiPageFactory;
 use MediaWiki\Parser\ParserCacheFactory;
 use MediaWiki\Parser\RevisionOutputCache;
+use MediaWiki\Title\TitleFactory;
 use Psr\Log\NullLogger;
 
 /**
@@ -17,9 +19,8 @@ class ParserCacheFactoryTest extends MediaWikiUnitTestCase {
 	 */
 	private function newParserCacheFactory() {
 		$options = new ServiceOptions( ParserCacheFactory::CONSTRUCTOR_OPTIONS, [
-			'ParserCacheUseJson' => true,
-			'CacheEpoch' => '20200202112233',
-			'OldRevisionParserCacheExpireTime' => 60,
+			MainConfigNames::CacheEpoch => '20200202112233',
+			MainConfigNames::OldRevisionParserCacheExpireTime => 60,
 		] );
 
 		return new ParserCacheFactory(

@@ -1,10 +1,8 @@
 <?php
 /** Norwegian Nynorsk (norsk nynorsk)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Boivie
  * @author Cocu
@@ -42,7 +40,7 @@
  * @see https://nn.wikipedia.org/w/index.php?title=Brukar:Dittaeva/LanguageNn.php&action=history
  */
 
-$fallback = 'nb';
+$fallback = 'no, nb';
 
 $datePreferences = [
 	'default',
@@ -287,6 +285,7 @@ $specialPageAliases = [
 	'Recentchanges'             => [ 'Siste_endringar', 'Siste_endringane' ],
 	'Recentchangeslinked'       => [ 'Relaterte_endringar' ],
 	'Redirect'                  => [ 'Omdiriger' ],
+	'Renameuser'                => [ 'Døyp_om_brukar' ],
 	'Revisiondelete'            => [ 'Versjonssletting' ],
 	'Search'                    => [ 'Søk' ],
 	'Shortpages'                => [ 'Korte_sider', 'Stutte_sider' ],

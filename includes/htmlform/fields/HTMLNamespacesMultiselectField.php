@@ -17,7 +17,7 @@ use MediaWiki\Widget\NamespacesMultiselectWidget;
  */
 class HTMLNamespacesMultiselectField extends HTMLSelectNamespace {
 	public function loadDataFromRequest( $request ) {
-		$value = $request->getText( $this->mName, $this->getDefault() );
+		$value = $request->getText( $this->mName, $this->getDefault() ?? '' );
 
 		$namespaces = explode( "\n", $value );
 		// Remove empty lines
@@ -67,6 +67,8 @@ class HTMLNamespacesMultiselectField extends HTMLSelectNamespace {
 	}
 
 	public function getInputOOUI( $value ) {
+		$this->mParent->getOutput()->addModuleStyles( 'mediawiki.widgets.TagMultiselectWidget.styles' );
+
 		$params = [
 			'id' => $this->mID,
 			'name' => $this->mName,
@@ -81,11 +83,8 @@ class HTMLNamespacesMultiselectField extends HTMLSelectNamespace {
 			$params['default'] = $this->mParams['default'];
 		}
 
-		if ( isset( $this->mParams['placeholder'] ) ) {
-			$params['placeholder'] = $this->mParams['placeholder'];
-		} else {
-			$params['placeholder'] = $this->msg( 'mw-widgets-titlesmultiselect-placeholder' )->plain();
-		}
+		$params['placeholder'] = $this->mParams['placeholder'] ??
+			$this->msg( 'mw-widgets-titlesmultiselect-placeholder' )->plain();
 
 		if ( isset( $this->mParams['max'] ) ) {
 			$params['tagLimit'] = $this->mParams['max'];
@@ -93,6 +92,10 @@ class HTMLNamespacesMultiselectField extends HTMLSelectNamespace {
 
 		if ( isset( $this->mParams['input'] ) ) {
 			$params['input'] = $this->mParams['input'];
+		}
+
+		if ( isset( $this->mParams['allowEditTags'] ) ) {
+			$params['allowEditTags'] = $this->mParams['allowEditTags'];
 		}
 
 		if ( $value !== null ) {

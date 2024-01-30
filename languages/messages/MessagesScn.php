@@ -1,10 +1,8 @@
 <?php
 /** Sicilian (sicilianu)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Aushulz
  * @author Gmelfi
@@ -120,6 +118,7 @@ $specialPageAliases = [
 	'Randomredirect'            => [ 'RedirectCasuale' ],
 	'Recentchanges'             => [ 'UltimeModifiche' ],
 	'Recentchangeslinked'       => [ 'ModificheCorrelate' ],
+	'Renameuser'                => [ 'RinominaUtente' ],
 	'Revisiondelete'            => [ 'CancellaRevisione' ],
 	'Search'                    => [ 'Arriscedi', 'Cerca', 'Trova' ],
 	'Shortpages'                => [ 'PaginePiùCorte' ],

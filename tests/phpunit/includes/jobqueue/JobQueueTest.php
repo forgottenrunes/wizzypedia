@@ -1,15 +1,17 @@
 <?php
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\WikiMap\WikiMap;
 
 /**
  * @group JobQueue
  * @group medium
  * @group Database
+ * @covers JobQueue
  */
 class JobQueueTest extends MediaWikiIntegrationTestCase {
 	protected $key;
-	protected $queueRand, $queueRandTTL, $queueFifo, $queueFifoTTL;
+	protected $queueRand, $queueRandTTL, $queueTimestamp, $queueTimestampTTL, $queueFifo, $queueFifoTTL;
 
 	protected function setUp(): void {
 		global $wgJobTypeConf;
@@ -21,7 +23,7 @@ class JobQueueTest extends MediaWikiIntegrationTestCase {
 		if ( $this->getCliArg( 'use-jobqueue' ) ) {
 			$name = $this->getCliArg( 'use-jobqueue' );
 			if ( !isset( $wgJobTypeConf[$name] ) ) {
-				throw new MWException( "No \$wgJobTypeConf entry for '$name'." );
+				throw new RuntimeException( "No \$wgJobTypeConf entry for '$name'." );
 			}
 			$baseConfig = $wgJobTypeConf[$name];
 		} else {
@@ -67,24 +69,6 @@ class JobQueueTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @dataProvider provider_queueLists
-	 * @covers JobQueue::getWiki
-	 */
-	public function testGetWiki( $queue, $recycles, $desc ) {
-		$this->hideDeprecated( 'JobQueue::getWiki' );
-		$queue = $this->$queue;
-		if ( !$queue ) {
-			$this->markTestSkipped( $desc );
-		}
-		$this->assertEquals( WikiMap::getCurrentWikiId(), $queue->getWiki(), "Proper wiki ID ($desc)" );
-		$this->assertEquals(
-			WikiMap::getCurrentWikiDbDomain()->getId(),
-			$queue->getDomain(),
-			"Proper wiki ID ($desc)" );
-	}
-
-	/**
-	 * @dataProvider provider_queueLists
-	 * @covers JobQueue::getType
 	 */
 	public function testGetType( $queue, $recycles, $desc ) {
 		$queue = $this->$queue;
@@ -96,7 +80,6 @@ class JobQueueTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @dataProvider provider_queueLists
-	 * @covers JobQueue
 	 */
 	public function testBasicOperations( $queue, $recycles, $desc ) {
 		$queue = $this->$queue;
@@ -165,7 +148,6 @@ class JobQueueTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @dataProvider provider_queueLists
-	 * @covers JobQueue
 	 */
 	public function testBasicDeduplication( $queue, $recycles, $desc ) {
 		$queue = $this->$queue;
@@ -221,7 +203,6 @@ class JobQueueTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @dataProvider provider_queueLists
-	 * @covers JobQueue
 	 */
 	public function testDeduplicationWhileClaimed( $queue, $recycles, $desc ) {
 		$queue = $this->$queue;
@@ -244,7 +225,6 @@ class JobQueueTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @dataProvider provider_queueLists
-	 * @covers JobQueue
 	 */
 	public function testRootDeduplication( $queue, $recycles, $desc ) {
 		$queue = $this->$queue;
@@ -302,7 +282,6 @@ class JobQueueTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @dataProvider provider_fifoQueueLists
-	 * @covers JobQueue
 	 */
 	public function testJobOrder( $queue, $recycles, $desc ) {
 		$queue = $this->$queue;
@@ -335,9 +314,6 @@ class JobQueueTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( 0, $queue->getAcquiredCount(), "No jobs active ($desc)" );
 	}
 
-	/**
-	 * @covers JobQueue
-	 */
 	public function testQueueAggregateTable() {
 		$this->hideDeprecated( 'JobQueue::getWiki' );
 
@@ -380,13 +356,29 @@ class JobQueueTest extends MediaWikiIntegrationTestCase {
 	}
 
 	protected function newJob( $i = 0, $rootJob = [] ) {
-		return Job::factory( 'null', Title::newMainPage(),
-			[ 'lives' => 0, 'usleep' => 0, 'removeDuplicates' => 0, 'i' => $i ] + $rootJob );
+		$params = [
+			'namespace' => NS_MAIN,
+			'title' => 'Main_Page',
+			'lives' => 0,
+			'usleep' => 0,
+			'removeDuplicates' => 0,
+			'i' => $i
+		] + $rootJob;
+
+		return $this->getServiceContainer()->getJobFactory()->newJob( 'null', $params );
 	}
 
 	protected function newDedupedJob( $i = 0, $rootJob = [] ) {
-		return Job::factory( 'null', Title::newMainPage(),
-			[ 'lives' => 0, 'usleep' => 0, 'removeDuplicates' => 1, 'i' => $i ] + $rootJob );
+		$params = [
+				'namespace' => NS_MAIN,
+				'title' => 'Main_Page',
+				'lives' => 0,
+				'usleep' => 0,
+				'removeDuplicates' => 1,
+				'i' => $i
+			] + $rootJob;
+
+		return $this->getServiceContainer()->getJobFactory()->newJob( 'null', $params );
 	}
 }
 

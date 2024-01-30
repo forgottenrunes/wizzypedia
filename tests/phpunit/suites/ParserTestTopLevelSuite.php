@@ -15,6 +15,9 @@ use Wikimedia\ScopedCallback;
 class ParserTestTopLevelSuite extends TestSuite {
 	use SuiteEventsTrait;
 
+	/** @var PhpunitTestRecorder */
+	private $ptRecorder;
+
 	/** @var ParserTestRunner */
 	private $ptRunner;
 
@@ -28,11 +31,18 @@ class ParserTestTopLevelSuite extends TestSuite {
 	 * @{
 	 */
 
-	/** Include files shipped with MediaWiki core */
+	/**
+	 * Include files shipped with MediaWiki core
+	 */
 	public const CORE_ONLY = 1;
-	/** Include non core files as set in $wgParserTestFiles */
+	/** Include non core files returned by
+	 * ParserTestRunner::getParserTestFiles() (that is, parser tests belonging
+	 * to extensions).
+	 */
 	public const NO_CORE = 2;
-	/** Include anything set via $wgParserTestFiles */
+	/** Include anything returned by ParserTestRunner::getParserTestFiles(),
+	 * both core and extensions.
+	 */
 	public const WITH_ALL = self::CORE_ONLY | self::NO_CORE;
 
 	/** @} */
@@ -50,12 +60,12 @@ class ParserTestTopLevelSuite extends TestSuite {
 	 * @code
 	 * ParserTestTopLevelSuite::suite( ParserTestTopLevelSuite::NO_CORE );
 	 * @endcode
-	 * Get any test defined via $wgParserTestFiles:
+	 * Get any test returned by ParserTestRunner::getParserTestFiles():
 	 * @code
 	 * ParserTestTopLevelSuite::suite( ParserTestTopLevelSuite::WITH_ALL );
 	 * @endcode
 	 *
-	 * @param int $flags Bitwise flag to filter out the $wgParserTestFiles that
+	 * @param int $flags Bitwise flag to filter out the test files that
 	 * will be included.  Default: ParserTestTopLevelSuite::CORE_ONLY
 	 *
 	 * @return TestSuite
@@ -64,11 +74,20 @@ class ParserTestTopLevelSuite extends TestSuite {
 		return new self( $flags );
 	}
 
-	public function __construct( $flags ) {
+	public function __construct( $flags, array $parserTestFlags = null ) {
 		parent::__construct();
 
 		$this->ptRecorder = new PhpunitTestRecorder;
-		$this->ptRunner = new ParserTestRunner( $this->ptRecorder );
+		$runnerOpts = $parserTestFlags ?? json_decode( getenv( "PARSERTEST_FLAGS" ) ?: "[]", true );
+		// PHPUnit test runners requires all tests to be pregenerated.
+		// But, generating Parsoid selser edit trees requires the DOM.
+		// So, we cannot pregenerate Parsoid selser auto-edit tests.
+		// They have to be generated dynamically. So, set this to 0.
+		// We will handle auto-edit selser tests as a composite test.
+		$runnerOpts['numchanges'] = 0;
+		$this->ptRunner = new ParserTestRunner(
+			$this->ptRecorder, $runnerOpts
+		);
 
 		if ( is_string( $flags ) ) {
 			$flags = self::CORE_ONLY;

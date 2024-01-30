@@ -1,8 +1,11 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+
 /**
  * @group Media
  * @covers JpegHandler
+ * @requires extension exif
  */
 class JpegTest extends MediaWikiMediaTestCase {
 	/** @var JpegHandler */
@@ -10,9 +13,8 @@ class JpegTest extends MediaWikiMediaTestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->checkPHPExtension( 'exif' );
 
-		$this->setMwGlobals( 'wgShowEXIF', true );
+		$this->overrideConfigValue( MainConfigNames::ShowEXIF, true );
 
 		$this->handler = new JpegHandler;
 	}
@@ -75,7 +77,7 @@ class JpegTest extends MediaWikiMediaTestCase {
 			$this->markTestSkipped( "Exiftool not installed, cannot test ICC profile swapping" );
 		}
 
-		$this->setMwGlobals( 'wgUseTinyRGBForJPGThumbnails', true );
+		$this->overrideConfigValue( MainConfigNames::UseTinyRGBForJPGThumbnails, true );
 
 		$sourceFilepath = $this->filePath . $sourceFilename;
 		$controlFilepath = $this->filePath . $controlFilename;
@@ -84,7 +86,6 @@ class JpegTest extends MediaWikiMediaTestCase {
 
 		copy( $sourceFilepath, $filepath );
 
-		$file = $this->dataFile( $sourceFilename, 'image/jpeg' );
 		$this->handler->swapICCProfile(
 			$filepath,
 			[ 'sRGB', '-' ],
@@ -98,7 +99,7 @@ class JpegTest extends MediaWikiMediaTestCase {
 		);
 	}
 
-	public function provideSwappingICCProfile() {
+	public static function provideSwappingICCProfile() {
 		return [
 			// File with sRGB should end up with TinyRGB
 			[

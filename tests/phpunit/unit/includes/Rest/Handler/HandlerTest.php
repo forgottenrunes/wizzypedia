@@ -4,16 +4,22 @@ namespace MediaWiki\Tests\Rest\Handler;
 
 use MediaWiki\Rest\ConditionalHeaderUtil;
 use MediaWiki\Rest\Handler;
+use MediaWiki\Rest\HttpException;
 use MediaWiki\Rest\LocalizedHttpException;
 use MediaWiki\Rest\RequestData;
+use MediaWiki\Rest\Response;
 use MediaWiki\Rest\ResponseFactory;
 use MediaWiki\Rest\ResponseInterface;
 use MediaWiki\Rest\Router;
 use MediaWiki\Rest\Validator\BodyValidator;
 use MediaWiki\Rest\Validator\Validator;
+use MediaWiki\Session\Session;
+use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\MockObject\MockObject;
+use Wikimedia\Message\MessageValue;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\TestingAccessWrapper;
+use Wikimedia\Timestamp\ConvertibleTimestamp;
 
 /**
  * @covers \MediaWiki\Rest\Handler\SearchHandler
@@ -46,7 +52,7 @@ class HandlerTest extends \MediaWikiUnitTestCase {
 		$this->assertInstanceOf( Router::class, $handler->getRouter() );
 	}
 
-	public function provideGetRouteUrl() {
+	public static function provideGetRouteUrl() {
 		yield 'empty' => [
 			'/test',
 			[],
@@ -108,6 +114,13 @@ class HandlerTest extends \MediaWikiUnitTestCase {
 		$this->assertStringEndsWith( $expected, $url );
 	}
 
+	public function testGetPath() {
+		$handler = $this->newHandler();
+		$request = new RequestData();
+		$this->initHandler( $handler, $request, [ 'path' => 'just/some/path' ] );
+		$this->assertSame( 'just/some/path', $handler->getPath() );
+	}
+
 	public function testGetResponseFactory() {
 		$handler = $this->newHandler();
 		$this->initHandler( $handler, new RequestData() );
@@ -123,7 +136,7 @@ class HandlerTest extends \MediaWikiUnitTestCase {
 		$this->assertInstanceOf( ConditionalHeaderUtil::class, $handler->getConditionalHeaderUtil() );
 	}
 
-	public function provideCheckPreconditions() {
+	public static function provideCheckPreconditions() {
 		yield 'no status' => [ null ];
 		yield 'a status' => [ 444 ];
 	}
@@ -165,7 +178,7 @@ class HandlerTest extends \MediaWikiUnitTestCase {
 		$this->assertSame( 'foo', $response->getHeaderLine( 'Testing' ) );
 	}
 
-	public function provideValidate() {
+	public static function provideValidate() {
 		yield 'empty' => [ [], new RequestData(), [] ];
 
 		yield 'parameter' => [
@@ -292,6 +305,166 @@ class HandlerTest extends \MediaWikiUnitTestCase {
 
 		$handler = TestingAccessWrapper::newFromObject( $handler );
 		$this->assertTrue( $handler->needsWriteAccess() );
+	}
+
+	public function testBodyValidation_extraneousToken() {
+		$requestData = [
+			'method' => 'POST',
+			'pathParams' => [ 'title' => 'Foo' ],
+			'headers' => [
+				'Content-Type' => 'application/json',
+			],
+			'bodyContents' => json_encode( [
+				'title' => 'Foo',
+				'token' => 'TOKEN',
+				'comment' => 'Testing',
+				'source' => 'Lorem Ipsum',
+				'content_model' => 'wikitext'
+			] ),
+		];
+
+		$request = new RequestData( $requestData );
+
+		$handler = $this->newHandler();
+		$this->initHandler( $handler, $request, [], [], null, $this->getSession( true ) );
+
+		$validator = $this->getMockValidator( [], [ 'token' => 'TOKEN' ] );
+		$handler->validate( $validator );
+
+		try {
+			$handler->checkSession();
+			Assert::fail( 'Expected a LocalizedHttpException to be thrown' );
+		} catch ( HttpException $ex ) {
+		}
+
+		$this->assertSame( 400, $ex->getCode(), 'HTTP status' );
+		$this->assertInstanceOf( LocalizedHttpException::class, $ex );
+
+		$expectedMessage = new MessageValue( 'rest-extraneous-csrf-token' );
+		$this->assertEquals( $expectedMessage, $ex->getMessageValue() );
+
+		$this->assertTrue( $handler->getSession()->getProvider()->safeAgainstCsrf() );
+	}
+
+	public function testCsrfUnsafeSessionProviderRejection() {
+		$handler = $this->newHandler( [ 'requireSafeAgainstCsrf' ] );
+		$handler->method( 'requireSafeAgainstCsrf' )->willReturn( true );
+		$this->initHandler( $handler, new RequestData(), [], [], null, $this->getSession( false ) );
+
+		try {
+			$handler->checkSession();
+			Assert::fail( 'Expected a LocalizedHttpException to be thrown' );
+		} catch ( HttpException $ex ) {
+		}
+
+		$this->assertSame( 400, $ex->getCode(), 'HTTP status' );
+		$this->assertInstanceOf( LocalizedHttpException::class, $ex );
+
+		$expectedMessage = new MessageValue( 'rest-requires-safe-against-csrf' );
+		$this->assertEquals( $expectedMessage, $ex->getMessageValue() );
+
+		$this->assertFalse( $handler->getSession()->getProvider()->safeAgainstCsrf() );
+	}
+
+	public function testThatVerifierHeadersAreLoopedThroughForGet() {
+		$handler = $this->newHandler( [ 'getETag', 'getLastModified' ] );
+		$handler->method( 'getETag' )->willReturn( '"TEST"' );
+		$handler->method( 'getLastModified' )->willReturn( '20220101223344' );
+
+		$params = [ 'method' => 'GET' ];
+		$this->initHandler( $handler, new RequestData( $params ) );
+		$handler->checkPreconditions();
+
+		$response = new Response();
+		$handler->applyConditionalResponseHeaders( $response );
+		$this->assertSame( '"TEST"', $response->getHeaderLine( 'ETag' ) );
+
+		$lastModified = ConvertibleTimestamp::convert( TS_MW, $response->getHeaderLine( 'Last-Modified' ) );
+		$this->assertSame( '20220101223344', $lastModified );
+	}
+
+	public function testThatVerifierHeadersAreNotLoopedThroughForPost() {
+		$handler = $this->newHandler( [ 'getETag', 'getLastModified' ] );
+		$handler->method( 'getETag' )->willReturn( '"TEST"' );
+		$handler->method( 'getLastModified' )->willReturn( '20220101223344' );
+
+		$params = [ 'method' => 'POST' ];
+		$this->initHandler( $handler, new RequestData( $params ) );
+		$handler->checkPreconditions();
+
+		$response = new Response();
+		$handler->applyConditionalResponseHeaders( $response );
+		$this->assertSame( '', $response->getHeaderLine( 'ETag' ) );
+		$this->assertSame( '', $response->getHeaderLine( 'Last-Modified' ) );
+	}
+
+	public static function provideCacheControl() {
+		yield 'nothing' => [
+			'GET',
+			[],
+			false, // no persistent session
+			''
+		];
+
+		yield 'set-cookie in response' => [
+			'GET',
+			[
+				'Set-Cookie' => 'foo=bar',
+				'Cache-Control' => 'max-age=123'
+			],
+			false, // no persistent session
+			'private,must-revalidate,s-maxage=0'
+		];
+
+		yield 'POST with cache control' => [
+			'POST',
+			[
+				'Cache-Control' => 'max-age=123'
+			],
+			false, // no persistent session
+			'max-age=123'
+		];
+
+		yield 'POST use default cache control' => [
+			'POST',
+			[],
+			false, // no persistent session
+			'private,no-cache,s-maxage=0'
+		];
+
+		yield 'persistent session' => [
+			'GET',
+			[ 'Cache-Control' => 'max-age=123' ],
+			true, // persistent session
+			'private,must-revalidate,s-maxage=0'
+		];
+	}
+
+	/**
+	 * @dataProvider provideCacheControl
+	 */
+	public function testCacheControl(
+		string $method,
+		array $headers,
+		bool $hasPersistentSession,
+		$expected
+	) {
+		$response = new Response();
+
+		foreach ( $headers as $name => $value ) {
+			$response->setHeader( $name, $value );
+		}
+
+		$session = $this->createMock( Session::class );
+		$session->method( 'isPersistent' )->willReturn( $hasPersistentSession );
+
+		$handler = $this->newHandler( [ 'getRequest', 'getSession' ] );
+		$handler->method( 'getRequest' )->willReturn( new RequestData( [ 'method' => $method ] ) );
+		$handler->method( 'getSession' )->willReturn( $session );
+
+		$handler->applyCacheControl( $response );
+
+		$this->assertSame( $expected, $response->getHeaderLine( 'Cache-Control' ) );
 	}
 
 }

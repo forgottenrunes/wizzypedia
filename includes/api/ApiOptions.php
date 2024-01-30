@@ -24,7 +24,9 @@ use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Preferences\DefaultPreferencesFactory;
 use MediaWiki\Preferences\PreferencesFactory;
+use MediaWiki\User\User;
 use MediaWiki\User\UserOptionsManager;
+use Wikimedia\ParamValidator\ParamValidator;
 
 /**
  * API module that facilitates the changing of user's preferences.
@@ -36,11 +38,8 @@ class ApiOptions extends ApiBase {
 	/** @var User User account to modify */
 	private $userForUpdates;
 
-	/** @var UserOptionsManager */
-	private $userOptionsManager;
-
-	/** @var PreferencesFactory */
-	private $preferencesFactory;
+	private UserOptionsManager $userOptionsManager;
+	private PreferencesFactory $preferencesFactory;
 
 	/**
 	 * @param ApiMain $main
@@ -69,7 +68,7 @@ class ApiOptions extends ApiBase {
 	 */
 	public function execute() {
 		$user = $this->getUserForUpdates();
-		if ( !$user || !$user->isRegistered() ) {
+		if ( !$user || !$user->isNamed() ) {
 			$this->dieWithError(
 				[ 'apierror-mustbeloggedin', $this->msg( 'action-editmyoptions' ) ], 'notloggedin'
 			);
@@ -151,8 +150,8 @@ class ApiOptions extends ApiBase {
 						[
 							'phab' => 'T259073',
 							'OptionName' => substr( $key, 0, 255 ),
-							'OptionValue' => substr( $value, 0, 255 ),
-							'OptionSize' => strlen( $value ),
+							'OptionValue' => substr( $value ?? '', 0, 255 ),
+							'OptionSize' => strlen( $value ?? '' ),
 							'OptionValidation' => $validation,
 							'UserId' => $user->getId(),
 							'RequestIP' => $this->getRequest()->getIP(),
@@ -167,6 +166,14 @@ class ApiOptions extends ApiBase {
 				default:
 					$validation = $this->msg( 'apiwarn-validationfailed-badpref' );
 					break;
+			}
+			if ( $validation === true && is_string( $value ) &&
+				strlen( $value ) > UserOptionsManager::MAX_BYTES_OPTION_VALUE
+			) {
+				$validation = $this->msg(
+					'apiwarn-validationfailed-valuetoolong',
+					Message::numParam( UserOptionsManager::MAX_BYTES_OPTION_VALUE )
+				);
 			}
 			if ( $validation === true ) {
 				$this->setPreference( $key, $value );
@@ -244,18 +251,18 @@ class ApiOptions extends ApiBase {
 		return [
 			'reset' => false,
 			'resetkinds' => [
-				ApiBase::PARAM_TYPE => $optionKinds,
-				ApiBase::PARAM_DFLT => 'all',
-				ApiBase::PARAM_ISMULTI => true
+				ParamValidator::PARAM_TYPE => $optionKinds,
+				ParamValidator::PARAM_DEFAULT => 'all',
+				ParamValidator::PARAM_ISMULTI => true
 			],
 			'change' => [
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'optionname' => [
-				ApiBase::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_TYPE => 'string',
 			],
 			'optionvalue' => [
-				ApiBase::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_TYPE => 'string',
 			],
 		];
 	}

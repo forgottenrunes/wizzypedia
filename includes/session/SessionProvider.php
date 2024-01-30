@@ -23,14 +23,15 @@
 
 namespace MediaWiki\Session;
 
-use Config;
 use Language;
+use MediaWiki\Config\Config;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\User\User;
 use MediaWiki\User\UserNameUtils;
 use Psr\Log\LoggerInterface;
-use User;
-use WebRequest;
 
 /**
  * A SessionProvider provides SessionInfo and support for Session
@@ -493,7 +494,7 @@ abstract class SessionProvider implements SessionProviderInterface {
 	 * normal login (i.e. there is no way to undo the prevention of access).
 	 *
 	 * Note that the passed user name might not exist locally (i.e.
-	 * User::idFromName( $username ) === 0); the name should still be
+	 * UserIdentity::getId() === 0); the name should still be
 	 * prevented, if applicable.
 	 *
 	 * @stable to override
@@ -527,13 +528,10 @@ abstract class SessionProvider implements SessionProviderInterface {
 	 *
 	 * The return value is such that someone could theoretically do this:
 	 * @code
-	 * foreach ( $provider->getVaryHeaders() as $header => $options ) {
-	 *   $outputPage->addVaryHeader( $header, $options );
+	 * foreach ( $provider->getVaryHeaders() as $header ) {
+	 *   $outputPage->addVaryHeader( $header );
 	 * }
 	 * @endcode
-	 *
-	 * Note that the $options parameter to addVaryHeader has been deprecated
-	 * since 1.34, and should be `null` or an empty array.
 	 *
 	 * @stable to override
 	 * @note For use by \MediaWiki\Session\SessionManager only
@@ -568,7 +566,7 @@ abstract class SessionProvider implements SessionProviderInterface {
 	 * Fetch the rights allowed the user when the specified session is active.
 	 *
 	 * This is mainly meant for allowing the user to restrict access to the account
-	 * by certain methods; you probably want to use this with MWGrants. The returned
+	 * by certain methods; you probably want to use this with GrantsInfo. The returned
 	 * rights will be intersected with the user's actual rights.
 	 *
 	 * @stable to override
@@ -658,7 +656,7 @@ abstract class SessionProvider implements SessionProviderInterface {
 	 * the stored data fails.
 	 *
 	 * @param string $data
-	 * @param string|null $key Defaults to $this->getConfig()->get( 'SecretKey' )
+	 * @param string|null $key Defaults to $this->getConfig()->get( MainConfigNames::SecretKey )
 	 * @return string
 	 */
 	final protected function hashToSessionId( $data, $key = null ) {
@@ -673,7 +671,8 @@ abstract class SessionProvider implements SessionProviderInterface {
 			);
 		}
 
-		$hash = \MWCryptHash::hmac( "$this\n$data", $key ?: $this->getConfig()->get( 'SecretKey' ), false );
+		$hash = \MWCryptHash::hmac( "$this\n$data",
+			$key ?: $this->getConfig()->get( MainConfigNames::SecretKey ), false );
 		if ( strlen( $hash ) < 32 ) {
 			// Should never happen, even md5 is 128 bits
 			// @codeCoverageIgnoreStart

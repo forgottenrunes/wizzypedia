@@ -20,7 +20,27 @@
  * @file
  */
 
+namespace MediaWiki\Specials;
+
+use Exception;
+use File;
+use HTMLForm;
+use HttpError;
+use LocalRepo;
+use MediaWiki\Html\Html;
 use MediaWiki\Http\HttpRequestFactory;
+use MediaWiki\MainConfigNames;
+use MediaWiki\SpecialPage\UnlistedSpecialPage;
+use MediaWiki\Status\Status;
+use MediaWiki\Utils\UrlUtils;
+use MWException;
+use MWExceptionHandler;
+use RepoGroup;
+use SpecialUploadStashTooLargeException;
+use UnregisteredLocalFile;
+use UploadStash;
+use UploadStashBadPathException;
+use UploadStashFileNotFoundException;
 use Wikimedia\RequestTimeout\TimeoutException;
 
 /**
@@ -40,11 +60,9 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 	/** @var UploadStash|null */
 	private $stash;
 
-	/** @var LocalRepo */
-	private $localRepo;
-
-	/** @var HttpRequestFactory */
-	private $httpRequestFactory;
+	private LocalRepo $localRepo;
+	private HttpRequestFactory $httpRequestFactory;
+	private UrlUtils $urlUtils;
 
 	/**
 	 * Since we are directly writing the file to STDOUT,
@@ -61,14 +79,17 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 	/**
 	 * @param RepoGroup $repoGroup
 	 * @param HttpRequestFactory $httpRequestFactory
+	 * @param UrlUtils $urlUtils
 	 */
 	public function __construct(
 		RepoGroup $repoGroup,
-		HttpRequestFactory $httpRequestFactory
+		HttpRequestFactory $httpRequestFactory,
+		UrlUtils $urlUtils
 	) {
 		parent::__construct( 'UploadStash', 'upload' );
 		$this->localRepo = $repoGroup->getLocalRepo();
 		$this->httpRequestFactory = $httpRequestFactory;
+		$this->urlUtils = $urlUtils;
 	}
 
 	public function doesWrites() {
@@ -176,18 +197,17 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 	 * @param array $params
 	 */
 	private function outputThumbFromStash( $file, $params ) {
-		$flags = 0;
 		// this config option, if it exists, points to a "scaler", as you might find in
 		// the Wikimedia Foundation cluster. See outputRemoteScaledThumb(). This
 		// is part of our horrible NFS-based system, we create a file on a mount
 		// point here, but fetch the scaled file from somewhere else that
 		// happens to share it over NFS.
 		if ( $file->getRepo()->getThumbProxyUrl()
-			|| $this->getConfig()->get( 'UploadStashScalerBaseUrl' )
+			|| $this->getConfig()->get( MainConfigNames::UploadStashScalerBaseUrl )
 		) {
-			$this->outputRemoteScaledThumb( $file, $params, $flags );
+			$this->outputRemoteScaledThumb( $file, $params );
 		} else {
-			$this->outputLocallyScaledThumb( $file, $params, $flags );
+			$this->outputLocallyScaledThumb( $file, $params );
 		}
 	}
 
@@ -196,16 +216,13 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 	 * and output it to STDOUT.
 	 * @param File $file
 	 * @param array $params Scaling parameters ( e.g. [ width => '50' ] );
-	 * @param int $flags Scaling flags ( see File:: constants )
 	 * @throws MWException|UploadStashFileNotFoundException
 	 */
-	private function outputLocallyScaledThumb( $file, $params, $flags ) {
+	private function outputLocallyScaledThumb( $file, $params ) {
 		// n.b. this is stupid, we insist on re-transforming the file every time we are invoked. We rely
 		// on HTTP caching to ensure this doesn't happen.
 
-		$flags |= File::RENDER_NOW;
-
-		$thumbnailImage = $file->transform( $params, $flags );
+		$thumbnailImage = $file->transform( $params, File::RENDER_NOW );
 		if ( !$thumbnailImage ) {
 			throw new UploadStashFileNotFoundException(
 				$this->msg( 'uploadstash-file-not-found-no-thumb' )
@@ -242,10 +259,9 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 	 *
 	 * @param File $file
 	 * @param array $params Scaling parameters ( e.g. [ width => '50' ] );
-	 * @param int $flags Scaling flags ( see File:: constants )
 	 * @throws MWException
 	 */
-	private function outputRemoteScaledThumb( $file, $params, $flags ) {
+	private function outputRemoteScaledThumb( $file, $params ) {
 		// We need to use generateThumbName() instead of thumbName(), because
 		// the suffix needs to match the file name for the remote thumbnailer
 		// to work
@@ -262,13 +278,13 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 			// This option probably looks something like
 			// '//upload.wikimedia.org/wikipedia/test/thumb/temp'. Do not use
 			// trailing slash.
-			$scalerBaseUrl = $this->getConfig()->get( 'UploadStashScalerBaseUrl' );
+			$scalerBaseUrl = $this->getConfig()->get( MainConfigNames::UploadStashScalerBaseUrl );
 
 			if ( preg_match( '/^\/\//', $scalerBaseUrl ) ) {
 				// this is apparently a protocol-relative URL, which makes no sense in this context,
 				// since this is used for communication that's internal to the application.
 				// default to http.
-				$scalerBaseUrl = wfExpandUrl( $scalerBaseUrl, PROTO_CANONICAL );
+				$scalerBaseUrl = $this->urlUtils->expand( $scalerBaseUrl, PROTO_CANONICAL );
 			}
 
 			$scalerThumbUrl = $scalerBaseUrl . '/' . $file->getUrlRel() .
@@ -381,15 +397,14 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 		// create the form, which will also be used to execute a callback to process incoming form data
 		// this design is extremely dubious, but supposedly HTMLForm is our standard now?
 
-		$context = new DerivativeContext( $this->getContext() );
-		$context->setTitle( $this->getPageTitle() ); // Remove subpage
 		$form = HTMLForm::factory( 'ooui', [
 			'Clear' => [
 				'type' => 'hidden',
 				'default' => true,
 				'name' => 'clear',
 			]
-		], $context, 'clearStashedUploads' );
+		], $this->getContext(), 'clearStashedUploads' );
+		$form->setTitle( $this->getPageTitle() ); // Remove subpage
 		$form->setSubmitDestructive();
 		$form->setSubmitCallback( function ( $formData, $form ) {
 			if ( isset( $formData['Clear'] ) ) {
@@ -452,3 +467,9 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 		}
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialUploadStash::class, 'SpecialUploadStash' );

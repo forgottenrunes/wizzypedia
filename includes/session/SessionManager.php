@@ -25,17 +25,19 @@ namespace MediaWiki\Session;
 
 use BagOStuff;
 use CachedBagOStuff;
-use Config;
-use FauxRequest;
+use LogicException;
+use MediaWiki\Config\Config;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Request\FauxRequest;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\User\User;
 use MediaWiki\User\UserNameUtils;
 use MWException;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
-use User;
-use WebRequest;
 
 /**
  * This serves as the entry point to the MediaWiki session handling system.
@@ -67,13 +69,8 @@ use WebRequest;
  *   are either synced to all remote data centres, or locally overwritten by another write
  *   that is.
  *
- * - Support BagOStuff::WRITE_SYNC flag. The data must writable with synchronous replication
- *   waited for, across all data centres. This is used when resetting or deleting a session,
- *   which must not be lost or overwritten by earlier or overlapping write actions.
- *
- * The SessionManager uses set() and delete() for write operations, which should by default
- * be synchronous in the local data centre, and replicate asynchronously to any others.
- * This behaviour can be overridden by the use of the WRITE_SYNC flag.
+ * The SessionManager uses `set()` and `delete()` for write operations, which should be
+ * synchronous in the local data centre, and replicate asynchronously to any others.
  *
  * @ingroup Session
  * @since 1.27
@@ -220,12 +217,12 @@ class SessionManager implements SessionManagerInterface {
 			}
 			$store = $options['store'];
 		} else {
-			$store = \ObjectCache::getInstance( $this->config->get( 'SessionCacheType' ) );
+			$store = \ObjectCache::getInstance( $this->config->get( MainConfigNames::SessionCacheType ) );
 		}
 
 		$this->logger->debug( 'SessionManager using store ' . get_class( $store ) );
 		$this->store = $store instanceof CachedBagOStuff ? $store : new CachedBagOStuff( $store );
-		$this->userNameUtils = MediawikiServices::getInstance()->getUserNameUtils();
+		$this->userNameUtils = MediaWikiServices::getInstance()->getUserNameUtils();
 
 		register_shutdown_function( [ $this, 'shutdown' ] );
 	}
@@ -247,7 +244,7 @@ class SessionManager implements SessionManagerInterface {
 		$info = $this->getSessionInfoForRequest( $request );
 
 		if ( !$info ) {
-			$session = $this->getEmptySession( $request );
+			$session = $this->getInitialSession( $request );
 		} else {
 			$session = $this->getSessionFromInfo( $info, $request );
 		}
@@ -280,7 +277,6 @@ class SessionManager implements SessionManagerInterface {
 		}
 
 		if ( $create && $session === null ) {
-			$ex = null;
 			try {
 				$session = $this->getEmptySessionInternal( $request, $id );
 			} catch ( \Exception $ex ) {
@@ -363,7 +359,23 @@ class SessionManager implements SessionManagerInterface {
 			throw new \UnexpectedValueException( 'No provider could provide an empty session!' );
 		}
 
+		// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
 		return $this->getSessionFromInfo( $infos[0], $request );
+	}
+
+	/**
+	 * Create a new session. Populate it with a default secret token, to avoid
+	 * a session replication race on a subsequent edit/save cycle (e.g. in
+	 * a multi-dc setup, ref https://phabricator.wikimedia.org/T279664#8139533).
+	 *
+	 * @param WebRequest|null $request Corresponding request. Any existing
+	 *  session associated with this WebRequest object will be overwritten.
+	 * @return Session
+	 */
+	private function getInitialSession( WebRequest $request = null ) {
+		$session = $this->getEmptySession( $request );
+		$session->getToken();
+		return $session;
 	}
 
 	public function invalidateSessionsForUser( User $user ) {
@@ -430,7 +442,7 @@ class SessionManager implements SessionManagerInterface {
 	 * The intention is that the named account will never again be usable for
 	 * normal login (i.e. there is no way to undo the prevention of access).
 	 *
-	 * @internal For use from \User::newSystemUser only
+	 * @internal For use from \MediaWiki\User\User::newSystemUser only
 	 * @param string $username
 	 */
 	public function preventSessionsForUser( $username ) {
@@ -460,8 +472,8 @@ class SessionManager implements SessionManagerInterface {
 		if ( $this->sessionProviders === null ) {
 			$this->sessionProviders = [];
 			$objectFactory = MediaWikiServices::getInstance()->getObjectFactory();
-			foreach ( $this->config->get( 'SessionProviders' ) as $spec ) {
-				/** @var SessionProvider */
+			foreach ( $this->config->get( MainConfigNames::SessionProviders ) as $spec ) {
+				/** @var SessionProvider $provider */
 				$provider = $objectFactory->createObject( $spec );
 				$provider->init(
 					$this->logger,
@@ -574,7 +586,7 @@ class SessionManager implements SessionManagerInterface {
 			);
 		}
 
-		return $retInfos ? $retInfos[0] : null;
+		return $retInfos[0] ?? null;
 	}
 
 	/**
@@ -902,7 +914,7 @@ class SessionManager implements SessionManagerInterface {
 				$this->store,
 				$this->logger,
 				$this->hookContainer,
-				$this->config->get( 'ObjectCacheSessionExpiry' )
+				$this->config->get( MainConfigNames::ObjectCacheSessionExpiry )
 			);
 			$this->allSessionBackends[$id] = $backend;
 			$delay = $backend->delaySave();
@@ -974,10 +986,10 @@ class SessionManager implements SessionManagerInterface {
 	 * @return string
 	 */
 	public function generateSessionId() {
-		do {
-			$id = \Wikimedia\base_convert( \MWCryptRand::generateHex( 40 ), 16, 32, 32 );
-			$key = $this->store->makeKey( 'MWSession', $id );
-		} while ( isset( $this->allSessionIds[$id] ) || is_array( $this->store->get( $key ) ) );
+		$id = \Wikimedia\base_convert( \MWCryptRand::generateHex( 40 ), 16, 32, 32 );
+		// Cache non-existence to avoid a later fetch
+		$key = $this->store->makeKey( 'MWSession', $id );
+		$this->store->set( $key, false, 0, BagOStuff::WRITE_CACHE_ONLY );
 		return $id;
 	}
 
@@ -998,7 +1010,7 @@ class SessionManager implements SessionManagerInterface {
 	public static function resetCache() {
 		if ( !defined( 'MW_PHPUNIT_TEST' ) && !defined( 'MW_PARSER_TEST' ) ) {
 			// @codeCoverageIgnoreStart
-			throw new MWException( __METHOD__ . ' may only be called from unit tests!' );
+			throw new LogicException( __METHOD__ . ' may only be called from unit tests!' );
 			// @codeCoverageIgnoreEnd
 		}
 
@@ -1036,7 +1048,7 @@ class SessionManager implements SessionManagerInterface {
 	public function logPotentialSessionLeakage( Session $session = null ) {
 		$proxyLookup = MediaWikiServices::getInstance()->getProxyLookup();
 		$session = $session ?: self::getGlobalSession();
-		$suspiciousIpExpiry = $this->config->get( 'SuspiciousIpExpiry' );
+		$suspiciousIpExpiry = $this->config->get( MainConfigNames::SuspiciousIpExpiry );
 
 		if ( $suspiciousIpExpiry === false
 			// We only care about logged-in users.
@@ -1048,14 +1060,14 @@ class SessionManager implements SessionManagerInterface {
 		}
 		try {
 			$ip = $session->getRequest()->getIP();
-		} catch ( \MWException $e ) {
+		} catch ( MWException $e ) {
 			return;
 		}
 		if ( $ip === '127.0.0.1' || $proxyLookup->isConfiguredProxy( $ip ) ) {
 			return;
 		}
 		$mwuser = $session->getRequest()->getCookie( 'mwuser-sessionId' );
-		$now = (int)\MWTimestamp::now( TS_UNIX );
+		$now = (int)\MediaWiki\Utils\MWTimestamp::now( TS_UNIX );
 
 		// Record (and possibly log) that the IP is using the current session.
 		// Don't touch the stored data unless we are changing the IP or re-adding an expired one.
@@ -1113,6 +1125,7 @@ class SessionManager implements SessionManagerInterface {
 				'userAgent' => $session->getRequest()->getHeader( 'user-agent' ),
 			];
 			$logger = \MediaWiki\Logger\LoggerFactory::getInstance( 'session-ip' );
+			// @phan-suppress-next-line PhanTypeMismatchArgumentNullable message is set when used here
 			$logger->log( $logLevel, $message, $logData );
 		}
 	}

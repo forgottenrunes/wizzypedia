@@ -22,6 +22,7 @@ use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Page\PageReference;
+use MediaWiki\Title\TitleFactory;
 
 /**
  * Class to invalidate the CDN and HTMLFileCache entries associated with URLs/titles
@@ -163,7 +164,7 @@ class HtmlCacheUpdater {
 
 		foreach ( $pages as $page ) {
 			// TODO: We really only need to cast to PageIdentity. We could use a LinkBatch for that.
-			$title = $this->titleFactory->castFromPageReference( $page );
+			$title = $this->titleFactory->newFromPageReference( $page );
 
 			if ( $title->canExist() ) {
 				$pageIdentities[] = $title;
@@ -202,7 +203,7 @@ class HtmlCacheUpdater {
 	 * @return string[] URLs
 	 */
 	public function getUrls( PageReference $page, int $flags = 0 ): array {
-		$title = $this->titleFactory->castFromPageReference( $page );
+		$title = $this->titleFactory->newFromPageReference( $page );
 
 		if ( !$title->canExist() ) {
 			return [];

@@ -1,13 +1,16 @@
 <?php
 
+use MediaWiki\Pager\RangeChronologicalPager;
+
 /**
  * Test class for RangeChronologicalPagerTest logic.
  *
  * @group Pager
+ * @group Database
  *
  * @author Geoffrey Mon <geofbot@gmail.com>
  */
-class RangeChronologicalPagerTest extends MediaWikiLangTestCase {
+class RangeChronologicalPagerTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @covers RangeChronologicalPager::getDateCond
@@ -24,16 +27,16 @@ class RangeChronologicalPagerTest extends MediaWikiLangTestCase {
 	/**
 	 * Data provider in [ input year, input month, input day, expected timestamp output ] format
 	 */
-	public function getDateCondProvider() {
+	public static function getDateCondProvider() {
 		return [
-			[ 2016, 12, 5, '20161205235959' ],
-			[ 2016, 12, 31, '20161231235959' ],
-			[ 2016, 12, 1337, '20161231235959' ],
-			[ 2016, 1337, 1337, '20161231235959' ],
-			[ 2016, 1337, -1, '20161231235959' ],
-			[ 2016, 12, 32, '20161231235959' ],
-			[ 2016, 12, -1, '20161231235959' ],
-			[ 2016, -1, -1, '20161231235959' ],
+			[ 2016, 12, 5, '20161206000000' ],
+			[ 2016, 12, 31, '20170101000000' ],
+			[ 2016, 12, 1337, '20170101000000' ],
+			[ 2016, 1337, 1337, '20170101000000' ],
+			[ 2016, 1337, -1, '20170101000000' ],
+			[ 2016, 12, 32, '20170101000000' ],
+			[ 2016, 12, -1, '20170101000000' ],
+			[ 2016, -1, -1, '20170101000000' ],
 		];
 	}
 
@@ -49,30 +52,30 @@ class RangeChronologicalPagerTest extends MediaWikiLangTestCase {
 	/**
 	 * Data provider in [ start, end, [ expected output has start condition, has end cond ] ] format
 	 */
-	public function getDateRangeCondProvider() {
+	public static function getDateRangeCondProvider() {
 		$db = wfGetDB( DB_PRIMARY );
 
 		return [
 			[
 				'20161201000000',
-				'20161203000000',
+				'20161202235959',
 				[
-					'>=' . $db->addQuotes( $db->timestamp( '20161201000000' ) ),
-					'<=' . $db->addQuotes( $db->timestamp( '20161203000000' ) ),
+					$db->buildComparison( '>=', [ '' => $db->timestamp( '20161201000000' ) ] ),
+					$db->buildComparison( '<', [ '' => $db->timestamp( '20161203000000' ) ] ),
 				],
 			],
 			[
 				'',
-				'20161203000000',
+				'20161202235959',
 				[
-					'<=' . $db->addQuotes( $db->timestamp( '20161203000000' ) ),
+					$db->buildComparison( '<', [ '' => $db->timestamp( '20161203000000' ) ] ),
 				],
 			],
 			[
 				'20161201000000',
 				'',
 				[
-					'>=' . $db->addQuotes( $db->timestamp( '20161201000000' ) ),
+					$db->buildComparison( '>=', [ '' => $db->timestamp( '20161201000000' ) ] ),
 				],
 			],
 			[ '', '', [] ],
@@ -88,7 +91,7 @@ class RangeChronologicalPagerTest extends MediaWikiLangTestCase {
 		$this->assertNull( $pager->getDateRangeCond( $start, $end ) );
 	}
 
-	public function getDateRangeCondInvalidProvider() {
+	public static function getDateRangeCondInvalidProvider() {
 		return [
 			[ '-2016-12-01', '2017-12-01', ],
 			[ '2016-12-01', '-2017-12-01', ],

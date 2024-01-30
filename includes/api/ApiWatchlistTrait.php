@@ -1,6 +1,8 @@
 <?php
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserOptionsLookup;
 use MediaWiki\Watchlist\WatchlistManager;
@@ -26,24 +28,18 @@ trait ApiWatchlistTrait {
 	/** @var string Relative maximum expiry. */
 	private $watchlistMaxDuration;
 
-	/** @var WatchlistManager */
-	private $watchlistManager;
-
-	/** @var UserOptionsLookup */
-	private $userOptionsLookup;
+	private WatchlistManager $watchlistManager;
+	private UserOptionsLookup $userOptionsLookup;
 
 	private function initServices() {
-		if ( $this->watchlistManager !== null && $this->userOptionsLookup !== null ) {
+		// @phan-suppress-next-line PhanRedundantCondition Phan trusts the type hints too much
+		if ( isset( $this->watchlistManager ) && isset( $this->userOptionsLookup ) ) {
 			return;
 		}
 		// This trait is used outside of core and therefor fallback to global state - T263904
 		$services = MediaWikiServices::getInstance();
-		if ( $this->watchlistManager === null ) {
-			$this->watchlistManager = $services->getWatchlistManager();
-		}
-		if ( $this->userOptionsLookup === null ) {
-			$this->userOptionsLookup = $services->getUserOptionsLookup();
-		}
+		$this->watchlistManager ??= $services->getWatchlistManager();
+		$this->userOptionsLookup ??= $services->getUserOptionsLookup();
 	}
 
 	/**
@@ -148,9 +144,7 @@ trait ApiWatchlistTrait {
 				// Watch the article based on the user preference
 				return $this->userOptionsLookup->getBoolOption( $user, $userOption );
 
-			case 'nochange':
-				return $userWatching;
-
+			// case 'nochange':
 			default:
 				return $userWatching;
 		}

@@ -1,21 +1,24 @@
 <?php
 
-namespace Vector\ResourceLoader;
+namespace MediaWiki\Skins\Vector\ResourceLoader;
 
-use ResourceLoaderContext;
-use ResourceLoaderUserModule;
-use Vector\Constants;
+use MediaWiki\MainConfigNames;
+use MediaWiki\ResourceLoader as RL;
+use MediaWiki\Skins\Vector\Constants;
 
-class VectorResourceLoaderUserModule extends ResourceLoaderUserModule {
+class VectorResourceLoaderUserModule extends RL\UserModule {
 	/**
 	 * @inheritDoc
 	 */
-	protected function getPages( ResourceLoaderContext $context ) {
-		$skin = $context->getSkin();
-		$config = $this->getConfig();
+	protected function getPages( RL\Context $context ) {
 		$user = $context->getUserObj();
 		$pages = [];
-		if ( $config->get( 'AllowUserCss' ) && !$user->isAnon() && ( $skin === Constants::SKIN_NAME_MODERN ) ) {
+		$config = $this->getConfig();
+		if ( $context->getSkin() === Constants::SKIN_NAME_MODERN &&
+			$config->get( 'VectorShareUserScripts' ) &&
+			$config->get( MainConfigNames::AllowUserCss ) &&
+			$user->isRegistered()
+		) {
 			$userPage = $user->getUserPage()->getPrefixedDBkey();
 			$pages["$userPage/vector.js"] = [ 'type' => 'script' ];
 		}

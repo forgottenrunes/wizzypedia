@@ -5,10 +5,8 @@ namespace MediaWiki\Tests\Rest\Handler;
 use ApiBase;
 use ApiMain;
 use Exception;
-use FauxRequest;
-use MediaWiki\Session\Session;
-use MediaWiki\Session\SessionId;
-use MediaWiki\Session\SessionProviderInterface;
+use Language;
+use MediaWiki\Request\FauxRequest;
 use PHPUnit\Framework\MockObject\MockBuilder;
 use PHPUnit\Framework\MockObject\MockObject;
 use RequestContext;
@@ -20,19 +18,11 @@ use RequestContext;
  * or MediaWikiIntegrationTestCase.
  *
  * @package MediaWiki\Tests\Rest\Handler
+ * @method MockBuilder getMockBuilder(string $className)
  */
 trait ActionModuleBasedHandlerTestTrait {
 
 	use HandlerTestTrait;
-
-	/**
-	 * Expected to be provided by the class, probably inherited from TestCase.
-	 *
-	 * @param string $className
-	 *
-	 * @return MockBuilder
-	 */
-	abstract protected function getMockBuilder( $className ): MockBuilder;
 
 	/**
 	 * @param ApiMain $main
@@ -76,35 +66,28 @@ trait ActionModuleBasedHandlerTestTrait {
 	 * @return ApiMain
 	 */
 	private function getApiMain( $csrfSafe = false ) {
-		/** @var SessionProviderInterface|MockObject $session */
-		$sessionProvider =
-			$this->createNoOpMock( SessionProviderInterface::class, [ 'safeAgainstCsrf' ] );
-		$sessionProvider->method( 'safeAgainstCsrf' )->willReturn( $csrfSafe );
+		$session = $this->getSession( $csrfSafe );
 
-		/** @var Session|MockObject $session */
-		$session = $this->createNoOpMock( Session::class, [ 'getSessionId', 'getProvider' ] );
-		$session->method( 'getSessionId' )->willReturn( new SessionId( 'test' ) );
-		$session->method( 'getProvider' )->willReturn( $sessionProvider );
-
-		// NOTE: This being a FauxRequest instance triggers special case behavior
+		// NOTE: This being a MediaWiki\Request\FauxRequest instance triggers special case behavior
 		// in ApiMain, causing ApiMain::isInternalMode() to return true. Among other things,
 		// this causes ApiMain to throw errors rather than encode them in the result data.
-		/** @var MockObject|FauxRequest $fauxRequest */
+		/** @var MockObject|\MediaWiki\Request\FauxRequest $fauxRequest */
 		$fauxRequest = $this->getMockBuilder( FauxRequest::class )
 			->onlyMethods( [ 'getSession', 'getSessionId' ] )
 			->getMock();
 		$fauxRequest->method( 'getSession' )->willReturn( $session );
 		$fauxRequest->method( 'getSessionId' )->willReturn( $session->getSessionId() );
 
+		/** @var Language|MockObject $language */
+		$language = $this->createNoOpMock( Language::class );
 		$testContext = RequestContext::getMain();
 
 		$fauxContext = new RequestContext();
 		$fauxContext->setRequest( $fauxRequest );
 		$fauxContext->setUser( $testContext->getUser() );
-		$fauxContext->setLanguage( $testContext->getLanguage() );
+		$fauxContext->setLanguage( $language );
 
-		$apiMain = new ApiMain( $fauxContext, true );
-		return $apiMain;
+		return new ApiMain( $fauxContext, true );
 	}
 
 }

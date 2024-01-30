@@ -1,10 +1,8 @@
 <?php
 /** Tuvinian (тыва дыл)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Agilight
  * @author Andrijko Z.

@@ -1,16 +1,23 @@
 <?php
 use MediaWiki\Json\JsonCodec;
 use MediaWiki\Logger\Spi as LoggerSpi;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Page\Hook\OpportunisticLinksUpdateHook;
 use MediaWiki\Page\ParserOutputAccess;
+use MediaWiki\Parser\ParserCacheFactory;
 use MediaWiki\Parser\RevisionOutputCache;
+use MediaWiki\PoolCounter\PoolCounterFactory;
 use MediaWiki\Revision\MutableRevisionRecord;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\RevisionRenderer;
+use MediaWiki\Revision\RevisionStore;
 use MediaWiki\Revision\SlotRecord;
-use MediaWiki\Storage\RevisionStore;
+use MediaWiki\Status\Status;
+use MediaWiki\Utils\MWTimestamp;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Wikimedia\TestingAccessWrapper;
 
 /**
  * @covers \MediaWiki\Page\ParserOutputAccess
@@ -28,8 +35,8 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		}
 
 		$html = preg_replace( '/<!--.*?-->/s', '', $value );
-		$html = trim( preg_replace( '/[\r\n]{2,}/s', "\n", $html ) );
-		$html = trim( preg_replace( '/\s{2,}/s', ' ', $html ) );
+		$html = trim( preg_replace( '/[\r\n]{2,}/', "\n", $html ) );
+		$html = trim( preg_replace( '/\s{2,}/', ' ', $html ) );
 		return $html;
 	}
 
@@ -37,7 +44,7 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		$this->assertNotNull( $actual );
 
 		if ( $actual instanceof StatusValue ) {
-			$this->assertTrue( $actual->isOK(), 'isOK' );
+			$this->assertStatusOK( $actual, 'isOK' );
 		}
 
 		$this->assertStringContainsString( $needle, $this->getHtml( $actual ), $msg );
@@ -47,7 +54,7 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		$this->assertNotNull( $actual );
 
 		if ( $actual instanceof StatusValue ) {
-			$this->assertTrue( $actual->isOK(), 'isOK' );
+			$this->assertStatusOK( $actual, 'isOK' );
 		}
 
 		$this->assertSame( $this->getHtml( $expected ), $this->getHtml( $actual ), $msg );
@@ -57,7 +64,7 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		$this->assertNotNull( $actual );
 
 		if ( $actual instanceof StatusValue ) {
-			$this->assertTrue( $actual->isOK(), 'isOK' );
+			$this->assertStatusOK( $actual, 'isOK' );
 		}
 
 		$this->assertNotSame( $this->getHtml( $expected ), $this->getHtml( $actual ), $msg );
@@ -127,9 +134,27 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 			$revisionOutputCache = $this->getRevisionOutputCache( new HashBagOStuff() );
 		}
 
+		$parserCacheFactory = $this->createMock( ParserCacheFactory::class );
+		$parserCacheFactory->method( 'getParserCache' )->willReturn( $parserCache );
+		$parserCacheFactory->method( 'getRevisionOutputCache' )->willReturn( $revisionOutputCache );
+		return $this->getParserOutputAccessWithCacheFactory(
+			$parserCacheFactory,
+			$maxRenderCalls
+		);
+	}
+
+	/**
+	 * @param ParserCacheFactory $parserCacheFactory
+	 * @param int|bool $maxRenderCalls
+	 *
+	 * @return ParserOutputAccess
+	 * @throws Exception
+	 */
+	private function getParserOutputAccessWithCacheFactory(
+		$parserCacheFactory,
+		$maxRenderCalls = false
+	) {
 		$revRenderer = $this->getServiceContainer()->getRevisionRenderer();
-		$lbFactory = $this->getServiceContainer()->getDBLoadBalancerFactory();
-		$stats = new NullStatsdDataFactory();
 
 		if ( $maxRenderCalls ) {
 			$realRevRenderer = $revRenderer;
@@ -142,12 +167,12 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		}
 
 		return new ParserOutputAccess(
-			$parserCache,
-			$revisionOutputCache,
+			$parserCacheFactory,
 			$this->getServiceContainer()->getRevisionLookup(),
 			$revRenderer,
-			$stats,
-			$lbFactory,
+			new NullStatsdDataFactory(),
+			$this->getServiceContainer()->getDBLoadBalancerFactory(),
+			$this->getServiceContainer()->getChronologyProtector(),
 			$this->getLoggerSpi(),
 			$this->getServiceContainer()->getWikiPageFactory(),
 			$this->getServiceContainer()->getTitleFormatter()
@@ -184,7 +209,24 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 	 * @return ParserOptions
 	 */
 	private function getParserOptions() {
-		return ParserOptions::newCanonical( 'canonical' );
+		return ParserOptions::newFromAnon();
+	}
+
+	/**
+	 * Install OpportunisticLinksUpdateHook to inspect whether WikiPage::triggerOpportunisticLinksUpdate
+	 * is called or not, the hook implementation will return false disabling the
+	 * WikiPage::triggerOpportunisticLinksUpdate to proceed completely.
+	 * @param bool $called whether WikiPage::triggerOpportunisticLinksUpdate is expected to be called or not
+	 * @return void
+	 */
+	private function installOpportunisticUpdateHook( bool $called ): void {
+		$opportunisticUpdateHook =
+			$this->createMock( OpportunisticLinksUpdateHook::class );
+		// WikiPage::triggerOpportunisticLinksUpdate is not called by default
+		$opportunisticUpdateHook->expects( $this->exactly( $called ? 1 : 0 ) )
+			->method( 'onOpportunisticLinksUpdate' )
+			->willReturn( false );
+		$this->setTemporaryHook( 'OpportunisticLinksUpdate', $opportunisticUpdateHook );
 	}
 
 	/**
@@ -197,7 +239,25 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		$this->editPage( $page, 'Hello \'\'World\'\'!' );
 
 		$parserOptions = $this->getParserOptions();
+		// WikiPage::triggerOpportunisticLinksUpdate is not called by default
+		$this->installOpportunisticUpdateHook( false );
 		$status = $access->getParserOutput( $page, $parserOptions );
+		$this->assertContainsHtml( 'Hello <i>World</i>!', $status );
+	}
+
+	/**
+	 * Tests that we can get rendered output for the latest revision.
+	 */
+	public function testOutputForLatestRevisionWithLinksUpdate() {
+		$access = $this->getParserOutputAccessNoCache();
+
+		$page = $this->getNonexistingTestPage( __METHOD__ );
+		$this->editPage( $page, 'Hello \'\'World\'\'!' );
+
+		$parserOptions = $this->getParserOptions();
+		// With ParserOutputAccess::OPT_LINKS_UPDATE WikiPage::triggerOpportunisticLinksUpdate can be called
+		$this->installOpportunisticUpdateHook( true );
+		$status = $access->getParserOutput( $page, $parserOptions, null, ParserOutputAccess::OPT_LINKS_UPDATE );
 		$this->assertContainsHtml( 'Hello <i>World</i>!', $status );
 	}
 
@@ -227,7 +287,7 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		$parserCache = $this->getParserCache( new HashBagOStuff() );
 		$access = $this->getParserOutputAccessWithCache( $parserCache );
 
-		$parserOptions = ParserOptions::newCanonical( 'canonical' );
+		$parserOptions = ParserOptions::newFromAnon();
 		$page = $this->getNonexistingTestPage( __METHOD__ );
 		$this->editPage( $page, 'Hello \'\'World\'\'!' );
 
@@ -268,7 +328,7 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 
 		$parserOptions = $this->getParserOptions();
 		$status = $access->getParserOutput( $page, $parserOptions );
-		$this->assertFalse( $status->isOK() );
+		$this->assertStatusNotOK( $status );
 	}
 
 	/**
@@ -333,10 +393,10 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 	public function testLatestRevisionCacheSplit() {
 		$access = $this->getParserOutputAccessWithCache();
 
-		$frenchOptions = ParserOptions::newCanonical( 'canonical' );
+		$frenchOptions = ParserOptions::newFromAnon();
 		$frenchOptions->setUserLang( 'fr' );
 
-		$tongaOptions = ParserOptions::newCanonical( 'canonical' );
+		$tongaOptions = ParserOptions::newFromAnon();
 		$tongaOptions->setUserLang( 'to' );
 
 		$page = $this->getNonexistingTestPage( __METHOD__ );
@@ -379,7 +439,7 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		$access = $this->getParserOutputAccessWithCache();
 
 		$page = $this->getNonexistingTestPage( __METHOD__ );
-		$rev = $this->editPage( $page, 'Hello \'\'World\'\'!' )->getValue()['revision-record'];
+		$rev = $this->editPage( $page, 'Hello \'\'World\'\'!' )->getNewRevision();
 
 		// When $rev is passed, it should be detected to be the latest revision.
 		$parserOptions = $this->getParserOptions();
@@ -397,8 +457,8 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		$access = $this->getParserOutputAccessWithCache();
 
 		$page = $this->getNonexistingTestPage( __METHOD__ );
-		$firstRev = $this->editPage( $page, 'First' )->getValue()['revision-record'];
-		$secondRev = $this->editPage( $page, 'Second' )->getValue()['revision-record'];
+		$firstRev = $this->editPage( $page, 'First' )->getNewRevision();
+		$secondRev = $this->editPage( $page, 'Second' )->getNewRevision();
 
 		// output is for the second revision (write to ParserCache)
 		$parserOptions = $this->getParserOptions();
@@ -421,8 +481,8 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		$access = $this->getParserOutputAccessNoCache();
 
 		$page = $this->getNonexistingTestPage( __METHOD__ );
-		$firstRev = $this->editPage( $page, 'First' )->getValue()['revision-record'];
-		$secondRev = $this->editPage( $page, 'Second' )->getValue()['revision-record'];
+		$firstRev = $this->editPage( $page, 'First' )->getNewRevision();
+		$secondRev = $this->editPage( $page, 'Second' )->getNewRevision();
 
 		$this->revisionDelete( $firstRev );
 		$firstRev =
@@ -431,7 +491,7 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		// output is for the first revision denied
 		$parserOptions = $this->getParserOptions();
 		$status = $access->getParserOutput( $page, $parserOptions, $firstRev );
-		$this->assertFalse( $status->isOK() );
+		$this->assertStatusNotOK( $status );
 		// TODO: Once PoolWorkArticleView properly reports errors, check that the correct error
 		//       is propagated.
 	}
@@ -444,8 +504,8 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		$access = $this->getParserOutputAccessNoCache();
 
 		$page = $this->getNonexistingTestPage( __METHOD__ );
-		$firstRev = $this->editPage( $page, 'First' )->getValue()['revision-record'];
-		$secondRev = $this->editPage( $page, 'Second' )->getValue()['revision-record'];
+		$firstRev = $this->editPage( $page, 'First' )->getNewRevision();
+		$secondRev = $this->editPage( $page, 'Second' )->getNewRevision();
 
 		$this->revisionDelete( $firstRev );
 		$firstRev =
@@ -516,10 +576,10 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 	public function testOldRevisionCacheSplit() {
 		$access = $this->getParserOutputAccessWithCache();
 
-		$frenchOptions = ParserOptions::newCanonical( 'canonical' );
+		$frenchOptions = ParserOptions::newFromAnon();
 		$frenchOptions->setUserLang( 'fr' );
 
-		$tongaOptions = ParserOptions::newCanonical( 'canonical' );
+		$tongaOptions = ParserOptions::newFromAnon();
 		$tongaOptions->setUserLang( 'to' );
 
 		$page = $this->getNonexistingTestPage( __METHOD__ );
@@ -557,7 +617,7 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * Tests that a RevisionRecord with no ID can be rendered if NO_CACHE is set.
+	 * Tests that a RevisionRecord with no ID can be rendered if OPT_NO_CACHE is set.
 	 */
 	public function testFakeRevisionNoCache() {
 		$access = $this->getParserOutputAccessWithCache();
@@ -584,7 +644,7 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * Tests that a RevisionRecord with no ID can not be rendered if NO_CACHE is not set.
+	 * Tests that a RevisionRecord with no ID can not be rendered if OPT_NO_CACHE is not set.
 	 */
 	public function testFakeRevisionError() {
 		$access = $this->getParserOutputAccessNoCache();
@@ -622,16 +682,15 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 
 		$parserOptions = $this->getParserOptions();
 		$status = $access->getParserOutput( $page, $parserOptions );
-		$this->assertFalse( $status->isOK() );
+		$this->assertStatusNotOK( $status );
 	}
 
 	/**
 	 * @param Status $status
 	 * @param bool $fastStale
-	 *
-	 * @return PoolCounter
+	 * @return PoolCounterFactory
 	 */
-	private function makePoolCounter( $status, $fastStale = false ) {
+	private function makePoolCounterFactory( $status, $fastStale = false ) {
 		/** @var MockObject|PoolCounter $poolCounter */
 		$poolCounter = $this->getMockBuilder( PoolCounter::class )
 			->disableOriginalConstructor()
@@ -643,10 +702,15 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		$poolCounter->method( 'release' )->willReturn( Status::newGood( PoolCounter::RELEASED ) );
 		$poolCounter->method( 'isFastStaleEnabled' )->willReturn( $fastStale );
 
-		return $poolCounter;
+		$pcFactory = $this->getMockBuilder( PoolCounterFactory::class )
+			->disableOriginalConstructor()
+			->getMock();
+		$pcFactory->method( 'create' )->willReturn( $poolCounter );
+
+		return $pcFactory;
 	}
 
-	public function providePoolWorkDirty() {
+	public static function providePoolWorkDirty() {
 		yield [ Status::newGood( PoolCounter::QUEUE_FULL ), false, 'view-pool-overload' ];
 		yield [ Status::newGood( PoolCounter::TIMEOUT ), false, 'view-pool-overload' ];
 		yield [ Status::newGood( PoolCounter::TIMEOUT ), true, 'view-pool-contention' ];
@@ -668,14 +732,15 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 
 		$parserOptions = $this->getParserOptions();
 		$access->getParserOutput( $page, $parserOptions );
-		$access->cleanClassCache();
+		$testingAccess = TestingAccessWrapper::newFromObject( $access );
+		$testingAccess->localCache = [];
 
 		// inject mock PoolCounter status
-		$this->setMwGlobals( [ 'wgParserCacheExpireTime' => 60, 'wgPoolCounterConf' => [
-			'ArticleView' => [ 'factory' => function () use ( $status, $fastStale ) {
-				return $this->makePoolCounter( $status, $fastStale );
-			} ],
-		] ] );
+		$this->overrideConfigValues( [
+			MainConfigNames::ParserCacheExpireTime => 60,
+		] );
+		$this->setService( 'PoolCounterFactory',
+			$this->makePoolCounterFactory( $status, $fastStale ) );
 
 		// expire parser cache
 		MWTimestamp::setFakeTime( '2020-05-05T01:02:03' );
@@ -684,8 +749,8 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		$cachedResult = $access->getParserOutput( $page, $parserOptions );
 		$this->assertContainsHtml( 'World', $cachedResult );
 
-		$this->assertTrue( $cachedResult->hasMessage( $expectedMessage ) );
-		$this->assertTrue( $cachedResult->hasMessage( 'view-pool-dirty-output' ) );
+		$this->assertStatusWarning( $expectedMessage, $cachedResult );
+		$this->assertStatusWarning( 'view-pool-dirty-output', $cachedResult );
 	}
 
 	/**
@@ -693,11 +758,11 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 	 * stale output can be returned.
 	 */
 	public function testPoolWorkTimeout() {
-		$this->setMwGlobals( [ 'wgParserCacheExpireTime' => 60, 'wgPoolCounterConf' => [
-			'ArticleView' => [ 'factory' => function () {
-				return $this->makePoolCounter( Status::newGood( PoolCounter::TIMEOUT ) );
-			} ],
-		] ] );
+		$this->overrideConfigValues( [
+			MainConfigNames::ParserCacheExpireTime => 60,
+		] );
+		$this->setService( 'PoolCounterFactory',
+			$this->makePoolCounterFactory( Status::newGood( PoolCounter::TIMEOUT ) ) );
 
 		$access = $this->getParserOutputAccessNoCache();
 
@@ -706,18 +771,18 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 
 		$parserOptions = $this->getParserOptions();
 		$result = $access->getParserOutput( $page, $parserOptions );
-		$this->assertFalse( $result->isOK() );
+		$this->assertStatusNotOK( $result );
 	}
 
 	/**
 	 * Tests that a PoolCounter error does not prevent output from being generated.
 	 */
 	public function testPoolWorkError() {
-		$this->setMwGlobals( [ 'wgParserCacheExpireTime' => 60, 'wgPoolCounterConf' => [
-			'ArticleView' => [ 'factory' => function () {
-				return $this->makePoolCounter( Status::newFatal( 'some-error' ) );
-			} ],
-		] ] );
+		$this->overrideConfigValues( [
+			MainConfigNames::ParserCacheExpireTime => 60,
+		] );
+		$this->setService( 'PoolCounterFactory',
+			$this->makePoolCounterFactory( Status::newFatal( 'some-error' ) ) );
 
 		$access = $this->getParserOutputAccessNoCache();
 
@@ -729,4 +794,102 @@ class ParserOutputAccessTest extends MediaWikiIntegrationTestCase {
 		$this->assertContainsHtml( 'World', $result );
 	}
 
+	public function testParsoidCacheSplit() {
+		$parserCacheFactory = $this->createMock( ParserCacheFactory::class );
+		$revisionOutputCache = $this->getRevisionOutputCache( new HashBagOStuff() );
+		$caches = [
+			$this->getParserCache( new HashBagOStuff() ),
+			$this->getParserCache( new HashBagOStuff() ),
+		];
+		$calls = [];
+		$parserCacheFactory
+			->method( 'getParserCache' )
+			->willReturnCallback( static function ( $cacheName ) use ( &$calls, $caches ) {
+				static $cacheList = [];
+				$calls[] = $cacheName;
+				$which = array_search( $cacheName, $cacheList );
+				if ( $which === false ) {
+					$which = count( $cacheList );
+					$cacheList[] = $cacheName;
+				}
+				return $caches[$which];
+			} );
+		$parserCacheFactory
+			->method( 'getRevisionOutputCache' )
+			->willReturn( $revisionOutputCache );
+
+		$access = $this->getParserOutputAccessWithCacheFactory( $parserCacheFactory );
+		$parserOptions0 = $this->getParserOptions();
+		$page = $this->getNonexistingTestPage( __METHOD__ );
+		$output = $access->getCachedParserOutput( $page, $parserOptions0 );
+		$this->assertNull( $output );
+		// $calls[0] will remember what cache name we used.
+		$this->assertCount( 1, $calls );
+
+		$parserOptions1 = $this->getParserOptions();
+		$parserOptions1->setUseParsoid();
+		$output = $access->getCachedParserOutput( $page, $parserOptions1 );
+		$this->assertNull( $output );
+		$this->assertCount( 2, $calls );
+		// Check that we used a different cache name this time.
+		$this->assertNotEquals( $calls[1], $calls[0], "Should use different caches" );
+
+		// Try this again, with actual content.
+		$calls = [];
+		$this->editPage( $page, "__NOTOC__" );
+		$status0 = $access->getParserOutput( $page, $parserOptions0 );
+		$this->assertContainsHtml( '<div class="mw-parser-output"></div>', $status0 );
+		$status1 = $access->getParserOutput( $page, $parserOptions1 );
+		$this->assertContainsHtml( '<meta property="mw:PageProp/notoc"', $status1 );
+		$this->assertNotSameHtml( $status0, $status1 );
+	}
+
+	public function testParsoidRevisionCacheSplit() {
+		$parserCacheFactory = $this->createMock( ParserCacheFactory::class );
+		$parserCache = $this->getParserCache( new HashBagOStuff() );
+		$caches = [
+			$this->getRevisionOutputCache( new HashBagOStuff() ),
+			$this->getRevisionOutputCache( new HashBagOStuff() ),
+		];
+		$calls = [];
+		$parserCacheFactory
+			->method( 'getParserCache' )
+			->willReturn( $parserCache );
+		$parserCacheFactory
+			->method( 'getRevisionOutputCache' )
+			->willReturnCallback( static function ( $cacheName ) use ( &$calls, $caches ) {
+				static $cacheList = [];
+				$calls[] = $cacheName;
+				$which = array_search( $cacheName, $cacheList );
+				if ( $which === false ) {
+					$which = count( $cacheList );
+					$cacheList[] = $cacheName;
+				}
+				return $caches[$which];
+			} );
+
+		$access = $this->getParserOutputAccessWithCacheFactory( $parserCacheFactory );
+		$page = $this->getNonexistingTestPage( __METHOD__ );
+		$firstRev = $this->editPage( $page, 'First __NOTOC__' )->getNewRevision();
+		$secondRev = $this->editPage( $page, 'Second __NOTOC__' )->getNewRevision();
+
+		$parserOptions0 = $this->getParserOptions();
+		$status = $access->getParserOutput( $page, $parserOptions0, $firstRev );
+		$this->assertContainsHtml( 'First', $status );
+		// Check that we used the "not parsoid" revision cache
+		$this->assertTrue( count( $calls ) > 0 );
+		$notParsoid = $calls[0];
+		$this->assertEquals( array_fill( 0, count( $calls ), $notParsoid ), $calls );
+
+		$calls = [];
+		$parserOptions1 = $this->getParserOptions();
+		$parserOptions1->setUseParsoid();
+		$status = $access->getParserOutput( $page, $parserOptions1, $firstRev );
+		$this->assertContainsHtml( 'First', $status );
+		$this->assertContainsHtml( '<meta property="mw:PageProp/notoc"', $status );
+		$this->assertTrue( count( $calls ) > 0 );
+		$parsoid = $calls[0];
+		$this->assertNotEquals( $notParsoid, $parsoid, "Should use different caches" );
+		$this->assertEquals( array_fill( 0, count( $calls ), $parsoid ), $calls );
+	}
 }

@@ -1,7 +1,7 @@
 <?php
 
 use MediaWiki\MediaWikiServices;
-use MediaWiki\User\UserNameUtils;
+use MediaWiki\User\UserRigorOptions;
 use MediaWiki\Widget\UsersMultiselectWidget;
 use Wikimedia\IPUtils;
 
@@ -10,7 +10,7 @@ use Wikimedia\IPUtils;
  *
  * Besides the parameters recognized by HTMLUserTextField, additional recognized
  * parameters are:
- *  default - (optional) Array of usernames to use as preset data
+ *  default - (optional) String, newline-separated list of usernames to use as preset data
  *  placeholder - (optional) Custom placeholder message for input
  *
  * The result is the array of usernames
@@ -20,7 +20,7 @@ use Wikimedia\IPUtils;
  */
 class HTMLUsersMultiselectField extends HTMLUserTextField {
 	public function loadDataFromRequest( $request ) {
-		$value = $request->getText( $this->mName, $this->getDefault() );
+		$value = $request->getText( $this->mName, $this->getDefault() ?? '' );
 
 		$usersArray = explode( "\n", $value );
 		// Remove empty lines
@@ -41,7 +41,8 @@ class HTMLUsersMultiselectField extends HTMLUserTextField {
 					$listOfIps[] = $parsedIPRange;
 				}
 			} else {
-				$canonicalUser = $userNameUtils->getCanonical( $user, UserNameUtils::RIGOR_NONE );
+				$canonicalUser = $userNameUtils->getCanonical(
+					$user, UserRigorOptions::RIGOR_NONE );
 			}
 			if ( $canonicalUser !== false ) {
 				$normalizedUsers[] = $canonicalUser;
@@ -86,6 +87,8 @@ class HTMLUsersMultiselectField extends HTMLUserTextField {
 	}
 
 	public function getInputOOUI( $value ) {
+		$this->mParent->getOutput()->addModuleStyles( 'mediawiki.widgets.TagMultiselectWidget.styles' );
+
 		$params = [ 'name' => $this->mName ];
 
 		if ( isset( $this->mParams['id'] ) ) {
@@ -100,11 +103,8 @@ class HTMLUsersMultiselectField extends HTMLUserTextField {
 			$params['default'] = $this->mParams['default'];
 		}
 
-		if ( isset( $this->mParams['placeholder'] ) ) {
-			$params['placeholder'] = $this->mParams['placeholder'];
-		} else {
-			$params['placeholder'] = $this->msg( 'mw-widgets-usersmultiselect-placeholder' )->plain();
-		}
+		$params['placeholder'] = $this->mParams['placeholder'] ??
+			$this->msg( 'mw-widgets-usersmultiselect-placeholder' )->plain();
 
 		if ( isset( $this->mParams['max'] ) ) {
 			$params['tagLimit'] = $this->mParams['max'];
@@ -134,9 +134,16 @@ class HTMLUsersMultiselectField extends HTMLUserTextField {
 		// Make the field auto-infusable when it's used inside a legacy HTMLForm rather than OOUIHTMLForm
 		$params['infusable'] = true;
 		$params['classes'] = [ 'mw-htmlform-autoinfuse' ];
+
+		return $this->getInputWidget( $params );
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	protected function getInputWidget( $params ) {
 		$widget = new UsersMultiselectWidget( $params );
 		$widget->setAttributes( [ 'data-mw-modules' => implode( ',', $this->getOOUIModules() ) ] );
-
 		return $widget;
 	}
 

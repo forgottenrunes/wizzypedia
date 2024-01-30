@@ -1,7 +1,5 @@
 <?php
 /**
- * Japanese (日本語) specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,22 +16,17 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
 
 /**
  * Japanese (日本語)
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class LanguageJa extends Language {
 
-	/**
-	 * @param string $string
-	 * @return string
-	 */
 	public function segmentByWord( $string ) {
-		// Strip known punctuation ?
+		// Strip known punctuation?
 		// $s = preg_replace( '/\xe3\x80[\x80-\xbf]/', '', $s ); # U3000-303f
 
 		// Space strings of like hiragana/katakana/kanji
@@ -45,13 +38,12 @@ class LanguageJa extends Language {
 			. '|\xe9\xa6[\x80-\x99])';
 			# U3200-9999 = \xe3\x88\x80-\xe9\xa6\x99
 		$reg = "/({$hiragana}+|{$katakana}+|{$kanji}+)/";
-		$s = self::insertSpace( $string, $reg );
-		return $s;
+		return self::insertSpace( $string, $reg );
 	}
 
 	/**
-	 * Italic is not appropriate for Japanese script
-	 * Unfortunately most browsers do not recognise this, and render `<em>` as italic
+	 * Italic is not appropriate for Japanese script.
+	 * Unfortunately, most browsers do not recognise this, and render `<em>` as italic.
 	 *
 	 * @param string $text
 	 * @return string

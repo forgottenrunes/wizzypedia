@@ -21,8 +21,10 @@
  * @file
  */
 
+use MediaWiki\Language\RawMessage;
 use MediaWiki\Page\PageReference;
 use MediaWiki\Page\PageReferenceValue;
+use MediaWiki\Parser\Sanitizer;
 
 /**
  * Formats errors and warnings for the API, and add them to the associated
@@ -239,7 +241,7 @@ class ApiErrorFormatter {
 			} else {
 				$msg = new RawMessage( '$1' );
 				if ( !isset( $options['code'] ) ) {
-					$class = preg_replace( '#^Wikimedia\\\Rdbms\\\#', '', get_class( $exception ) );
+					$class = preg_replace( '#^Wikimedia\\\\Rdbms\\\\#', '', get_class( $exception ) );
 					$options['code'] = 'internal_api_error_' . $class;
 					$options['data']['errorclass'] = get_class( $exception );
 				}
@@ -319,9 +321,7 @@ class ApiErrorFormatter {
 		$ret = preg_replace( '!</?(var|kbd|samp|code)>!', '"', $text );
 
 		// Strip tags and decode.
-		$ret = Sanitizer::stripAllTags( $ret );
-
-		return $ret;
+		return Sanitizer::stripAllTags( $ret );
 	}
 
 	/**

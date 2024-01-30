@@ -43,20 +43,22 @@ ve.dm.MWInlineImageNode.static.preserveHtmlAttributes = function ( attribute ) {
 	return attributes.indexOf( attribute ) === -1;
 };
 
-// For a while, Parsoid switched to <figure-inline> for inline images, but
-// then decided to switch back to <span> in T266143.
-ve.dm.MWInlineImageNode.static.matchTagNames = [ 'span', 'figure-inline' ];
+ve.dm.MWInlineImageNode.static.matchTagNames = [ 'span' ];
 
 ve.dm.MWInlineImageNode.static.disallowedAnnotationTypes = [ 'link' ];
 
 ve.dm.MWInlineImageNode.static.toDataElement = function ( domElements, converter ) {
-	var container = domElements[ 0 ]; // <span> or <figure-inline>
-	var imgWrapper = container.children[ 0 ]; // <a> or <span>
-	if ( !imgWrapper ) {
-		// Malformed figure, alienate (T267282)
+	var container = domElements[ 0 ]; // <span>
+	if ( !container.children.length ) {
+		// Malformed image, alienate (T267282)
 		return null;
 	}
-	var img = imgWrapper.children[ 0 ]; // <img>, <video> or <audio>
+	var img = container.querySelector( '.mw-file-element' ); // <img>, <video>, <audio>, or <span> if mw:Error
+	// Images copied from the old parser output can have typeof=mw:Image but no resource information. T337438
+	if ( !img || !img.hasAttribute( 'resource' ) ) {
+		return [];
+	}
+	var imgWrapper = img.parentNode; // <a> or <span>
 	var typeofAttrs = ( container.getAttribute( 'typeof' ) || '' ).trim().split( /\s+/ );
 	var mwDataJSON = container.getAttribute( 'data-mw' );
 	var mwData = mwDataJSON ? JSON.parse( mwDataJSON ) : {};
@@ -64,6 +66,7 @@ ve.dm.MWInlineImageNode.static.toDataElement = function ( domElements, converter
 	var recognizedClasses = [];
 	var errorIndex = typeofAttrs.indexOf( 'mw:Error' );
 	var isError = errorIndex !== -1;
+	var errorText = isError ? img.textContent : null;
 	var width = img.getAttribute( isError ? 'data-width' : 'width' );
 	var height = img.getAttribute( isError ? 'data-height' : 'height' );
 
@@ -73,7 +76,7 @@ ve.dm.MWInlineImageNode.static.toDataElement = function ( domElements, converter
 		// Otherwise Parsoid generates |link= options for copy-pasted images (T193253).
 		var targetData = mw.libs.ve.getTargetDataFromHref( href, converter.getTargetHtmlDocument() );
 		if ( targetData.isInternal ) {
-			href = './' + targetData.rawTitle;
+			href = mw.libs.ve.encodeParsoidResourceName( targetData.title );
 		}
 	}
 
@@ -85,9 +88,11 @@ ve.dm.MWInlineImageNode.static.toDataElement = function ( domElements, converter
 
 	var attributes = {
 		mediaClass: types.mediaClass,
+		mediaTag: img.nodeName.toLowerCase(),
 		type: types.frameType,
 		src: img.getAttribute( 'src' ) || img.getAttribute( 'poster' ),
 		href: href,
+		imageClassAttr: img.getAttribute( 'class' ),
 		imgWrapperClassAttr: imgWrapper.getAttribute( 'class' ),
 		resource: img.getAttribute( 'resource' ),
 		originalClasses: classes,
@@ -96,7 +101,7 @@ ve.dm.MWInlineImageNode.static.toDataElement = function ( domElements, converter
 		alt: img.getAttribute( 'alt' ),
 		mw: mwData,
 		isError: isError,
-		tagName: container.nodeName.toLowerCase()
+		errorText: errorText
 	};
 
 	// Extract individual classes
@@ -144,9 +149,8 @@ ve.dm.MWInlineImageNode.static.toDataElement = function ( domElements, converter
 
 ve.dm.MWInlineImageNode.static.toDomElements = function ( dataElement, doc, converter ) {
 	var attributes = dataElement.attributes,
-		mediaClass = attributes.mediaClass,
-		container = doc.createElement( attributes.tagName || 'span' ),
-		img = doc.createElement( attributes.isError ? 'span' : this.typesToTags[ mediaClass ] ),
+		container = doc.createElement( 'span' ),
+		img = doc.createElement( attributes.isError ? 'span' : attributes.mediaTag ),
 		classes = [],
 		originalClasses = attributes.originalClasses;
 
@@ -160,7 +164,7 @@ ve.dm.MWInlineImageNode.static.toDomElements = function ( dataElement, doc, conv
 		img.setAttribute( attributes.isError ? 'data-width' : 'height', height );
 	}
 
-	var srcAttr = this.typesToSrcAttrs[ mediaClass ];
+	var srcAttr = this.tagsToSrcAttrs[ img.nodeName.toLowerCase() ];
 	if ( srcAttr && !attributes.isError ) {
 		img.setAttribute( srcAttr, attributes.src );
 	}
@@ -171,7 +175,7 @@ ve.dm.MWInlineImageNode.static.toDomElements = function ( dataElement, doc, conv
 	}
 
 	// RDFa type
-	container.setAttribute( 'typeof', this.getRdfa( mediaClass, attributes.type, attributes.isError ) );
+	container.setAttribute( 'typeof', this.getRdfa( attributes.mediaClass, attributes.type, attributes.isError ) );
 	if ( !ve.isEmptyObject( attributes.mw ) ) {
 		container.setAttribute( 'data-mw', JSON.stringify( attributes.mw ) );
 	}
@@ -207,12 +211,18 @@ ve.dm.MWInlineImageNode.static.toDomElements = function ( dataElement, doc, conv
 	if ( attributes.href ) {
 		firstChild = doc.createElement( 'a' );
 		firstChild.setAttribute( 'href', attributes.href );
-		if ( attributes.imgWrapperClassAttr ) {
-			// eslint-disable-next-line mediawiki/class-doc
-			firstChild.className = attributes.imgWrapperClassAttr;
-		}
 	} else {
 		firstChild = doc.createElement( 'span' );
+	}
+
+	if ( attributes.imgWrapperClassAttr ) {
+		// eslint-disable-next-line mediawiki/class-doc
+		firstChild.className = attributes.imgWrapperClassAttr;
+	}
+
+	if ( attributes.imageClassAttr ) {
+		// eslint-disable-next-line mediawiki/class-doc
+		img.className = attributes.imageClassAttr;
 	}
 
 	if ( attributes.isError ) {
@@ -220,7 +230,7 @@ ve.dm.MWInlineImageNode.static.toDomElements = function ( dataElement, doc, conv
 			firstChild.classList.add( 'new' );
 		}
 		var filename = mw.libs.ve.normalizeParsoidResourceName( attributes.resource || '' );
-		img.appendChild( doc.createTextNode( filename ) );
+		img.appendChild( doc.createTextNode( attributes.errorText ? attributes.errorText : filename ) );
 	}
 
 	container.appendChild( firstChild );

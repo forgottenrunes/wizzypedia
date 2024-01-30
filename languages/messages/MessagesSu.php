@@ -1,10 +1,8 @@
 <?php
 /** Sundanese (Basa Sunda)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Aditia.Gunawan
  * @author Irwangatot

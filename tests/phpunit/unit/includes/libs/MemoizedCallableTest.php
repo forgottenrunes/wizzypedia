@@ -3,7 +3,6 @@
 use Wikimedia\TestingAccessWrapper;
 
 /**
- * PHPUnit tests for MemoizedCallable class.
  * @covers MemoizedCallable
  */
 class MemoizedCallableTest extends PHPUnit\Framework\TestCase {
@@ -18,7 +17,7 @@ class MemoizedCallableTest extends PHPUnit\Framework\TestCase {
 		$mock = $this->getMockBuilder( stdClass::class )
 			->addMethods( [ 'reverse' ] )->getMock();
 		$mock->method( 'reverse' )
-			->will( $this->returnCallback( 'strrev' ) );
+			->willReturnCallback( 'strrev' );
 
 		$memoized = new MemoizedCallable( [ $mock, 'reverse' ] );
 		$this->assertEquals( 'flow', $memoized->invoke( 'wolf' ) );
@@ -46,9 +45,6 @@ class MemoizedCallableTest extends PHPUnit\Framework\TestCase {
 		$this->assertEquals( 'ok', $memoized->invoke() );
 	}
 
-	/**
-	 * @covers MemoizedCallable::invoke
-	 */
 	public function testInvokeVariadic() {
 		$memoized = new MemoizedCallable( 'sprintf' );
 		$this->assertEquals(
@@ -57,9 +53,6 @@ class MemoizedCallableTest extends PHPUnit\Framework\TestCase {
 		);
 	}
 
-	/**
-	 * @covers MemoizedCallable::call
-	 */
 	public function testShortcutMethod() {
 		$this->assertEquals(
 			'this is correct',

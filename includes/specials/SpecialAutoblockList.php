@@ -21,12 +21,19 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use HTMLForm;
 use MediaWiki\Block\BlockActionInfo;
 use MediaWiki\Block\BlockRestrictionStore;
 use MediaWiki\Block\BlockUtils;
 use MediaWiki\Cache\LinkBatchFactory;
 use MediaWiki\CommentFormatter\RowCommentFormatter;
-use Wikimedia\Rdbms\ILoadBalancer;
+use MediaWiki\CommentStore\CommentStore;
+use MediaWiki\Html\Html;
+use MediaWiki\Pager\BlockListPager;
+use MediaWiki\SpecialPage\SpecialPage;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * A special page that lists autoblocks
@@ -36,31 +43,18 @@ use Wikimedia\Rdbms\ILoadBalancer;
  */
 class SpecialAutoblockList extends SpecialPage {
 
-	/** @var LinkBatchFactory */
-	private $linkBatchFactory;
-
-	/** @var BlockRestrictionStore */
-	private $blockRestrictionStore;
-
-	/** @var ILoadBalancer */
-	private $loadBalancer;
-
-	/** @var CommentStore */
-	private $commentStore;
-
-	/** @var BlockUtils */
-	private $blockUtils;
-
-	/** @var BlockActionInfo */
-	private $blockActionInfo;
-
-	/** @var RowCommentFormatter */
-	private $rowCommentFormatter;
+	private LinkBatchFactory $linkBatchFactory;
+	private BlockRestrictionStore $blockRestrictionStore;
+	private IConnectionProvider $dbProvider;
+	private CommentStore $commentStore;
+	private BlockUtils $blockUtils;
+	private BlockActionInfo $blockActionInfo;
+	private RowCommentFormatter $rowCommentFormatter;
 
 	/**
 	 * @param LinkBatchFactory $linkBatchFactory
 	 * @param BlockRestrictionStore $blockRestrictionStore
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param CommentStore $commentStore
 	 * @param BlockUtils $blockUtils
 	 * @param BlockActionInfo $blockActionInfo
@@ -69,7 +63,7 @@ class SpecialAutoblockList extends SpecialPage {
 	public function __construct(
 		LinkBatchFactory $linkBatchFactory,
 		BlockRestrictionStore $blockRestrictionStore,
-		ILoadBalancer $loadBalancer,
+		IConnectionProvider $dbProvider,
 		CommentStore $commentStore,
 		BlockUtils $blockUtils,
 		BlockActionInfo $blockActionInfo,
@@ -79,7 +73,7 @@ class SpecialAutoblockList extends SpecialPage {
 
 		$this->linkBatchFactory = $linkBatchFactory;
 		$this->blockRestrictionStore = $blockRestrictionStore;
-		$this->loadBalancer = $loadBalancer;
+		$this->dbProvider = $dbProvider;
 		$this->commentStore = $commentStore;
 		$this->blockUtils = $blockUtils;
 		$this->blockActionInfo = $blockActionInfo;
@@ -93,7 +87,7 @@ class SpecialAutoblockList extends SpecialPage {
 		$this->setHeaders();
 		$this->outputHeader();
 		$out = $this->getOutput();
-		$out->setPageTitle( $this->msg( 'autoblocklist' ) );
+		$out->setPageTitleMsg( $this->msg( 'autoblocklist' ) );
 		$this->addHelpLink( 'Autoblock' );
 		$out->addModuleStyles( [ 'mediawiki.special' ] );
 
@@ -111,10 +105,9 @@ class SpecialAutoblockList extends SpecialPage {
 			]
 		];
 
-		$context = new DerivativeContext( $this->getContext() );
-		$context->setTitle( $this->getPageTitle() ); // Remove subpage
-		$form = HTMLForm::factory( 'ooui', $fields, $context );
+		$form = HTMLForm::factory( 'ooui', $fields, $this->getContext() );
 		$form->setMethod( 'get' )
+			->setTitle( $this->getPageTitle() ) // Remove subpage
 			->setFormIdentifier( 'blocklist' )
 			->setWrapperLegendMsg( 'autoblocklist-legend' )
 			->setSubmitTextMsg( 'autoblocklist-submit' )
@@ -131,7 +124,9 @@ class SpecialAutoblockList extends SpecialPage {
 	 */
 	protected function getBlockListPager() {
 		$conds = [
-			'ipb_parent_block_id IS NOT NULL'
+			'ipb_parent_block_id IS NOT NULL',
+			// ipb_parent_block_id <> 0 because of T282890
+			'ipb_parent_block_id <> 0',
 		];
 		# Is the user allowed to see hidden blocks?
 		if ( !$this->getAuthority()->isAllowed( 'hideuser' ) ) {
@@ -146,7 +141,7 @@ class SpecialAutoblockList extends SpecialPage {
 			$this->commentStore,
 			$this->linkBatchFactory,
 			$this->getLinkRenderer(),
-			$this->loadBalancer,
+			$this->dbProvider,
 			$this->rowCommentFormatter,
 			$this->getSpecialPageFactory(),
 			$conds
@@ -220,3 +215,8 @@ class SpecialAutoblockList extends SpecialPage {
 		return 'users';
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialAutoblockList::class, 'SpecialAutoblockList' );

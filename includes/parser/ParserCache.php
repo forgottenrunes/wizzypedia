@@ -27,6 +27,7 @@ use MediaWiki\Json\JsonCodec;
 use MediaWiki\Page\PageRecord;
 use MediaWiki\Page\WikiPageFactory;
 use MediaWiki\Parser\ParserCacheMetadata;
+use MediaWiki\Title\TitleFactory;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -122,18 +123,6 @@ class ParserCache {
 	private $metadataProcCache;
 
 	/**
-	 * @note Temporary feature flag, remove before 1.36 is released.
-	 * @var bool
-	 */
-	private $writeJson = false;
-
-	/**
-	 * @note Temporary feature flag, remove before 1.36 is released.
-	 * @var bool
-	 */
-	private $readJson = false;
-
-	/**
 	 * Setup a cache pathway with a given back-end storage mechanism.
 	 *
 	 * This class use an invalidation strategy that is compatible with
@@ -148,7 +137,6 @@ class ParserCache {
 	 * @param LoggerInterface $logger
 	 * @param TitleFactory $titleFactory
 	 * @param WikiPageFactory $wikiPageFactory
-	 * @param bool $useJson Temporary feature flag, remove before 1.36 is released.
 	 */
 	public function __construct(
 		string $name,
@@ -159,8 +147,7 @@ class ParserCache {
 		IBufferingStatsdDataFactory $stats,
 		LoggerInterface $logger,
 		TitleFactory $titleFactory,
-		WikiPageFactory $wikiPageFactory,
-		$useJson = false
+		WikiPageFactory $wikiPageFactory
 	) {
 		$this->name = $name;
 		$this->cache = $cache;
@@ -171,8 +158,6 @@ class ParserCache {
 		$this->logger = $logger;
 		$this->titleFactory = $titleFactory;
 		$this->wikiPageFactory = $wikiPageFactory;
-		$this->readJson = $useJson;
-		$this->writeJson = $useJson;
 		$this->metadataProcCache = new HashBagOStuff( [ 'maxKeys' => 2 ] );
 	}
 
@@ -206,7 +191,6 @@ class ParserCache {
 	private function incrementStats( PageRecord $page, $metricSuffix ) {
 		$wikiPage = $this->wikiPageFactory->newFromTitle( $page );
 		$contentModel = str_replace( '.', '_', $wikiPage->getContentModel() );
-		$metricSuffix = str_replace( '.', '_', $metricSuffix );
 		$this->stats->increment( "{$this->name}.{$contentModel}.{$metricSuffix}" );
 	}
 
@@ -239,7 +223,7 @@ class ParserCache {
 		}
 
 		if ( $metadata === false ) {
-			$this->incrementStats( $page, "miss.absent.metadata" );
+			$this->incrementStats( $page, "miss_absent_metadata" );
 			$this->logger->debug( 'ParserOutput metadata cache miss', [ 'name' => $this->name ] );
 			return null;
 		}
@@ -252,12 +236,12 @@ class ParserCache {
 		// NOTE: Support for reading string values from the cache must be
 		//       deployed a while before starting to write JSON to the cache,
 		//       in case we have to revert either change.
-		if ( is_string( $metadata ) && $this->readJson ) {
+		if ( is_string( $metadata ) ) {
 			$metadata = $this->restoreFromJson( $metadata, $pageKey, CacheTime::class );
 		}
 
 		if ( !$metadata instanceof CacheTime ) {
-			$this->incrementStats( $page, 'miss.unserialize' );
+			$this->incrementStats( $page, 'miss_unserialize' );
 			return null;
 		}
 
@@ -302,10 +286,10 @@ class ParserCache {
 		ParserOptions $options,
 		array $usedOptions = null
 	): string {
-		$usedOptions = $usedOptions ?? ParserOptions::allCacheVaryingOptions();
+		$usedOptions ??= ParserOptions::allCacheVaryingOptions();
 		// idhash seem to mean 'page id' + 'rendering hash' (r3710)
 		$pageid = $page->getId( PageRecord::LOCAL );
-		$title = $this->titleFactory->castFromPageIdentity( $page );
+		$title = $this->titleFactory->newFromPageIdentity( $page );
 		$hash = $options->optionsHash( $usedOptions, $title );
 		// Before T263581 ParserCache was split between normal page views
 		// and action=parse. -0 is left in the key to avoid invalidating the entire
@@ -327,13 +311,13 @@ class ParserCache {
 		$page->assertWiki( PageRecord::LOCAL );
 
 		if ( !$page->exists() ) {
-			$this->incrementStats( $page, 'miss.nonexistent' );
+			$this->incrementStats( $page, 'miss_nonexistent' );
 			return false;
 		}
 
 		if ( $page->isRedirect() ) {
 			// It's a redirect now
-			$this->incrementStats( $page, 'miss.redirect' );
+			$this->incrementStats( $page, 'miss_redirect' );
 			return false;
 		}
 
@@ -344,7 +328,7 @@ class ParserCache {
 		}
 
 		if ( !$popts->isSafeToCache( $parserOutputMetadata->getUsedOptions() ) ) {
-			$this->incrementStats( $page, 'miss.unsafe' );
+			$this->incrementStats( $page, 'miss_unsafe' );
 			return false;
 		}
 
@@ -356,7 +340,7 @@ class ParserCache {
 
 		$value = $this->cache->get( $parserOutputKey, BagOStuff::READ_VERIFIED );
 		if ( $value === false ) {
-			$this->incrementStats( $page, "miss.absent" );
+			$this->incrementStats( $page, "miss_absent" );
 			$this->logger->debug( 'ParserOutput cache miss', [ 'name' => $this->name ] );
 			return false;
 		}
@@ -369,12 +353,12 @@ class ParserCache {
 		// NOTE: Support for reading string values from the cache must be
 		//       deployed a while before starting to write JSON to the cache,
 		//       in case we have to revert either change.
-		if ( is_string( $value ) && $this->readJson ) {
+		if ( is_string( $value ) ) {
 			$value = $this->restoreFromJson( $value, $parserOutputKey, ParserOutput::class );
 		}
 
 		if ( !$value instanceof ParserOutput ) {
-			$this->incrementStats( $page, 'miss.unserialize' );
+			$this->incrementStats( $page, 'miss_unserialize' );
 			return false;
 		}
 
@@ -388,7 +372,7 @@ class ParserCache {
 
 		$wikiPage = $this->wikiPageFactory->newFromTitle( $page );
 		if ( $this->hookRunner->onRejectParserCacheValue( $value, $wikiPage, $popts ) === false ) {
-			$this->incrementStats( $page, 'miss.rejected' );
+			$this->incrementStats( $page, 'miss_rejected' );
 			$this->logger->debug( 'key valid, but rejected by RejectParserCacheValue hook handler',
 				[ 'name' => $this->name ] );
 			return false;
@@ -426,7 +410,7 @@ class ParserCache {
 				'Parser options are not safe to cache and has not been saved',
 				[ 'name' => $this->name ]
 			);
-			$this->incrementStats( $page, 'save.unsafe' );
+			$this->incrementStats( $page, 'save_unsafe' );
 			return;
 		}
 
@@ -435,7 +419,7 @@ class ParserCache {
 				'Parser output was marked as uncacheable and has not been saved',
 				[ 'name' => $this->name ]
 			);
-			$this->incrementStats( $page, 'save.uncacheable' );
+			$this->incrementStats( $page, 'save_uncacheable' );
 			return;
 		}
 
@@ -445,6 +429,15 @@ class ParserCache {
 
 		$cacheTime = $cacheTime ?: wfTimestampNow();
 		$revId = $revId ?: $page->getLatest( PageRecord::LOCAL );
+
+		if ( !$revId ) {
+			$this->logger->debug(
+				'Parser output cannot be saved if the revision ID is not known',
+				[ 'name' => $this->name ]
+			);
+			$this->incrementStats( $page, 'save_norevid' );
+			return;
+		}
 
 		$metadata = new CacheTime;
 		$metadata->recordOptions( $parserOutput->getUsedOptions() );
@@ -464,30 +457,23 @@ class ParserCache {
 		$msg = "Saved in parser cache with key $parserOutputKey" .
 			" and timestamp $cacheTime" .
 			" and revision id $revId.";
-		if ( $this->writeJson ) {
-			$msg .= " Serialized with JSON.";
-		} else {
-			$msg .= " Serialized with PHP.";
-		}
+
+		$reason = $popts->getRenderReason();
+		$msg .= " Rendering was triggered because: $reason";
+
 		$parserOutput->addCacheMessage( $msg );
 
 		$pageKey = $this->makeMetadataKey( $page );
 
-		if ( $this->writeJson ) {
-			$parserOutputData = $this->encodeAsJson( $parserOutput, $parserOutputKey );
-			$metadataData = $this->encodeAsJson( $metadata, $pageKey );
-		} else {
-			// rely on implicit PHP serialization in the cache
-			$parserOutputData = $parserOutput;
-			$metadataData = $metadata;
-		}
+		$parserOutputData = $this->convertForCache( $parserOutput, $parserOutputKey );
+		$metadataData = $this->convertForCache( $metadata, $pageKey );
 
 		if ( !$parserOutputData || !$metadataData ) {
 			$this->logger->warning(
 				'Parser output failed to serialize and was not saved',
 				[ 'name' => $this->name ]
 			);
-			$this->incrementStats( $page, 'save.nonserializable' );
+			$this->incrementStats( $page, 'save_nonserializable' );
 			return;
 		}
 
@@ -504,7 +490,7 @@ class ParserCache {
 		// ...and to the global cache.
 		$this->cache->set( $pageKey, $metadataData, $expire );
 
-		$title = $this->titleFactory->castFromPageIdentity( $page );
+		$title = $this->titleFactory->newFromPageIdentity( $page );
 		$this->hookRunner->onParserCacheSaveComplete( $this, $parserOutput, $title, $popts, $revId );
 
 		$this->logger->debug( 'Saved in parser cache', [
@@ -513,7 +499,10 @@ class ParserCache {
 			'cache_time' => $cacheTime,
 			'rev_id' => $revId
 		] );
-		$this->incrementStats( $page, 'save.success' );
+		$this->incrementStats( $page, 'save_success' );
+
+		$reasonKey = preg_replace( '/\W+/', '_', $popts->getRenderReason() );
+		$this->incrementStats( $page, "reason.$reasonKey" );
 	}
 
 	/**
@@ -544,7 +533,7 @@ class ParserCache {
 		string $cacheTier
 	): bool {
 		if ( $staleConstraint < self::USE_EXPIRED && $entry->expired( $page->getTouched() ) ) {
-			$this->incrementStats( $page, "miss.expired" );
+			$this->incrementStats( $page, 'miss_expired' );
 			$this->logger->debug( "{$cacheTier} key expired", [
 				'name' => $this->name,
 				'touched' => $page->getTouched(),
@@ -573,7 +562,7 @@ class ParserCache {
 	): bool {
 		$latestRevId = $page->getLatest( PageRecord::LOCAL );
 		if ( $staleConstraint < self::USE_OUTDATED && $entry->isDifferentRevision( $latestRevId ) ) {
-			$this->incrementStats( $page, "miss.revid" );
+			$this->incrementStats( $page, "miss_revid" );
 			$this->logger->debug( "{$cacheTier} key is for an old revision", [
 				'name' => $this->name,
 				'rev_id' => $latestRevId,
@@ -582,17 +571,6 @@ class ParserCache {
 			return true;
 		}
 		return false;
-	}
-
-	/**
-	 * @note setter for temporary feature flags, for use in testing.
-	 * @internal
-	 * @param bool $readJson
-	 * @param bool $writeJson
-	 */
-	public function setJsonSupport( bool $readJson, bool $writeJson ): void {
-		$this->readJson = $readJson;
-		$this->writeJson = $writeJson;
 	}
 
 	/**
@@ -621,7 +599,7 @@ class ParserCache {
 	 * @param string $key
 	 * @return string|null
 	 */
-	private function encodeAsJson( CacheTime $obj, string $key ) {
+	protected function convertForCache( CacheTime $obj, string $key ) {
 		try {
 			return $this->jsonCodec->serialize( $obj );
 		} catch ( InvalidArgumentException $e ) {

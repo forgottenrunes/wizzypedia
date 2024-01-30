@@ -3,6 +3,7 @@
 namespace MediaWiki\Tests\Unit\Permissions;
 
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Permissions\GrantsInfo;
 use MediaWikiUnitTestCase;
 
@@ -18,14 +19,14 @@ class GrantsInfoTest extends MediaWikiUnitTestCase {
 		parent::setUp();
 
 		$config = [
-			'GrantPermissions' => [
+			MainConfigNames::GrantPermissions => [
 				'hidden1' => [ 'read' => true, 'autoconfirmed' => false ],
 				'hidden2' => [ 'autoconfirmed' => true ],
 				'normal' => [ 'edit' => true ],
 				'normal2' => [ 'edit' => true, 'create' => true ],
 				'admin' => [ 'protect' => true, 'delete' => true ],
 			],
-			'GrantPermissionGroups' => [
+			MainConfigNames::GrantPermissionGroups => [
 				'hidden1' => 'hidden',
 				'hidden2' => 'hidden',
 				'normal' => 'normal-group',
@@ -77,7 +78,7 @@ class GrantsInfoTest extends MediaWikiUnitTestCase {
 		$this->assertSame( $rights, $this->grantsInfo->getGrantRights( $grants ) );
 	}
 
-	public function provideGetGrantRights() {
+	public static function provideGetGrantRights() {
 		return [
 			'anon' => [ 'hidden1', [ 'read' ] ],
 			'newbie' => [ [ 'hidden1', 'hidden2', 'hidden3' ], [ 'read', 'autoconfirmed' ] ],
@@ -95,7 +96,7 @@ class GrantsInfoTest extends MediaWikiUnitTestCase {
 		$this->assertSame( $valid, $this->grantsInfo->grantsAreValid( $grants ) );
 	}
 
-	public function provideGrantsAreValid() {
+	public static function provideGrantsAreValid() {
 		return [
 			[ [ 'hidden1', 'hidden2' ], true ],
 			[ [ 'hidden1', 'hidden3' ], false ],
@@ -112,7 +113,7 @@ class GrantsInfoTest extends MediaWikiUnitTestCase {
 		$this->assertSame( $expect, $this->grantsInfo->getGrantGroups( $grants ) );
 	}
 
-	public function provideGetGrantGroups() {
+	public static function provideGetGrantGroups() {
 		return [
 			[ null, [
 				'hidden' => [ 'hidden1', 'hidden2' ],

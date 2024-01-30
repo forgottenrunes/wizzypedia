@@ -39,7 +39,6 @@
 .ve-ui-commandHelpDialog-list dt {
 	display: inline-block;
 	vertical-align: top;
-	-moz-box-sizing: border-box;
 	box-sizing: border-box;
 	width: 55%;
 	padding-right: 1em;
@@ -82,7 +81,7 @@
 	margin-top: 0.5em;
 }
 
-.ve-ui-commandHelpDialog-sequence[ data-label ]:before {
+.ve-ui-commandHelpDialog-sequence[ data-label ]::before {
 	content: attr( data-label );
 	font-weight: normal;
 	font-style: italic;

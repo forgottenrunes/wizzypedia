@@ -1,6 +1,8 @@
 <?php
 
 use MediaWiki\Linker\LinkRenderer;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Title\Title;
 
 /**
  * @covers RCCacheEntryFactory
@@ -24,9 +26,7 @@ class RCCacheEntryFactoryTest extends MediaWikiLangTestCase {
 	protected function setUp(): void {
 		parent::setUp();
 
-		$this->setMwGlobals( [
-			'wgArticlePath' => '/wiki/$1'
-		] );
+		$this->overrideConfigValue( MainConfigNames::ArticlePath, '/wiki/$1' );
 
 		$this->linkRenderer = $this->getServiceContainer()->getLinkRenderer();
 		$this->testRecentChangesHelper = new TestRecentChangesHelper();
@@ -136,27 +136,41 @@ class RCCacheEntryFactoryTest extends MediaWikiLangTestCase {
 	}
 
 	private function assertValidHTML( $actual ) {
-		// Throws if invalid
-		$doc = \PHPUnit\Util\Xml::load( $actual, /* isHtml */ true );
+		$this->assertNotSame( '', $actual );
+		$document = new DOMDocument;
+
+		$oldUseInternalErrors = libxml_use_internal_errors( true );
+
+		try {
+			$loaded = $document->loadHTML( $actual );
+			$message = '';
+			foreach ( libxml_get_errors() as $error ) {
+				$message .= "\n" . $error->message;
+			}
+
+			$this->assertNotFalse( $loaded, $message ?: 'Invalid for unknown reason' );
+		} finally {
+			libxml_use_internal_errors( $oldUseInternalErrors );
+		}
 	}
 
 	private function assertUserLinks( $user, $cacheEntry ) {
 		$this->assertValidHTML( $cacheEntry->userlink );
-		$this->assertRegExp(
+		$this->assertMatchesRegularExpression(
 			'#^<a .*class="new mw-userlink".*><bdi>' . $user . '</bdi></a>#',
 			$cacheEntry->userlink,
 			'verify user link'
 		);
 
 		$this->assertValidHTML( $cacheEntry->usertalklink );
-		$this->assertRegExp(
+		$this->assertMatchesRegularExpression(
 			'#^ <span class="mw-usertoollinks mw-changeslist-links">.*<span><a .+>talk</a></span>.*</span>#',
 			$cacheEntry->usertalklink,
 			'verify user talk link'
 		);
 
 		$this->assertValidHTML( $cacheEntry->usertalklink );
-		$this->assertRegExp(
+		$this->assertMatchesRegularExpression(
 			'#^ <span class="mw-usertoollinks mw-changeslist-links">.*<span><a .+>' .
 				'contribs</a></span>.*</span>$#',
 			$cacheEntry->usertalklink,
@@ -193,7 +207,7 @@ class RCCacheEntryFactoryTest extends MediaWikiLangTestCase {
 	}
 
 	private function assertQueryLink( $content, $params, $link ) {
-		$this->assertRegExp(
+		$this->assertMatchesRegularExpression(
 			"#^<a .+>$content</a>$#",
 			$link,
 			'verify query link element'
@@ -201,7 +215,7 @@ class RCCacheEntryFactoryTest extends MediaWikiLangTestCase {
 		$this->assertValidHTML( $link );
 
 		foreach ( $params as $key => $value ) {
-			$this->assertRegExp( '/' . $key . '=' . $value . '/', $link, "verify $key link params" );
+			$this->assertMatchesRegularExpression( '/' . $key . '=' . $value . '/', $link, "verify $key link params" );
 		}
 	}
 
@@ -223,7 +237,7 @@ class RCCacheEntryFactoryTest extends MediaWikiLangTestCase {
 		$user = $this->getMutableTestUser()->getUser();
 		$context = $this->testRecentChangesHelper->getTestContext( $user );
 
-		$title = Title::newFromText( 'RecentChanges', NS_SPECIAL );
+		$title = Title::makeTitle( NS_SPECIAL, 'RecentChanges' );
 		$context->setTitle( $title );
 
 		return $context;

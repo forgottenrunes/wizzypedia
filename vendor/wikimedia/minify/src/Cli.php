@@ -59,8 +59,17 @@ final class Cli {
 			case 'css':
 				$this->runCss( ...$this->params );
 				break;
+			case 'css-remap':
+				$this->runCssRemap( ...$this->params );
+				break;
 			case 'js':
 				$this->runJs( ...$this->params );
+				break;
+			case 'jsmap-web':
+				$this->runJsMapWeb( ...$this->params );
+				break;
+			case 'jsmap-raw':
+				$this->runJsMapRaw( ...$this->params );
 				break;
 			case '':
 			case 'help':
@@ -82,9 +91,36 @@ final class Cli {
 		$this->output( CSSMin::minify( $data ) );
 	}
 
+	private function runCssRemap( string $file = null ): void {
+		if ( $file === null ) {
+			$this->error( 'Remapping requires a filepath' );
+			return;
+		}
+		$fulldir = dirname( realpath( $file ) );
+		$data = file_get_contents( $file );
+		$data = CSSMin::remap( $data, $fulldir, $fulldir );
+		$this->output( CSSMin::minify( $data ) );
+	}
+
 	private function runJs( string $file = null ): void {
 		$data = $file === null ? stream_get_contents( $this->in ) : file_get_contents( $file );
 		$this->output( JavaScriptMinifier::minify( $data ) );
+	}
+
+	private function runJsMapWeb( string $file = null ): void {
+		$data = $file === null ? stream_get_contents( $this->in ) : file_get_contents( $file );
+		$sourceName = $file === null ? 'file.js' : basename( $file );
+		$mapper = JavaScriptMinifier::createSourceMapState();
+		$mapper->addSourceFile( $sourceName, $data, true );
+		$this->output( rtrim( $mapper->getSourceMap(), "\n" ) );
+	}
+
+	private function runJsMapRaw( string $file = null ): void {
+		$data = $file === null ? stream_get_contents( $this->in ) : file_get_contents( $file );
+		$sourceName = $file === null ? 'file.js' : basename( $file );
+		$mapper = JavaScriptMinifier::createSourceMapState();
+		$mapper->addSourceFile( $sourceName, $data, true );
+		$this->output( rtrim( $mapper->getRawSourceMap(), "\n" ) );
 	}
 
 	private function help(): void {
@@ -92,10 +128,17 @@ final class Cli {
 usage: {$this->self} <command>
 
 commands:
-   css [<file>]   Minify input data as CSS code, and write to output.
-                  Reads from stdin by default, or can read from a file.
-   js  [<file>]   Minify input data as JavaScript code, write to output.
-                  Reads from stdin by default, or can read from a file.
+   css [<file>]        Minify input data as CSS code, and write to output.
+                       Reads from stdin by default, or can read from a file.
+   css-remap <file>    Remap and process any "@embed" comments in a CSS file,
+                       and write the minified code to output.
+   js  [<file>]        Minify input data as JavaScript code, write to output.
+                       Reads from stdin by default, or can read from a file.
+   jsmap-raw [<file>]  Minify JavaScript code and write a raw source map to
+                       output. Such a source map should not be delivered over
+                       HTTP due to XSSI concerns.
+   jsmap-web [<file>]  Minify JavaScript code and write a source map with XSSI
+                       prefix.
 TEXT
 		);
 	}

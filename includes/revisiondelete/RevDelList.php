@@ -21,6 +21,8 @@
 
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
 use Wikimedia\Rdbms\LBFactory;
 
 /**
@@ -35,6 +37,9 @@ use Wikimedia\Rdbms\LBFactory;
  * @method RevDelItem current()
  */
 abstract class RevDelList extends RevisionListBase {
+
+	/** Flag used for suppression, depending on the type of log */
+	protected const SUPPRESS_BIT = RevisionRecord::DELETED_RESTRICTED;
 
 	/** @var LBFactory */
 	private $lbFactory;
@@ -106,11 +111,9 @@ abstract class RevDelList extends RevisionListBase {
 	 * @return bool
 	 */
 	public function areAnySuppressed() {
-		$bit = $this->getSuppressBit();
-
 		/** @var RevDelItem $item */
 		foreach ( $this as $item ) {
-			if ( $item->getBits() & $bit ) {
+			if ( $item->getBits() & self::SUPPRESS_BIT ) {
 				return true;
 			}
 		}
@@ -139,7 +142,7 @@ abstract class RevDelList extends RevisionListBase {
 
 		// CAS-style checks are done on the _deleted fields so the select
 		// does not need to use FOR UPDATE nor be in the atomic section
-		$dbw = $this->lbFactory->getMainLB()->getConnectionRef( DB_PRIMARY );
+		$dbw = $this->lbFactory->getPrimaryDatabase();
 		$this->res = $this->doQuery( $dbw );
 
 		$status->merge( $this->acquireItemLocks() );
@@ -162,7 +165,7 @@ abstract class RevDelList extends RevisionListBase {
 		$authorActors = [];
 
 		if ( $perItemStatus ) {
-			$status->itemStatuses = [];
+			$status->value['itemStatuses'] = [];
 		}
 
 		// For multi-item deletions, set the old/new bitfields in log_params such that "hid X"
@@ -182,7 +185,7 @@ abstract class RevDelList extends RevisionListBase {
 
 			if ( $perItemStatus ) {
 				$itemStatus = Status::newGood();
-				$status->itemStatuses[$item->getId()] = $itemStatus;
+				$status->value['itemStatuses'][$item->getId()] = $itemStatus;
 			} else {
 				$itemStatus = $status;
 			}
@@ -218,7 +221,7 @@ abstract class RevDelList extends RevisionListBase {
 				$status->failCount++;
 				continue;
 			// Cannot just "hide from Sysops" without hiding any fields
-			} elseif ( $newBits == RevisionRecord::DELETED_RESTRICTED ) {
+			} elseif ( $newBits == self::SUPPRESS_BIT ) {
 				$itemStatus->warning(
 					'revdelete-only-restricted', $item->formatDate(), $item->formatTime() );
 				$status->failCount++;
@@ -231,7 +234,7 @@ abstract class RevDelList extends RevisionListBase {
 			if ( $ok ) {
 				$idsForLog[] = $item->getId();
 				// If any item field was suppressed or unsuppressed
-				if ( ( $oldBits | $newBits ) & $this->getSuppressBit() ) {
+				if ( ( $oldBits | $newBits ) & self::SUPPRESS_BIT ) {
 					$logType = 'suppress';
 				}
 				// Track which fields where (un)hidden for each item
@@ -259,7 +262,7 @@ abstract class RevDelList extends RevisionListBase {
 		// Handle missing revisions
 		foreach ( $missing as $id => $unused ) {
 			if ( $perItemStatus ) {
-				$status->itemStatuses[$id] = Status::newFatal( 'revdelete-modify-missing', $id );
+				$status->value['itemStatuses'][$id] = Status::newFatal( 'revdelete-modify-missing', $id );
 			} else {
 				$status->error( 'revdelete-modify-missing', $id );
 			}
@@ -288,7 +291,7 @@ abstract class RevDelList extends RevisionListBase {
 		$this->updateLog(
 			$logType,
 			[
-				'title' => $this->title,
+				'page' => $this->page,
 				'count' => $successCount,
 				'newBits' => $virtualNewBits,
 				'oldBits' => $virtualOldBits,
@@ -338,16 +341,8 @@ abstract class RevDelList extends RevisionListBase {
 	 * @since 1.37
 	 */
 	public function reloadFromPrimary() {
-		$dbw = $this->lbFactory->getMainLB()->getConnectionRef( DB_PRIMARY );
+		$dbw = $this->lbFactory->getPrimaryDatabase();
 		$this->res = $this->doQuery( $dbw );
-	}
-
-	/**
-	 * @deprecated since 1.37; please use reloadFromPrimary() instead.
-	 */
-	public function reloadFromMaster() {
-		wfDeprecated( __METHOD__, '1.37' );
-		$this->reloadFromPrimary();
 	}
 
 	/**
@@ -356,7 +351,7 @@ abstract class RevDelList extends RevisionListBase {
 	 * @param array $params Associative array of parameters:
 	 *     newBits:         The new value of the *_deleted bitfield
 	 *     oldBits:         The old value of the *_deleted bitfield.
-	 *     title:           The target title
+	 *     page:            The target page reference
 	 *     ids:             The ID list
 	 *     comment:         The log comment
 	 *     authorActors:    The array of the actor IDs of the offenders
@@ -373,7 +368,7 @@ abstract class RevDelList extends RevisionListBase {
 		$logParams = $this->getLogParams( $params );
 		// Actually add the deletion log entry
 		$logEntry = new ManualLogEntry( $logType, $this->getLogAction() );
-		$logEntry->setTarget( $params['title'] );
+		$logEntry->setTarget( $params['page'] );
 		$logEntry->setComment( $params['comment'] );
 		$logEntry->setParameters( $logParams );
 		$logEntry->setPerformer( $this->getUser() );
@@ -441,8 +436,4 @@ abstract class RevDelList extends RevisionListBase {
 		return Status::newGood();
 	}
 
-	/**
-	 * Get the integer value of the flag used for suppression
-	 */
-	abstract public function getSuppressBit();
 }

@@ -23,17 +23,21 @@
  */
 
 use MediaWiki\MediaWikiServices;
-use Vector\Constants;
-use Vector\FeatureManagement\FeatureManager;
-use Vector\FeatureManagement\Requirements\DynamicConfigRequirement;
-use Vector\FeatureManagement\Requirements\LatestSkinVersionRequirement;
-use Vector\FeatureManagement\Requirements\OverridableConfigRequirement;
-use Vector\SkinVersionLookup;
+use MediaWiki\Skins\Vector\Constants;
+use MediaWiki\Skins\Vector\FeatureManagement\FeatureManager;
+use MediaWiki\Skins\Vector\FeatureManagement\Requirements\ABRequirement;
+use MediaWiki\Skins\Vector\FeatureManagement\Requirements\DynamicConfigRequirement;
+use MediaWiki\Skins\Vector\FeatureManagement\Requirements\LimitedWidthContentRequirement;
+use MediaWiki\Skins\Vector\FeatureManagement\Requirements\LoggedInRequirement;
+use MediaWiki\Skins\Vector\FeatureManagement\Requirements\OverridableConfigRequirement;
+use MediaWiki\Skins\Vector\FeatureManagement\Requirements\UserPreferenceRequirement;
+
+// PHP unit does not understand code coverage for this file
+// as the @covers annotation cannot cover a specific file
+// This is partly tested in ServiceWiringTest.php
+// @codeCoverageIgnoreStart
 
 return [
-	Constants::SERVICE_CONFIG => static function ( MediaWikiServices $services ) {
-		return $services->getService( 'ConfigFactory' )->makeConfig( Constants::SKIN_NAME_LEGACY );
-	},
 	Constants::SERVICE_FEATURE_MANAGER => static function ( MediaWikiServices $services ) {
 		$featureManager = new FeatureManager();
 
@@ -45,28 +49,7 @@ return [
 			)
 		);
 
-		// Feature: Latest skin
-		// ====================
 		$context = RequestContext::getMain();
-
-		$featureManager->registerRequirement(
-			new LatestSkinVersionRequirement(
-				new SkinVersionLookup(
-					$context->getRequest(),
-					$context->getUser(),
-					$services->getService( Constants::SERVICE_CONFIG ),
-					$services->getUserOptionsLookup()
-				)
-			)
-		);
-
-		$featureManager->registerFeature(
-			Constants::FEATURE_LATEST_SKIN,
-			[
-				Constants::REQUIREMENT_FULLY_INITIALISED,
-				Constants::REQUIREMENT_LATEST_SKIN_VERSION,
-			]
-		);
 
 		// Feature: Languages in sidebar
 		// ================================
@@ -75,11 +58,8 @@ return [
 				$services->getMainConfig(),
 				$context->getUser(),
 				$context->getRequest(),
-				$services->getCentralIdLookupFactory()->getNonLocalLookup(),
 				Constants::CONFIG_KEY_LANGUAGE_IN_HEADER,
-				Constants::REQUIREMENT_LANGUAGE_IN_HEADER,
-				Constants::QUERY_PARAM_LANGUAGE_IN_HEADER,
-				Constants::CONFIG_LANGUAGE_IN_HEADER_TREATMENT_AB_TEST
+				Constants::REQUIREMENT_LANGUAGE_IN_HEADER
 			)
 		);
 
@@ -88,26 +68,30 @@ return [
 		// Temporary T286932 - remove after languages A/B test is finished.
 		$requirementName = 'T286932';
 
-		// MultiConfig checks each config in turn, allowing us to override the main config for specific keys. In this
-		// case, override the "VectorLanguageInHeaderABTest" configuration value so that the following requirement
-		// always buckets the user as if the language treatment A/B test were running.
+		// MultiConfig checks each config in turn, allowing us to override the main config for specific keys.
 		$config = new MultiConfig( [
 			new HashConfig( [
-				Constants::CONFIG_LANGUAGE_IN_HEADER_TREATMENT_AB_TEST => true,
+				Constants::REQUIREMENT_ZEBRA_AB_TEST => true,
 			] ),
 			$services->getMainConfig(),
 		] );
+
+		$featureManager->registerRequirement(
+			new ABRequirement(
+				$services->getMainConfig(),
+				$context->getUser(),
+				'skin-vector-zebra-experiment',
+				Constants::REQUIREMENT_ZEBRA_AB_TEST
+			)
+		);
 
 		$featureManager->registerRequirement(
 			new OverridableConfigRequirement(
 				$config,
 				$context->getUser(),
 				$context->getRequest(),
-				$services->getCentralIdLookupFactory()->getNonLocalLookup(),
 				Constants::CONFIG_KEY_LANGUAGE_IN_HEADER,
-				$requirementName,
-				/* $overrideName = */ '',
-				Constants::CONFIG_LANGUAGE_IN_HEADER_TREATMENT_AB_TEST
+				$requirementName
 			)
 		);
 
@@ -117,7 +101,6 @@ return [
 			Constants::FEATURE_LANGUAGE_IN_HEADER,
 			[
 				Constants::REQUIREMENT_FULLY_INITIALISED,
-				Constants::REQUIREMENT_LATEST_SKIN_VERSION,
 				Constants::REQUIREMENT_LANGUAGE_IN_HEADER,
 			]
 		);
@@ -129,11 +112,8 @@ return [
 				$services->getMainConfig(),
 				$context->getUser(),
 				$context->getRequest(),
-				null,
 				Constants::CONFIG_LANGUAGE_IN_MAIN_PAGE_HEADER,
-				Constants::REQUIREMENT_LANGUAGE_IN_MAIN_PAGE_HEADER,
-				Constants::QUERY_PARAM_LANGUAGE_IN_MAIN_PAGE_HEADER,
-				null
+				Constants::REQUIREMENT_LANGUAGE_IN_MAIN_PAGE_HEADER
 			)
 		);
 
@@ -146,58 +126,9 @@ return [
 			Constants::FEATURE_LANGUAGE_IN_MAIN_PAGE_HEADER,
 			[
 				Constants::REQUIREMENT_FULLY_INITIALISED,
-				Constants::REQUIREMENT_LATEST_SKIN_VERSION,
 				Constants::REQUIREMENT_IS_MAIN_PAGE,
 				Constants::REQUIREMENT_LANGUAGE_IN_HEADER,
 				Constants::REQUIREMENT_LANGUAGE_IN_MAIN_PAGE_HEADER
-			]
-		);
-
-		// Feature: T295555: Language switch alert in sidebar
-		// ================================
-		$featureManager->registerRequirement(
-			new OverridableConfigRequirement(
-				$services->getMainConfig(),
-				$context->getUser(),
-				$context->getRequest(),
-				null,
-				Constants::CONFIG_LANGUAGE_ALERT_IN_SIDEBAR,
-				Constants::REQUIREMENT_LANGUAGE_ALERT_IN_SIDEBAR,
-				Constants::QUERY_PARAM_LANGUAGE_ALERT_IN_SIDEBAR,
-				null
-			)
-		);
-
-		$featureManager->registerFeature(
-			Constants::FEATURE_LANGUAGE_ALERT_IN_SIDEBAR,
-			[
-				Constants::REQUIREMENT_FULLY_INITIALISED,
-				Constants::REQUIREMENT_LATEST_SKIN_VERSION,
-				Constants::REQUIREMENT_LANGUAGE_IN_HEADER,
-				Constants::REQUIREMENT_LANGUAGE_ALERT_IN_SIDEBAR
-			]
-		);
-
-		// Feature: T297610: Table of Contents
-		// ================================
-		$featureManager->registerRequirement(
-			new OverridableConfigRequirement(
-				$services->getMainConfig(),
-				$context->getUser(),
-				$context->getRequest(),
-				null,
-				Constants::CONFIG_TABLE_OF_CONTENTS,
-				Constants::REQUIREMENT_TABLE_OF_CONTENTS,
-				Constants::QUERY_PARAM_TABLE_OF_CONTENTS,
-				null
-			)
-		);
-
-		$featureManager->registerFeature(
-			Constants::FEATURE_TABLE_OF_CONTENTS,
-			[
-				Constants::REQUIREMENT_FULLY_INITIALISED,
-				Constants::REQUIREMENT_TABLE_OF_CONTENTS
 			]
 		);
 
@@ -208,24 +139,8 @@ return [
 				$services->getMainConfig(),
 				$context->getUser(),
 				$context->getRequest(),
-				null,
 				Constants::CONFIG_STICKY_HEADER,
-				Constants::REQUIREMENT_STICKY_HEADER,
-				Constants::QUERY_PARAM_STICKY_HEADER,
-				null
-			)
-		);
-
-		$featureManager->registerRequirement(
-			new OverridableConfigRequirement(
-				$services->getMainConfig(),
-				$context->getUser(),
-				$context->getRequest(),
-				null,
-				Constants::CONFIG_STICKY_HEADER_EDIT,
-				Constants::REQUIREMENT_STICKY_HEADER_EDIT,
-				Constants::QUERY_PARAM_STICKY_HEADER_EDIT,
-				null
+				Constants::REQUIREMENT_STICKY_HEADER
 			)
 		);
 
@@ -233,21 +148,198 @@ return [
 			Constants::FEATURE_STICKY_HEADER,
 			[
 				Constants::REQUIREMENT_FULLY_INITIALISED,
-				Constants::REQUIREMENT_LATEST_SKIN_VERSION,
 				Constants::REQUIREMENT_STICKY_HEADER
 			]
 		);
 
+		// Feature: Page tools pinned
+		// ================================
+		$featureManager->registerRequirement(
+			new LoggedInRequirement(
+				$context->getUser(),
+				Constants::REQUIREMENT_LOGGED_IN
+			)
+		);
+
+		$featureManager->registerRequirement(
+			new UserPreferenceRequirement(
+				$context->getUser(),
+				$services->getUserOptionsLookup(),
+				Constants::PREF_KEY_PAGE_TOOLS_PINNED,
+				Constants::REQUIREMENT_PAGE_TOOLS_PINNED,
+				$context->getTitle()
+			)
+		);
+
 		$featureManager->registerFeature(
-			Constants::FEATURE_STICKY_HEADER_EDIT,
+			Constants::FEATURE_PAGE_TOOLS_PINNED,
 			[
 				Constants::REQUIREMENT_FULLY_INITIALISED,
-				Constants::REQUIREMENT_LATEST_SKIN_VERSION,
-				Constants::REQUIREMENT_STICKY_HEADER,
-				Constants::REQUIREMENT_STICKY_HEADER_EDIT,
+				Constants::REQUIREMENT_LOGGED_IN,
+				Constants::REQUIREMENT_PAGE_TOOLS_PINNED
+			]
+		);
+
+		// Feature: Table of Contents pinned
+		// ================================
+		$featureManager->registerRequirement(
+			new UserPreferenceRequirement(
+				$context->getUser(),
+				$services->getUserOptionsLookup(),
+				Constants::PREF_KEY_TOC_PINNED,
+				Constants::REQUIREMENT_TOC_PINNED,
+				$context->getTitle()
+			)
+		);
+
+		$featureManager->registerFeature(
+			Constants::FEATURE_TOC_PINNED,
+			[
+				Constants::REQUIREMENT_FULLY_INITIALISED,
+				Constants::REQUIREMENT_TOC_PINNED
+			]
+		);
+
+		// Feature: Main menu pinned
+		// ================================
+		$featureManager->registerRequirement(
+			new UserPreferenceRequirement(
+				$context->getUser(),
+				$services->getUserOptionsLookup(),
+				Constants::PREF_KEY_MAIN_MENU_PINNED,
+				Constants::REQUIREMENT_MAIN_MENU_PINNED,
+				$context->getTitle()
+			)
+		);
+
+		$featureManager->registerFeature(
+			Constants::FEATURE_MAIN_MENU_PINNED,
+			[
+				Constants::REQUIREMENT_FULLY_INITIALISED,
+				Constants::REQUIREMENT_LOGGED_IN,
+				Constants::REQUIREMENT_MAIN_MENU_PINNED
+			]
+		);
+
+		// Feature: Max Width (skin)
+		// ================================
+		$featureManager->registerRequirement(
+			new UserPreferenceRequirement(
+				$context->getUser(),
+				$services->getUserOptionsLookup(),
+				Constants::PREF_KEY_LIMITED_WIDTH,
+				Constants::REQUIREMENT_LIMITED_WIDTH,
+				$context->getTitle()
+			)
+		);
+		$featureManager->registerFeature(
+			Constants::FEATURE_LIMITED_WIDTH,
+			[
+				Constants::REQUIREMENT_FULLY_INITIALISED,
+				Constants::REQUIREMENT_LIMITED_WIDTH
+			]
+		);
+
+		// Feature: Max Width (content)
+		// ================================
+		$featureManager->registerRequirement(
+			new LimitedWidthContentRequirement(
+				$services->getMainConfig(),
+				$context->getRequest(),
+				$context->getTitle()
+			)
+		);
+		$featureManager->registerFeature(
+			Constants::FEATURE_LIMITED_WIDTH_CONTENT,
+			[
+				Constants::REQUIREMENT_FULLY_INITIALISED,
+				Constants::REQUIREMENT_LIMITED_WIDTH_CONTENT,
+			]
+		);
+
+		// Feature: T332448: feature Zebra#9 design update
+		// ================================
+		$featureManager->registerRequirement(
+			new OverridableConfigRequirement(
+				$services->getMainConfig(),
+				$context->getUser(),
+				$context->getRequest(),
+				Constants::CONFIG_ZEBRA_DESIGN,
+				Constants::REQUIREMENT_ZEBRA_DESIGN
+			)
+		);
+		$featureManager->registerFeature(
+			Constants::FEATURE_ZEBRA_DESIGN,
+			[
+				Constants::REQUIREMENT_FULLY_INITIALISED,
+				Constants::REQUIREMENT_ZEBRA_DESIGN,
+				Constants::REQUIREMENT_ZEBRA_AB_TEST
+			]
+		);
+
+		// Feature: T343928: Feature Font Size.
+		// ================================
+		$featureManager->registerRequirement(
+			new UserPreferenceRequirement(
+				$context->getUser(),
+				$services->getUserOptionsLookup(),
+				Constants::PREF_KEY_FONT_SIZE,
+				Constants::REQUIREMENT_FONT_SIZE,
+				$context->getTitle()
+			)
+		);
+
+		// Register 'custom-font-size' as the default requirement
+		$featureManager->registerFeature(
+			Constants::FEATURE_FONT_SIZE,
+			[
+				Constants::REQUIREMENT_FULLY_INITIALISED,
+				Constants::REQUIREMENT_FONT_SIZE
+			]
+		);
+
+		// Feature: T345363: Client preferences dialog
+		// ============================================
+		$featureManager->registerRequirement(
+			new OverridableConfigRequirement(
+				$services->getMainConfig(),
+				$context->getUser(),
+				$context->getRequest(),
+				Constants::CONFIG_KEY_CLIENT_PREFERENCES,
+				Constants::REQUIREMENT_CLIENT_PREFERENCES
+			)
+		);
+
+		$featureManager->registerFeature(
+			Constants::FEATURE_CLIENT_PREFERENCES,
+			[
+				Constants::REQUIREMENT_FULLY_INITIALISED,
+				Constants::REQUIREMENT_CLIENT_PREFERENCES
+			]
+		);
+
+		// Feature: T347208: Web typography prototype survey (temporary)
+		// ============================================
+		$featureManager->registerRequirement(
+			new UserPreferenceRequirement(
+				$context->getUser(),
+				$services->getUserOptionsLookup(),
+				Constants::PREF_KEY_TYPOGRAPHY_SURVEY,
+				Constants::REQUIREMENT_TYPOGRAPHY_SURVEY,
+				$context->getTitle()
+			)
+		);
+
+		$featureManager->registerFeature(
+			Constants::FEATURE_TYPOGRAPHY_SURVEY,
+			[
+				Constants::REQUIREMENT_FULLY_INITIALISED,
+				Constants::REQUIREMENT_TYPOGRAPHY_SURVEY
 			]
 		);
 
 		return $featureManager;
 	}
 ];
+
+// @codeCoverageIgnoreEnd

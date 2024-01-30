@@ -25,7 +25,8 @@
  * @ingroup Maintenance
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Status\Status;
 
 require_once __DIR__ . '/Maintenance.php';
 
@@ -44,23 +45,21 @@ class CleanupUploadStash extends Maintenance {
 	}
 
 	public function execute() {
-		global $wgUploadStashMaxAge;
-
-		$repo = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo();
+		$repo = $this->getServiceContainer()->getRepoGroup()->getLocalRepo();
 		$tempRepo = $repo->getTempRepo();
 
 		$dbr = $repo->getReplicaDB();
 
 		// how far back should this look for files to delete?
-		$cutoff = time() - $wgUploadStashMaxAge;
+		$cutoff = time() - (int)$this->getConfig()->get( MainConfigNames::UploadStashMaxAge );
 
 		$this->output( "Getting list of files to clean up...\n" );
-		$res = $dbr->select(
-			'uploadstash',
-			'us_key',
-			'us_timestamp < ' . $dbr->addQuotes( $dbr->timestamp( $cutoff ) ),
-			__METHOD__
-		);
+		$res = $dbr->newSelectQueryBuilder()
+			->select( 'us_key' )
+			->from( 'uploadstash' )
+			->where( 'us_timestamp < ' . $dbr->addQuotes( $dbr->timestamp( $cutoff ) ) )
+			->caller( __METHOD__ )
+			->fetchResultSet();
 
 		// Delete all registered stash files...
 		if ( $res->numRows() == 0 ) {
@@ -69,7 +68,7 @@ class CleanupUploadStash extends Maintenance {
 			// finish the read before starting writes.
 			$keys = [];
 			foreach ( $res as $row ) {
-				array_push( $keys, $row->us_key );
+				$keys[] = $row->us_key;
 			}
 
 			$this->output( 'Removing ' . count( $keys ) . " file(s)...\n" );
@@ -77,8 +76,6 @@ class CleanupUploadStash extends Maintenance {
 			// UploadStash's own methods means it's less likely to fall accidentally
 			// out-of-date someday
 			$stash = new UploadStash( $repo );
-
-			$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 
 			$i = 0;
 			foreach ( $keys as $key ) {
@@ -91,7 +88,7 @@ class CleanupUploadStash extends Maintenance {
 					$this->output( "Failed removing stashed upload with key: $key ($type)\n" );
 				}
 				if ( $i % 100 == 0 ) {
-					$lbFactory->waitForReplication();
+					$this->waitForReplication();
 					$this->output( "$i\n" );
 				}
 			}

@@ -45,23 +45,20 @@ class PopulatePPSortKey extends LoggedUpdateMaintenance {
 
 		$this->output( "Populating page_props.pp_sortkey...\n" );
 		while ( true ) {
-			$conditions = [ 'pp_sortkey IS NULL' ];
+			$queryBuilder = $dbw->newSelectQueryBuilder()
+				->select( [ 'pp_propname', 'pp_page', 'pp_sortkey', 'pp_value' ] )
+				->from( 'page_props' )
+				->where( [ 'pp_sortkey' => null ] )
+				->orderBy( [ 'pp_page', 'pp_propname' ] )
+				->limit( $this->getBatchSize() );
 			if ( $lastPageValue !== 0 ) {
-				$conditions[] = 'pp_page > ' . $dbw->addQuotes( $lastPageValue ) . ' OR ' .
-					'( pp_page = ' . $dbw->addQuotes( $lastPageValue ) .
-					' AND pp_propname > ' . $dbw->addQuotes( $lastProp ) . ' )';
+				$queryBuilder->andWhere( $dbw->buildComparison( '>', [
+					'pp_page' => $lastPageValue,
+					'pp_propname' => $lastProp,
+				] ) );
 			}
 
-			$res = $dbw->select(
-				'page_props',
-				[ 'pp_propname', 'pp_page', 'pp_sortkey', 'pp_value' ],
-				$conditions,
-				__METHOD__,
-				[
-					'ORDER BY' => [ 'pp_page', 'pp_propname' ],
-					'LIMIT' => $this->getBatchSize()
-				]
-			);
+			$res = $queryBuilder->caller( __METHOD__ )->fetchResultSet();
 
 			if ( $res->numRows() === 0 ) {
 				break;
@@ -93,8 +90,10 @@ class PopulatePPSortKey extends LoggedUpdateMaintenance {
 			$this->commitTransaction( $dbw, __METHOD__ );
 
 			// We need to get the last element's page ID
+			// @phan-suppress-next-line PhanPossiblyUndeclaredVariable rows contains at least one item
 			$lastPageValue = $row->pp_page;
 			// And the propname...
+			// @phan-suppress-next-line PhanPossiblyUndeclaredVariable rows contains at least one item
 			$lastProp = $row->pp_propname;
 		}
 

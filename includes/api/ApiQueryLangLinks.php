@@ -21,6 +21,11 @@
  */
 
 use MediaWiki\Languages\LanguageNameUtils;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Title\Title;
+use MediaWiki\Utils\UrlUtils;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\IntegerDef;
 
 /**
  * A query module to list all langlinks (links to corresponding foreign language pages).
@@ -29,21 +34,21 @@ use MediaWiki\Languages\LanguageNameUtils;
  */
 class ApiQueryLangLinks extends ApiQueryBase {
 
-	/** @var LanguageNameUtils */
-	private $languageNameUtils;
-
-	/** @var Language */
-	private $contentLanguage;
+	private LanguageNameUtils $languageNameUtils;
+	private Language $contentLanguage;
+	private UrlUtils $urlUtils;
 
 	public function __construct(
 		ApiQuery $query,
 		$moduleName,
 		LanguageNameUtils $languageNameUtils,
-		Language $contentLanguage
+		Language $contentLanguage,
+		UrlUtils $urlUtils
 	) {
 		parent::__construct( $query, $moduleName, 'll' );
 		$this->languageNameUtils = $languageNameUtils;
 		$this->contentLanguage = $contentLanguage;
+		$this->urlUtils = $urlUtils;
 	}
 
 	public function execute() {
@@ -81,16 +86,13 @@ class ApiQueryLangLinks extends ApiQueryBase {
 		$this->addTables( 'langlinks' );
 		$this->addWhereFld( 'll_from', array_keys( $pages ) );
 		if ( $params['continue'] !== null ) {
-			$cont = explode( '|', $params['continue'] );
-			$this->dieContinueUsageIf( count( $cont ) != 2 );
-			$op = $params['dir'] == 'descending' ? '<' : '>';
-			$llfrom = (int)$cont[0];
-			$lllang = $this->getDB()->addQuotes( $cont[1] );
-			$this->addWhere(
-				"ll_from $op $llfrom OR " .
-				"(ll_from = $llfrom AND " .
-				"ll_lang $op= $lllang)"
-			);
+			$db = $this->getDB();
+			$cont = $this->parseContinueParamOrDie( $params['continue'], [ 'int', 'string' ] );
+			$op = $params['dir'] == 'descending' ? '<=' : '>=';
+			$this->addWhere( $db->buildComparison( $op, [
+				'll_from' => $cont[0],
+				'll_lang' => $cont[1],
+			] ) );
 		}
 
 		// FIXME: (follow-up) To allow extensions to add to the language links, we need
@@ -130,7 +132,7 @@ class ApiQueryLangLinks extends ApiQueryBase {
 				break;
 			}
 
-			$languageNameMap = $this->getConfig()->get( 'InterlanguageLinkCodeMap' );
+			$languageNameMap = $this->getConfig()->get( MainConfigNames::InterlanguageLinkCodeMap );
 			$displayLanguageCode = $languageNameMap[ $row->ll_lang ] ?? $row->ll_lang;
 
 			// This is potentially risky and confusing (request `no`, but get `nb` in the result).
@@ -138,7 +140,7 @@ class ApiQueryLangLinks extends ApiQueryBase {
 			if ( isset( $prop['url'] ) ) {
 				$title = Title::newFromText( "{$row->ll_lang}:{$row->ll_title}" );
 				if ( $title ) {
-					$entry['url'] = wfExpandUrl( $title->getFullURL(), PROTO_CURRENT );
+					$entry['url'] = (string)$this->urlUtils->expand( $title->getFullURL(), PROTO_CURRENT );
 				}
 			}
 
@@ -165,8 +167,8 @@ class ApiQueryLangLinks extends ApiQueryBase {
 	public function getAllowedParams() {
 		return [
 			'prop' => [
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => [
 					'url',
 					'langname',
 					'autonym',
@@ -176,33 +178,36 @@ class ApiQueryLangLinks extends ApiQueryBase {
 			'lang' => null,
 			'title' => null,
 			'dir' => [
-				ApiBase::PARAM_DFLT => 'ascending',
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_DEFAULT => 'ascending',
+				ParamValidator::PARAM_TYPE => [
 					'ascending',
 					'descending'
 				]
 			],
 			'inlanguagecode' => $this->contentLanguage->getCode(),
 			'limit' => [
-				ApiBase::PARAM_DFLT => 10,
-				ApiBase::PARAM_TYPE => 'limit',
-				ApiBase::PARAM_MIN => 1,
-				ApiBase::PARAM_MAX => ApiBase::LIMIT_BIG1,
-				ApiBase::PARAM_MAX2 => ApiBase::LIMIT_BIG2
+				ParamValidator::PARAM_DEFAULT => 10,
+				ParamValidator::PARAM_TYPE => 'limit',
+				IntegerDef::PARAM_MIN => 1,
+				IntegerDef::PARAM_MAX => ApiBase::LIMIT_BIG1,
+				IntegerDef::PARAM_MAX2 => ApiBase::LIMIT_BIG2
 			],
 			'continue' => [
 				ApiBase::PARAM_HELP_MSG => 'api-help-param-continue',
 			],
 			'url' => [
-				ApiBase::PARAM_DFLT => false,
-				ApiBase::PARAM_DEPRECATED => true,
+				ParamValidator::PARAM_DEFAULT => false,
+				ParamValidator::PARAM_DEPRECATED => true,
 			],
 		];
 	}
 
 	protected function getExamplesMessages() {
+		$title = Title::newMainPage()->getPrefixedText();
+		$mp = rawurlencode( $title );
+
 		return [
-			'action=query&prop=langlinks&titles=Main%20Page&redirects='
+			"action=query&prop=langlinks&titles={$mp}&redirects="
 				=> 'apihelp-query+langlinks-example-simple',
 		];
 	}

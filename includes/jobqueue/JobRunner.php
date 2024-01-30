@@ -23,14 +23,14 @@
 
 use Liuggio\StatsdClient\Factory\StatsdDataFactoryInterface;
 use MediaWiki\Config\ServiceOptions;
-use MediaWiki\Logger\LoggerFactory;
-use MediaWiki\MediaWikiServices;
-use Psr\Log\LoggerAwareInterface;
+use MediaWiki\Http\Telemetry;
+use MediaWiki\MainConfigNames;
 use Psr\Log\LoggerInterface;
 use Wikimedia\Rdbms\DBConnectionError;
 use Wikimedia\Rdbms\DBError;
 use Wikimedia\Rdbms\DBReadOnlyError;
 use Wikimedia\Rdbms\ILBFactory;
+use Wikimedia\Rdbms\ReadOnlyMode;
 use Wikimedia\ScopedCallback;
 
 /**
@@ -39,17 +39,17 @@ use Wikimedia\ScopedCallback;
  * @ingroup JobQueue
  * @since 1.24
  */
-class JobRunner implements LoggerAwareInterface {
+class JobRunner {
 
 	/**
 	 * @internal For use by ServiceWiring
 	 */
 	public const CONSTRUCTOR_OPTIONS = [
-		'JobBackoffThrottling',
-		'JobClasses',
-		'JobSerialCommitThreshold',
-		'MaxJobDBWriteDuration',
-		'TrxProfilerLimits'
+		MainConfigNames::JobBackoffThrottling,
+		MainConfigNames::JobClasses,
+		MainConfigNames::JobSerialCommitThreshold,
+		MainConfigNames::MaxJobDBWriteDuration,
+		MainConfigNames::TrxProfilerLimits,
 	];
 
 	/** @var ServiceOptions */
@@ -95,51 +95,32 @@ class JobRunner implements LoggerAwareInterface {
 	}
 
 	/**
+	 * @internal For use by ServiceWiring
+	 * @param ServiceOptions $serviceOptions
+	 * @param ILBFactory $lbFactory
+	 * @param JobQueueGroup $jobQueueGroup The JobQueueGroup for this wiki
+	 * @param ReadOnlyMode $readOnlyMode
+	 * @param LinkCache $linkCache
+	 * @param StatsdDataFactoryInterface $statsdDataFactory
 	 * @param LoggerInterface $logger
-	 * @return void
-	 * @deprecated since 1.35. Rely on the logger passed in the constructor.
-	 */
-	public function setLogger( LoggerInterface $logger ) {
-		wfDeprecated( __METHOD__, '1.35' );
-		$this->logger = $logger;
-	}
-
-	/**
-	 * Calling this directly is deprecated.
-	 * Obtain an instance via MediaWikiServices instead.
-	 * @param ServiceOptions|LoggerInterface|null $serviceOptions
-	 * @param ILBFactory|null $lbFactory
-	 * @param JobQueueGroup|null $jobQueueGroup The JobQueueGroup for this wiki
-	 * @param ReadOnlyMode|null $readOnlyMode
-	 * @param LinkCache|null $linkCache
-	 * @param StatsdDataFactoryInterface|null $statsdDataFactory
-	 * @param LoggerInterface|null $logger
 	 */
 	public function __construct(
-		$serviceOptions = null,
-		ILBFactory $lbFactory = null,
-		JobQueueGroup $jobQueueGroup = null,
-		ReadOnlyMode $readOnlyMode = null,
-		LinkCache $linkCache = null,
-		StatsdDataFactoryInterface $statsdDataFactory = null,
-		LoggerInterface $logger = null
+		ServiceOptions $serviceOptions,
+		ILBFactory $lbFactory,
+		JobQueueGroup $jobQueueGroup,
+		ReadOnlyMode $readOnlyMode,
+		LinkCache $linkCache,
+		StatsdDataFactoryInterface $statsdDataFactory,
+		LoggerInterface $logger
 	) {
-		if ( !$serviceOptions || $serviceOptions instanceof LoggerInterface ) {
-			// TODO: wfDeprecated( __METHOD__ . ' called directly. Use MediaWikiServices instead', '1.35' );
-			$logger = $serviceOptions;
-			$serviceOptions = new ServiceOptions(
-				static::CONSTRUCTOR_OPTIONS,
-				MediaWikiServices::getInstance()->getMainConfig()
-			);
-		}
-
+		$serviceOptions->assertRequiredOptions( self::CONSTRUCTOR_OPTIONS );
 		$this->options = $serviceOptions;
-		$this->lbFactory = $lbFactory ?? MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
-		$this->jobQueueGroup = $jobQueueGroup ?? MediaWikiServices::getInstance()->getJobQueueGroup();
-		$this->readOnlyMode = $readOnlyMode ?: MediaWikiServices::getInstance()->getReadOnlyMode();
-		$this->linkCache = $linkCache ?? MediaWikiServices::getInstance()->getLinkCache();
-		$this->stats = $statsdDataFactory ?? MediaWikiServices::getInstance()->getStatsdDataFactory();
-		$this->logger = $logger ?? LoggerFactory::getInstance( 'runJobs' );
+		$this->lbFactory = $lbFactory;
+		$this->jobQueueGroup = $jobQueueGroup;
+		$this->readOnlyMode = $readOnlyMode;
+		$this->linkCache = $linkCache;
+		$this->stats = $statsdDataFactory;
+		$this->logger = $logger;
 	}
 
 	/**
@@ -173,8 +154,8 @@ class JobRunner implements LoggerAwareInterface {
 		$maxTime = $options['maxTime'] ?? false;
 		$throttle = $options['throttle'] ?? true;
 
-		$jobClasses = $this->options->get( 'JobClasses' );
-		$profilerLimits = $this->options->get( 'TrxProfilerLimits' );
+		$jobClasses = $this->options->get( MainConfigNames::JobClasses );
+		$profilerLimits = $this->options->get( MainConfigNames::TrxProfilerLimits );
 
 		$response = [ 'jobs' => [], 'reached' => 'none-ready' ];
 
@@ -190,7 +171,7 @@ class JobRunner implements LoggerAwareInterface {
 			return $response;
 		}
 
-		list( , $maxLag ) = $this->lbFactory->getMainLB()->getMaxLag();
+		[ , $maxLag ] = $this->lbFactory->getMainLB()->getMaxLag();
 		if ( $maxLag >= self::MAX_ALLOWED_LAG ) {
 			// DB lag is already too high; caller can immediately try other wikis if applicable
 			$response['reached'] = 'replica-lag-limit';
@@ -335,16 +316,25 @@ class JobRunner implements LoggerAwareInterface {
 	 * @since 1.35
 	 */
 	public function executeJob( RunnableJob $job ) {
-		$oldRequestId = WebRequest::getRequestId();
-		// Temporarily inherit the original ID of the web request that spawned this job
-		WebRequest::overrideRequestId( $job->getRequestId() );
+		$telemetry = Telemetry::getInstance();
+		$oldRequestId = $telemetry->getRequestId();
+
+		if ( $job->getRequestId() !== null ) {
+			// Temporarily inherit the original ID of the web request that spawned this job
+			$telemetry->overrideRequestId( $job->getRequestId() );
+		} else {
+			// TODO: do we need to regenerate if job doesn't have the request id?
+			// If JobRunner was called with X-Request-ID header, regeneration will generate the
+			// same value
+			$telemetry->regenerateRequestId();
+		}
 		// Use an appropriate timeout to balance lag avoidance and job progress
 		$oldTimeout = $this->lbFactory->setDefaultReplicationWaitTimeout( self::SYNC_TIMEOUT );
 		try {
 			return $this->doExecuteJob( $job );
 		} finally {
 			$this->lbFactory->setDefaultReplicationWaitTimeout( $oldTimeout );
-			WebRequest::overrideRequestId( $oldRequestId );
+			$telemetry->overrideRequestId( $oldRequestId );
 		}
 	}
 
@@ -389,7 +379,8 @@ class JobRunner implements LoggerAwareInterface {
 		} catch ( Throwable $e ) {
 			MWExceptionHandler::rollbackPrimaryChangesAndLog( $e );
 			$status = false;
-			$error = get_class( $e ) . ': ' . $e->getMessage();
+			$error = get_class( $e ) . ': ' . $e->getMessage() . ' in '
+				. $e->getFile() . ' on line ' . $e->getLine();
 			$caught[] = get_class( $e );
 		}
 		// Always attempt to call teardown(), even if Job throws exception
@@ -476,7 +467,7 @@ class JobRunner implements LoggerAwareInterface {
 	 * @see $wgJobBackoffThrottling
 	 */
 	private function getBackoffTimeToWait( RunnableJob $job ) {
-		$throttling = $this->options->get( 'JobBackoffThrottling' );
+		$throttling = $this->options->get( MainConfigNames::JobBackoffThrottling );
 
 		if ( !isset( $throttling[$job->getType()] ) || $job instanceof DuplicateJob ) {
 			return 0; // not throttled
@@ -589,7 +580,7 @@ class JobRunner implements LoggerAwareInterface {
 		if ( $maxBytes === null ) {
 			$m = [];
 			if ( preg_match( '!^(\d+)(k|m|g|)$!i', ini_get( 'memory_limit' ), $m ) ) {
-				list( , $num, $unit ) = $m;
+				[ , $num, $unit ] = $m;
 				$conv = [ 'g' => 1073741824, 'm' => 1048576, 'k' => 1024, '' => 1 ];
 				$maxBytes = (int)$num * $conv[strtolower( $unit )];
 			} else {
@@ -634,7 +625,7 @@ class JobRunner implements LoggerAwareInterface {
 	 * @throws DBError
 	 */
 	private function commitPrimaryChanges( RunnableJob $job, $fnameTrxOwner ) {
-		$syncThreshold = $this->options->get( 'JobSerialCommitThreshold' );
+		$syncThreshold = $this->options->get( MainConfigNames::JobSerialCommitThreshold );
 
 		$time = false;
 		$lb = $this->lbFactory->getMainLB();
@@ -659,7 +650,7 @@ class JobRunner implements LoggerAwareInterface {
 			$this->lbFactory->commitPrimaryChanges(
 				$fnameTrxOwner,
 				// Abort if any transaction was too big
-				[ 'maxWriteDuration' => $this->options->get( 'MaxJobDBWriteDuration' ) ]
+				$this->options->get( MainConfigNames::MaxJobDBWriteDuration )
 			);
 
 			return;
@@ -695,7 +686,7 @@ class JobRunner implements LoggerAwareInterface {
 		$this->lbFactory->commitPrimaryChanges(
 			$fnameTrxOwner,
 			// Abort if any transaction was too big
-			[ 'maxWriteDuration' => $this->options->get( 'MaxJobDBWriteDuration' ) ]
+			$this->options->get( MainConfigNames::MaxJobDBWriteDuration )
 		);
 		ScopedCallback::consume( $unlocker );
 	}

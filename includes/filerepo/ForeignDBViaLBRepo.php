@@ -1,7 +1,5 @@
 <?php
 /**
- * A foreign repository with a MediaWiki database accessible via the configured LBFactory.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,18 +16,17 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup FileRepo
  */
 
 use MediaWiki\MediaWikiServices;
-use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
- * A foreign repository with a MediaWiki database accessible via the configured LBFactory
+ * A foreign repository with a MediaWiki database accessible via the configured LBFactory.
  *
  * @ingroup FileRepo
  */
-class ForeignDBViaLBRepo extends LocalRepo {
+class ForeignDBViaLBRepo extends LocalRepo implements IForeignRepoWithDB {
 	/** @var array */
 	protected $fileFactory = [ ForeignDBFile::class, 'newFromTitle' ];
 
@@ -47,16 +44,11 @@ class ForeignDBViaLBRepo extends LocalRepo {
 	}
 
 	public function getPrimaryDB() {
-		return $this->getDBLoadBalancer()->getConnectionRef( DB_PRIMARY, [], $this->dbDomain );
-	}
-
-	public function getMasterDB() {
-		wfDeprecated( __METHOD__, '1.37' );
-		return $this->getPrimaryDB();
+		return $this->getDbProvider()->getPrimaryDatabase( $this->dbDomain );
 	}
 
 	public function getReplicaDB() {
-		return $this->getDBLoadBalancer()->getConnectionRef( DB_REPLICA, [], $this->dbDomain );
+		return $this->getDbProvider()->getReplicaDatabase( $this->dbDomain );
 	}
 
 	/**
@@ -64,20 +56,23 @@ class ForeignDBViaLBRepo extends LocalRepo {
 	 */
 	protected function getDBFactory() {
 		return function ( $index ) {
-			return $this->getDBLoadBalancer()->getConnectionRef( $index, [], $this->dbDomain );
+			if ( $index == DB_PRIMARY ) {
+				return $this->getDbProvider()->getPrimaryDatabase( $this->dbDomain );
+			} else {
+				return $this->getDbProvider()->getReplicaDatabase( $this->dbDomain );
+			}
 		};
 	}
 
 	/**
-	 * @return ILoadBalancer
+	 * @return IConnectionProvider
 	 */
-	protected function getDBLoadBalancer() {
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
-
-		return $lbFactory->getMainLB( $this->dbDomain );
+	protected function getDbProvider(): IConnectionProvider {
+		return MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 	}
 
 	protected function assertWritableRepo() {
+		// @phan-suppress-previous-line PhanPluginNeverReturnMethod
 		throw new MWException( static::class . ': write operations are not supported.' );
 	}
 

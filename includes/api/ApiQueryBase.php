@@ -21,7 +21,11 @@
  */
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\MalformedTitleException;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleValue;
 use Wikimedia\Rdbms\IDatabase;
+use Wikimedia\Rdbms\IReadableDatabase;
 use Wikimedia\Rdbms\IResultWrapper;
 use Wikimedia\Rdbms\SelectQueryBuilder;
 
@@ -112,26 +116,11 @@ abstract class ApiQueryBase extends ApiBase {
 	/**
 	 * Get the Query database connection (read-only)
 	 * @stable to override
-	 * @return IDatabase
+	 * @return IReadableDatabase
 	 */
 	protected function getDB() {
-		if ( $this->mDb === null ) {
-			$this->mDb = $this->getQuery()->getDB();
-		}
+		$this->mDb ??= $this->getQuery()->getDB();
 
-		return $this->mDb;
-	}
-
-	/**
-	 * Selects the query database connection with the given name.
-	 * See ApiQuery::getNamedDB() for more information
-	 * @param string $name Name to assign to the database connection
-	 * @param int $db One of the DB_* constants
-	 * @param string|string[] $groups Query groups
-	 * @return IDatabase
-	 */
-	public function selectNamedDB( $name, $db, $groups ) {
-		$this->mDb = $this->getQuery()->getNamedDB( $name, $db, $groups );
 		return $this->mDb;
 	}
 
@@ -166,9 +155,7 @@ abstract class ApiQueryBase extends ApiBase {
 	 * @return SelectQueryBuilder
 	 */
 	protected function getQueryBuilder() {
-		if ( $this->queryBuilder === null ) {
-			$this->queryBuilder = $this->getDB()->newSelectQueryBuilder();
-		}
+		$this->queryBuilder ??= $this->getDB()->newSelectQueryBuilder();
 		return $this->queryBuilder;
 	}
 
@@ -277,7 +264,7 @@ abstract class ApiQueryBase extends ApiBase {
 	 * consider using addWhereIDsFld() instead.
 	 *
 	 * @param string $field Field name
-	 * @param int|string|string[]|int[] $value Value; ignored if null or empty array
+	 * @param int|string|(string|int|null)[] $value Value; ignored if null or empty array
 	 */
 	protected function addWhereFld( $field, $value ) {
 		if ( $value !== null && !( is_array( $value ) && !$value ) ) {
@@ -443,7 +430,7 @@ abstract class ApiQueryBase extends ApiBase {
 	 * @since 1.28
 	 * @param stdClass $row Database row
 	 * @param array &$data Data to be added to the result
-	 * @param array &$hookData Hook data from ApiQueryBase::select()
+	 * @param array &$hookData Hook data from ApiQueryBase::select() @phan-output-reference
 	 * @return bool Return false if row processing should end with continuation
 	 */
 	protected function processRow( $row, array &$data, array &$hookData ) {
@@ -492,17 +479,16 @@ abstract class ApiQueryBase extends ApiBase {
 	 * @return bool Whether the element fit in the result
 	 */
 	protected function addPageSubItem( $pageId, $item, $elemname = null ) {
-		if ( $elemname === null ) {
-			$elemname = $this->getModulePrefix();
-		}
 		$result = $this->getResult();
 		$fit = $result->addValue( [ 'query', 'pages', $pageId,
 			$this->getModuleName() ], null, $item );
 		if ( !$fit ) {
 			return false;
 		}
-		$result->addIndexedTagName( [ 'query', 'pages', $pageId,
-			$this->getModuleName() ], $elemname );
+		$result->addIndexedTagName(
+			[ 'query', 'pages', $pageId, $this->getModuleName() ],
+			$elemname ?? $this->getModulePrefix()
+		);
 
 		return true;
 	}
@@ -566,21 +552,6 @@ abstract class ApiQueryBase extends ApiBase {
 		}
 
 		return new TitleValue( $t->getNamespace(), substr( $t->getDBkey(), 0, -1 ) );
-	}
-
-	/**
-	 * Convert an input title or title prefix into a namespace constant and dbkey.
-	 *
-	 * @since 1.26
-	 * @deprecated sine 1.35, use parsePrefixedTitlePart() instead.
-	 * @param string $titlePart Title part parsePrefixedTitlePart instead
-	 * @param int $defaultNamespace Default namespace if none is given
-	 * @return array (int, string) Namespace number and DBkey
-	 */
-	public function prefixedTitlePartToKey( $titlePart, $defaultNamespace = NS_MAIN ) {
-		wfDeprecated( __METHOD__, '1.35' );
-		$t = $this->parsePrefixedTitlePart( $titlePart, $defaultNamespace );
-		return [ $t->getNamespace(), $t->getDBkey() ];
 	}
 
 	/**
@@ -655,22 +626,4 @@ abstract class ApiQueryBase extends ApiBase {
 	}
 
 	// endregion -- end of utility methods
-
-	/***************************************************************************/
-	// region   Deprecated methods
-	/** @name   Deprecated methods */
-
-	/**
-	 * Filters hidden users (where the user doesn't have the right to view them)
-	 * Also adds relevant block information
-	 *
-	 * @deprecated since 1.34, use ApiQueryBlockInfoTrait instead
-	 * @param bool $showBlockInfo
-	 */
-	public function showHiddenUsersAddBlockInfo( $showBlockInfo ) {
-		wfDeprecated( __METHOD__, '1.34' );
-		$this->addBlockInfoToQuery( $showBlockInfo );
-	}
-
-	// endregion -- end of deprecated methods
 }

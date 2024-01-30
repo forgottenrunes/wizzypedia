@@ -256,15 +256,16 @@ class IcuCollation extends Collation {
 
 		$mainCollator = Collator::create( $locale );
 		if ( !$mainCollator ) {
-			throw new MWException( "Invalid ICU locale specified for collation: $locale" );
+			throw new InvalidArgumentException( "Invalid ICU locale specified for collation: $locale" );
 		}
 		$this->mainCollator = $mainCollator;
 
+		// @phan-suppress-next-line PhanPossiblyNullTypeMismatchProperty successed before, no null check needed
 		$this->primaryCollator = Collator::create( $locale );
 		$this->primaryCollator->setStrength( Collator::PRIMARY );
 
 		// If the special suffix for numeric collation is present, turn on numeric collation.
-		if ( substr( $locale, -5, 5 ) === '-u-kn' ) {
+		if ( str_ends_with( $locale, '-u-kn' ) ) {
 			$this->useNumericCollation = true;
 			// Strip off the special suffix so it doesn't trip up fetchFirstLetterData().
 			$this->locale = substr( $this->locale, 0, -5 );
@@ -351,7 +352,6 @@ class IcuCollation extends Collation {
 
 	/**
 	 * @return array
-	 * @throws MWException
 	 */
 	private function fetchFirstLetterData() {
 		// Generate data from serialized data file
@@ -372,7 +372,7 @@ class IcuCollation extends Collation {
 		} elseif ( $this->locale === 'root' ) {
 			$letters = require __DIR__ . "/data/first-letters-root.php";
 		} else {
-			throw new MWException( "MediaWiki does not support ICU locale " .
+			throw new RuntimeException( "MediaWiki does not support ICU locale " .
 				"\"{$this->locale}\"" );
 		}
 
@@ -406,82 +406,67 @@ class IcuCollation extends Collation {
 		}
 		ksort( $letterMap, SORT_STRING );
 
-		/* Remove duplicate prefixes. Basically if something has a sortkey
+		/* Remove duplicate prefixes. Basically, if something has a sortkey
 		 * which is a prefix of some other sortkey, then it is an
 		 * expansion and probably should not be considered a section
 		 * header.
 		 *
-		 * For example 'þ' is sometimes sorted as if it is the letters
+		 * For example, 'þ' is sometimes sorted as if it is the letters
 		 * 'th'. Other times it is its own primary element. Another
-		 * example is '₨'. Sometimes its a currency symbol. Sometimes it
+		 * example is '₨'. Sometimes it's a currency symbol. Sometimes it
 		 * is an 'R' followed by an 's'.
 		 *
-		 * Additionally an expanded element should always sort directly
+		 * Additionally, an expanded element should always sort directly
 		 * after its first element due to the way sortkeys work.
 		 *
-		 * UCA sortkey elements are of variable length but no collation
+		 * UCA sortkey elements are of variable length, but no collation
 		 * element should be a prefix of some other element, so I think
 		 * this is safe. See:
-		 * - https://ssl.icu-project.org/repos/icu/icuhtml/trunk/design/collation/ICU_collation_design.htm
+		 * - https://unicode-org.github.io/icu-docs/design/collation/ICU_collation_design.htm
 		 * - https://icu.unicode.org/design/collation/uca-weight-allocation
 		 *
 		 * Additionally, there is something called primary compression to
 		 * worry about. Basically, if you have two primary elements that
-		 * are more than one byte and both start with the same byte then
-		 * the first byte is dropped on the second primary. Additionally
+		 * are more than one byte and both start with the same byte, then
+		 * the first byte is dropped on the second primary. Additionally,
 		 * either \x03 or \xFF may be added to mean that the next primary
 		 * does not start with the first byte of the first primary.
 		 *
 		 * This shouldn't matter much, as the first primary is not
 		 * changed, and that is what we are comparing against.
 		 *
-		 * tl;dr: This makes some assumptions about how icu implements
+		 * tl;dr: This makes some assumptions about how ICU implements
 		 * collations. It seems incredibly unlikely these assumptions
 		 * will change, but nonetheless they are assumptions.
 		 */
 
-		$prev = false;
+		$prev = '';
 		$duplicatePrefixes = [];
 		foreach ( $letterMap as $key => $value ) {
-			// Remove terminator byte. Otherwise the prefix
-			// comparison will get hung up on that.
-			$trimmedKey = rtrim( $key, "\0" );
-			if ( $prev === false || $prev === '' ) {
-				$prev = $trimmedKey;
-				// We don't yet have a collation element
-				// to compare against, so continue.
-				continue;
-			}
-
 			// Due to the fact the array is sorted, we only have
 			// to compare with the element directly previous
 			// to the current element (skipping expansions).
 			// An element "X" will always sort directly
 			// before "XZ" (Unless we have "XY", but we
 			// do not update $prev in that case).
-			if ( substr( $trimmedKey, 0, strlen( $prev ) ) === $prev ) {
+			if ( $prev !== '' && str_starts_with( $key, $prev ) ) {
 				$duplicatePrefixes[] = $key;
 				// If this is an expansion, we don't want to
 				// compare the next element to this element,
 				// but to what is currently $prev
 				continue;
 			}
-			$prev = $trimmedKey;
+			$prev = $key;
 		}
 		foreach ( $duplicatePrefixes as $badKey ) {
 			wfDebug( "Removing '{$letterMap[$badKey]}' from first letters." );
 			unset( $letterMap[$badKey] );
 			// This code assumes that unsetting does not change sort order.
 		}
-		$data = [
+		return [
 			'chars' => array_values( $letterMap ),
 			'keys' => array_keys( $letterMap ),
 		];
-
-		// Reduce memory usage before caching
-		unset( $letterMap );
-
-		return $data;
 	}
 
 	/**
@@ -497,55 +482,5 @@ class IcuCollation extends Collation {
 			}
 		}
 		return false;
-	}
-
-	/**
-	 * Return the version of Unicode appropriate for the version of ICU library
-	 * currently in use, or false when it can't be determined.
-	 *
-	 * @since 1.21
-	 * @return string|bool
-	 */
-	public static function getUnicodeVersionForICU() {
-		$icuVersion = INTL_ICU_VERSION;
-		if ( !$icuVersion ) {
-			return false;
-		}
-
-		$versionPrefix = substr( $icuVersion, 0, 3 );
-		// Source: https://icu.unicode.org/download
-		$map = [
-			'69.' => '13.0',
-			'68.' => '13.0',
-			'67.' => '13.0',
-			'66.' => '13.0',
-			'65.' => '12.0',
-			'64.' => '12.0',
-			'63.' => '11.0',
-			'62.' => '11.0',
-			'61.' => '10.0',
-			'60.' => '10.0',
-			'59.' => '9.0',
-			'58.' => '9.0',
-			'57.' => '8.0',
-			'56.' => '8.0',
-			'55.' => '7.0',
-			'54.' => '7.0',
-			'53.' => '6.3',
-			'52.' => '6.3',
-			'51.' => '6.2',
-			'50.' => '6.2',
-			'49.' => '6.1',
-			'4.8' => '6.0',
-			'4.6' => '6.0',
-			'4.4' => '5.2',
-			'4.2' => '5.1',
-			'4.0' => '5.1',
-			'3.8' => '5.0',
-			'3.6' => '5.0',
-			'3.4' => '4.1',
-		];
-
-		return $map[$versionPrefix] ?? false;
 	}
 }

@@ -6,6 +6,7 @@ namespace Wikimedia\Parsoid\Wt2Html\PP\Processors;
 use Error;
 use SplObjectStorage;
 use Wikimedia\Assert\Assert;
+use Wikimedia\Assert\UnreachableException;
 use Wikimedia\Parsoid\Config\Env;
 use Wikimedia\Parsoid\Core\DomSourceRange;
 use Wikimedia\Parsoid\Core\ElementRange;
@@ -13,6 +14,8 @@ use Wikimedia\Parsoid\DOM\Document;
 use Wikimedia\Parsoid\DOM\Element;
 use Wikimedia\Parsoid\DOM\Node;
 use Wikimedia\Parsoid\DOM\Text;
+use Wikimedia\Parsoid\NodeData\DataMw;
+use Wikimedia\Parsoid\NodeData\DataParsoid;
 use Wikimedia\Parsoid\NodeData\TempData;
 use Wikimedia\Parsoid\NodeData\TemplateInfo;
 use Wikimedia\Parsoid\Utils\DOMCompat;
@@ -76,10 +79,13 @@ class DOMRangeBuilder {
 	protected $env;
 
 	/** @var SplObjectStorage */
-	private $nodeRanges;
+	protected $nodeRanges;
 
 	/** @var array<string|CompoundTemplateInfo>[] */
 	private $compoundTpls = [];
+
+	/** @var string */
+	protected $traceType;
 
 	/**
 	 * @param Document $document
@@ -92,6 +98,7 @@ class DOMRangeBuilder {
 		$this->frame = $frame;
 		$this->env = $frame->getEnv();
 		$this->nodeRanges = new SplObjectStorage;
+		$this->traceType = "tplwrap";
 	}
 
 	/**
@@ -186,31 +193,9 @@ class DOMRangeBuilder {
 	private function getDOMRange(
 		Element $startElem, Element $endMeta, Element $endElem
 	) {
-		$range = new DOMRangeInfo;
+		$range = $this->findEnclosingRange( $startElem, $endElem );
 		$range->startElem = $startElem;
 		$range->endElem = $endMeta;
-		$range->id = Utils::stripParsoidIdPrefix( $this->getRangeId( $startElem ) );
-		$range->startOffset = DOMDataUtils::getDataParsoid( $startElem )->tsr->start;
-
-		// Find common ancestor of startElem and endElem
-		$startAncestors = DOMUtils::pathToRoot( $startElem );
-		$elem = $endElem;
-		$parentNode = $endElem->parentNode;
-		while ( $parentNode && $parentNode->nodeType !== XML_DOCUMENT_NODE ) {
-			$i = array_search( $parentNode, $startAncestors, true );
-			if ( $i === 0 ) {
-				// widen the scope to include the full subtree
-				$range->start = $startElem->firstChild;
-				$range->end = $startElem->lastChild;
-				break;
-			} elseif ( $i > 0 ) {
-				$range->start = $startAncestors[$i - 1];
-				$range->end = $elem;
-				break;
-			}
-			$elem = $parentNode;
-			$parentNode = $elem->parentNode;
-		}
 
 		$startsInFosterablePosn = DOMUtils::isFosterablePosition( $range->start );
 		$next = $range->start->nextSibling;
@@ -314,7 +299,7 @@ class DOMRangeBuilder {
 		}
 
 		$this->env->log(
-			'trace/tplwrap/findranges',
+			"trace/{$this->traceType}/findranges",
 			static function () use ( &$range ) {
 				$msg = '';
 				$dp1 = DOMDataUtils::getDataParsoid( $range->start );
@@ -324,7 +309,7 @@ class DOMRangeBuilder {
 				$dp1->tmp = null;
 				$dp2->tmp = null;
 				$msg .= "\n----------------------------------------------";
-				$msg .= "\nFound range : " . $range->id . '; flipped? ' . $range->flipped .
+				$msg .= "\nFound range : " . $range->id . '; flipped? ' . ( (string)$range->flipped ) .
 					'; offset: ' . $range->startOffset;
 				$msg .= "\nstart-elem : " . DOMCompat::getOuterHTML( $range->startElem ) . '; DP: ' .
 					PHPUtils::jsonEncode( DOMDataUtils::getDataParsoid( $range->startElem ) );
@@ -616,13 +601,10 @@ class DOMRangeBuilder {
 			// Extract tplargInfo
 			$tmp = DOMDataUtils::getDataParsoid( $r->startElem )->getTemp();
 			$templateInfo = $tmp->tplarginfo ?? null;
-			if ( !$templateInfo ) {
-				// An assertion here is probably an indication that we're
-				// mistakenly doing template wrapping in a nested context.
-				Assert::invariant( $tmp->getFlag( TempData::FROM_FOSTER ), 'Template range without arginfo.' );
-			}
 
-			$this->env->log( 'trace/tplwrap/merge', static function () use ( &$DOMDataUtils, &$r ) {
+			$this->verifyTplInfoExpectation( $templateInfo, $tmp );
+
+			$this->env->log( "trace/{$this->traceType}/merge", static function () use ( &$DOMDataUtils, &$r ) {
 				$msg = '';
 				$dp1 = DOMDataUtils::getDataParsoid( $r->start );
 				$dp2 = DOMDataUtils::getDataParsoid( $r->end );
@@ -650,7 +632,7 @@ class DOMRangeBuilder {
 				$subsumedRanges[$r->id] ?? null
 			);
 			if ( $enclosingRangeId ) {
-				$this->env->log( 'trace/tplwrap/merge', '--nested in ', $enclosingRangeId, '--' );
+				$this->env->log( "trace/{$this->traceType}/merge", '--nested in ', $enclosingRangeId, '--' );
 
 				// Nested -- ignore r
 				$startTagToStrip = $r->startElem;
@@ -664,7 +646,7 @@ class DOMRangeBuilder {
 				// In the common case, in overlapping scenarios, r.start is
 				// identical to prev.end. However, in fostered content scenarios,
 				// there can true overlap of the ranges.
-				$this->env->log( 'trace/tplwrap/merge', '--overlapped--' );
+				$this->env->log( "trace/{$this->traceType}/merge", '--overlapped--' );
 
 				// See comment above, where `subsumedRanges` is defined.
 				$subsumedRanges[$r->id] = $prev->id;
@@ -688,13 +670,18 @@ class DOMRangeBuilder {
 
 				$prev->end = $r->end;
 				$prev->endElem = $r->endElem;
+				if ( WTUtils::isMarkerAnnotation( $r->endElem ) ) {
+					$endDataMw = DOMDataUtils::getDataMw( $r->endElem );
+					$endDataMw->rangeId = $r->id;
+					$prev->extendedByOverlapMerge = true;
+				}
 
 				// Update compoundTplInfo
 				if ( $templateInfo ) {
 					$this->recordTemplateInfo( $prev->id, $r, $templateInfo );
 				}
 			} else {
-				$this->env->log( 'trace/tplwrap/merge', '--normal--' );
+				$this->env->log( "trace/{$this->traceType}/merge", '--normal--' );
 
 				// Default -- no overlap
 				// Emit the merged range
@@ -785,6 +772,9 @@ class DOMRangeBuilder {
 				if ( !DOMUtils::isFosterablePosition( $n ) ) {
 					$span = $this->document->createElement( 'span' );
 					$span->setAttribute( 'about', $about );
+					$dp = new DataParsoid;
+					$dp->setTempFlag( TempData::WRAPPER );
+					DOMDataUtils::setDataParsoid( $span, $dp );
 					$n->parentNode->replaceChild( $span, $n );
 					$span->appendChild( $n );
 					$n = $span;
@@ -881,7 +871,9 @@ class DOMRangeBuilder {
 
 			$this->ensureElementsInRange( $range );
 
-			$tplArray = $this->compoundTpls[$range->id];
+			$tplArray = $this->compoundTpls[$range->id] ?? null;
+			Assert::invariant( (bool)$tplArray, 'No parts for template range!' );
+
 			$encapTgt = self::findEncapTarget( $range );
 			$encapValid = false;
 			$encapDP = DOMDataUtils::getDataParsoid( $encapTgt );
@@ -939,7 +931,6 @@ class DOMRangeBuilder {
 					$dp1DSR->end >= $dp1DSR->start;
 			}
 
-			Assert::invariant( (bool)$tplArray, 'No parts for template range!' );
 			if ( $encapValid ) {
 				// Find transclusion info from the array (skip past a wikitext element)
 				/** @var CompoundTemplateInfo $firstTplInfo */
@@ -996,7 +987,7 @@ class DOMRangeBuilder {
 				}
 
 				// Set up dsr->start, dsr->end, and data-mw on the target node
-				$encapDataMw = (object)[ 'parts' => $parts ];
+				$encapDataMw = new DataMw( [ 'parts' => $parts ] );
 				// FIXME: This is going to clobber any data-mw on $encapTgt, see T214241
 				DOMDataUtils::setDataMw( $encapTgt, $encapDataMw );
 				$encapDP->pi = $pi;
@@ -1164,7 +1155,7 @@ class DOMRangeBuilder {
 									$elem, $tpl->endElem, $tpl->endElem );
 							} else {
 								// should not happen!
-								PHPUtils::unreachable( "start found after content for $about." );
+								throw new UnreachableException( "start found after content for $about." );
 							}
 						} else {
 							$tpl = new ElementRange;
@@ -1195,13 +1186,12 @@ class DOMRangeBuilder {
 							 *   }}
 							 *   |}
 							 *
-							 * Since meta-tags dont normally get fostered out, this scenario
+							 * Since meta-tags don't normally get fostered out, this scenario
 							 * only arises when the entire content including meta-tags was
 							 * wrapped in p-tags.  So, we look to see if:
 							 * 1. the end-meta-tag's parent has a table sibling,
-							 * 2. the DSR of the start-meta-tag's parent is nested inside
-							 *    that table's DSR
-							 * If so, we recognize this as a adoption scenario and fix up
+							 * 2. the start meta's parent is marked as fostered.
+							 * If so, we recognize this as an adoption scenario and fix up
 							 * DSR of start-meta-tag's parent to include the table's DSR.
 							 * ------------------------------------------------------------*/
 							$sm = $tpl->startElem;
@@ -1238,6 +1228,13 @@ class DOMRangeBuilder {
 							}
 							$tplRanges[] = $this->getDOMRange( $sm, $em, $ee );
 						} else {
+							// The end tag can appear before the start tag if it is fostered out
+							// of the table and the start tag is not.
+							// It can even technically happen that both tags are fostered out of
+							// a table and that the range is flipped: while the fostered content of
+							// single table is fostered in-order, the ordering might change
+							// across tables if the tags are not initially fostered by the same
+							// table.
 							$tpl = new ElementRange;
 							$tpl->endElem = $elem;
 							$tpls[$about] = $tpl;
@@ -1264,6 +1261,18 @@ class DOMRangeBuilder {
 	}
 
 	/**
+	 * @param ?TemplateInfo $templateInfo
+	 * @param TempData $tmp
+	 */
+	protected function verifyTplInfoExpectation( ?TemplateInfo $templateInfo, TempData $tmp ): void {
+		if ( !$templateInfo ) {
+			// An assertion here is probably an indication that we're
+			// mistakenly doing template wrapping in a nested context.
+			Assert::invariant( $tmp->getFlag( TempData::FROM_FOSTER ), 'Template range without arginfo.' );
+		}
+	}
+
+	/**
 	 * @param Node $root
 	 */
 	public function execute( Node $root ): void {
@@ -1272,5 +1281,40 @@ class DOMRangeBuilder {
 			$nonOverlappingRanges = $this->findTopLevelNonOverlappingRanges( $root, $tplRanges );
 			$this->encapsulateTemplates( $nonOverlappingRanges );
 		}
+	}
+
+	/**
+	 * Creates a range that encloses $startElem and $endElem
+	 * @param Element $startElem
+	 * @param Element $endElem
+	 * @return DOMRangeInfo
+	 */
+	protected function findEnclosingRange( Element $startElem, Element $endElem ): DOMRangeInfo {
+		$range = new DOMRangeInfo;
+		$range->id = Utils::stripParsoidIdPrefix( $this->getRangeId( $startElem ) );
+		$range->startOffset = DOMDataUtils::getDataParsoid( $startElem )->tsr->start;
+
+		// Find common ancestor of startElem and endElem
+		$startAncestors = DOMUtils::pathToRoot( $startElem );
+		$elem = $endElem;
+		$parentNode = $endElem->parentNode;
+		while ( $parentNode && $parentNode->nodeType !== XML_DOCUMENT_NODE ) {
+			$i = array_search( $parentNode, $startAncestors, true );
+			if ( $i === 0 ) {
+				// the common ancestor is startElem
+				// widen the scope to include the full subtree
+				$range->start = $startElem->firstChild;
+				$range->end = $startElem->lastChild;
+				break;
+			} elseif ( $i > 0 ) {
+				$range->start = $startAncestors[$i - 1];
+				$range->end = $elem;
+				break;
+			}
+			$elem = $parentNode;
+			$parentNode = $elem->parentNode;
+		}
+
+		return $range;
 	}
 }

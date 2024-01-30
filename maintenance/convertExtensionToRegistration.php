@@ -247,7 +247,7 @@ class ConvertExtensionToRegistration extends Maintenance {
 			$path = $this->stripPath( $val, $this->dir );
 			// When path starts with tests/parser/ the file would be autodiscovered with
 			// extension registry, so no need to add it to extension.json
-			if ( substr( $path, 0, 13 ) !== 'tests/parser/' || substr( $path, -4 ) !== '.txt' ) {
+			if ( !str_starts_with( $path, 'tests/parser/' ) || !str_ends_with( $path, '.txt' ) ) {
 				$out[$key] = $path;
 			}
 		}
@@ -255,6 +255,11 @@ class ConvertExtensionToRegistration extends Maintenance {
 		if ( $out ) {
 			$this->json[$realName] = $out;
 		}
+		// FIXME: the ParserTestFiles key was deprecated in
+		// MW 1.30 and removed in MW 1.40.  If not all entries were filtered
+		// out by the above, we *should* recommend the user move the
+		// parser tests under `tests/parser` *not* generate an extension.json
+		// with a ParserTestFiles key that will no longer validate.
 	}
 
 	protected function handleCredits( $realName, $value ) {

@@ -21,6 +21,7 @@
  */
 
 use MediaWiki\Linker\LinkRenderer;
+use MediaWiki\SpecialPage\SpecialPage;
 
 /**
  * Mark a revision as patrolled on a page
@@ -29,20 +30,19 @@ use MediaWiki\Linker\LinkRenderer;
  */
 class MarkpatrolledAction extends FormAction {
 
-	/** @var LinkRenderer */
-	private $linkRenderer;
+	private LinkRenderer $linkRenderer;
 
 	/**
-	 * @param Page $page
+	 * @param Article $article
 	 * @param IContextSource $context
 	 * @param LinkRenderer $linkRenderer
 	 */
 	public function __construct(
-		Page $page,
+		Article $article,
 		IContextSource $context,
 		LinkRenderer $linkRenderer
 	) {
-		parent::__construct( $page, $context );
+		parent::__construct( $article, $context );
 		$this->linkRenderer = $linkRenderer;
 	}
 
@@ -109,9 +109,8 @@ class MarkpatrolledAction extends FormAction {
 	 * @return bool|array True for success, false for didn't-try, array of errors on failure
 	 */
 	public function onSubmit( $data ) {
-		$user = $this->getUser();
 		$rc = $this->getRecentChange( $data );
-		$errors = $rc->doMarkPatrolled( $user );
+		$errors = $rc->doMarkPatrolled( $this->getAuthority() );
 
 		if ( in_array( [ 'rcpatroldisabled' ], $errors ) ) {
 			throw new ErrorPageError( 'rcpatroldisabled', 'rcpatroldisabledtext' );
@@ -129,7 +128,7 @@ class MarkpatrolledAction extends FormAction {
 		$return = SpecialPage::getTitleFor( $returnTo );
 
 		if ( in_array( [ 'markedaspatrollederror-noautopatrol' ], $errors ) ) {
-			$this->getOutput()->setPageTitle( $this->msg( 'markedaspatrollederror' ) );
+			$this->getOutput()->setPageTitleMsg( $this->msg( 'markedaspatrollederror' ) );
 			$this->getOutput()->addWikiMsg( 'markedaspatrollederror-noautopatrol' );
 			$this->getOutput()->returnToMain( null, $return );
 			return true;
@@ -143,7 +142,7 @@ class MarkpatrolledAction extends FormAction {
 			return $errors;
 		}
 
-		$this->getOutput()->setPageTitle( $this->msg( 'markedaspatrolled' ) );
+		$this->getOutput()->setPageTitleMsg( $this->msg( 'markedaspatrolled' ) );
 		$this->getOutput()->addWikiMsg( 'markedaspatrolledtext', $rc->getTitle()->getPrefixedText() );
 		$this->getOutput()->returnToMain( null, $return );
 		return true;

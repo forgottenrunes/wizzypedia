@@ -23,8 +23,18 @@
  * @author Raimond Spekking, based on Special:MIMESearch by Ævar Arnfjörð Bjarmason
  */
 
+namespace MediaWiki\Specials;
+
+use File;
+use HTMLForm;
+use ILanguageConverter;
 use MediaWiki\Cache\LinkBatchFactory;
 use MediaWiki\Languages\LanguageConverterFactory;
+use MediaWiki\Linker\Linker;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
+use RepoGroup;
+use SearchEngineFactory;
 
 /**
  * Searches the database for files of the requested hash, comparing this with the
@@ -48,17 +58,10 @@ class SpecialFileDuplicateSearch extends SpecialPage {
 	 */
 	private $file = null;
 
-	/** @var LinkBatchFactory */
-	private $linkBatchFactory;
-
-	/** @var RepoGroup */
-	private $repoGroup;
-
-	/** @var SearchEngineFactory */
-	private $searchEngineFactory;
-
-	/** @var ILanguageConverter */
-	private $languageConverter;
+	private LinkBatchFactory $linkBatchFactory;
+	private RepoGroup $repoGroup;
+	private SearchEngineFactory $searchEngineFactory;
+	private ILanguageConverter $languageConverter;
 
 	/**
 	 * @param LinkBatchFactory $linkBatchFactory
@@ -129,12 +132,8 @@ class SpecialFileDuplicateSearch extends SpecialPage {
 				'default' => $this->filename,
 			],
 		];
-		$hiddenFields = [
-			'title' => $this->getPageTitle()->getPrefixedDBkey(),
-		];
 		$htmlForm = HTMLForm::factory( 'ooui', $formFields, $this->getContext() );
-		$htmlForm->addHiddenFields( $hiddenFields );
-		$htmlForm->setAction( wfScript() );
+		$htmlForm->setTitle( $this->getPageTitle() );
 		$htmlForm->setMethod( 'get' );
 		$htmlForm->setSubmitTextMsg( $this->msg( 'fileduplicatesearch-submit' ) );
 
@@ -271,3 +270,8 @@ class SpecialFileDuplicateSearch extends SpecialPage {
 		return 'media';
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialFileDuplicateSearch::class, 'SpecialFileDuplicateSearch' );

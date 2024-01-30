@@ -8,12 +8,12 @@ use MediaWiki\Extension\AbuseFilter\EditRevUpdater;
 use MediaWiki\Linker\LinkTarget;
 use MediaWiki\Revision\MutableRevisionRecord;
 use MediaWiki\Revision\RevisionLookup;
+use MediaWiki\Title\Title;
 use MediaWikiUnitTestCase;
-use Title;
 use TitleValue;
 use Wikimedia\Rdbms\DBConnRef;
 use Wikimedia\Rdbms\IDatabase;
-use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\LBFactory;
 use WikiPage;
 
 /**
@@ -32,7 +32,7 @@ class EditRevUpdaterTest extends MediaWikiUnitTestCase {
 			new EditRevUpdater(
 				$this->createMock( CentralDBManager::class ),
 				$this->createMock( RevisionLookup::class ),
-				$this->createMock( ILoadBalancer::class ),
+				$this->createMock( LBFactory::class ),
 				''
 			)
 		);
@@ -49,16 +49,18 @@ class EditRevUpdaterTest extends MediaWikiUnitTestCase {
 		IDatabase $centralDB = null,
 		RevisionLookup $revLookup = null
 	): EditRevUpdater {
-		$localDB = $localDB ?? $this->createMock( DBConnRef::class );
-		$lb = $this->createMock( ILoadBalancer::class );
-		$lb->method( 'getConnectionRef' )->willReturn( $localDB );
-		$centralDB = $centralDB ?? $this->createMock( IDatabase::class );
+		$lbFactory = $this->createMock( LBFactory::class );
+		$lbFactory->method( 'getPrimaryDatabase' )
+			->willReturn( $localDB ?? $this->createMock( DBConnRef::class ) );
+
 		$dbManager = $this->createMock( CentralDBManager::class );
-		$dbManager->method( 'getConnection' )->willReturn( $centralDB );
+		$dbManager->method( 'getConnection' )
+			->willReturn( $centralDB ?? $this->createMock( IDatabase::class ) );
+
 		return new EditRevUpdater(
 			$dbManager,
 			$revLookup ?? $this->createMock( RevisionLookup::class ),
-			$lb,
+			$lbFactory,
 			'fake-wiki-id'
 		);
 	}
@@ -71,7 +73,11 @@ class EditRevUpdaterTest extends MediaWikiUnitTestCase {
 		$title = Title::newFromLinkTarget( $target );
 		// Legacy code. Yay.
 		$title->mArticleID = 123456;
-		return [ new WikiPage( $title ), new MutableRevisionRecord( $title ) ];
+
+		$wikiPage = $this->createMock( WikiPage::class );
+		$wikiPage->method( 'getTitle' )->willReturn( $title );
+
+		return [ $wikiPage, new MutableRevisionRecord( $title ) ];
 	}
 
 	/**
@@ -92,10 +98,9 @@ class EditRevUpdaterTest extends MediaWikiUnitTestCase {
 	public function testUpdateRev_differentPages() {
 		$titleValue = new TitleValue( NS_PROJECT, 'EditRevUpdater' );
 		$updater = $this->getUpdater();
-		$title = Title::makeTitle( NS_HELP, 'Foobar' );
-		// Legacy code. Yay.
-		$title->mArticleID = 123456;
-		$updater->setLastEditPage( new WikiPage( $title ) );
+		$diffTitleValue = new TitleValue( NS_HELP, 'Foobar' );
+		[ $diffPage, ] = $this->getPageAndRev( $diffTitleValue );
+		$updater->setLastEditPage( $diffPage );
 		$updater->setLogIdsForTarget( $titleValue, [ 'local' => [ 1, 2 ], 'global' => [] ] );
 		$this->assertFalse( $updater->updateRev( ...$this->getPageAndRev( $titleValue ) ) );
 	}
@@ -141,7 +146,7 @@ class EditRevUpdaterTest extends MediaWikiUnitTestCase {
 		$this->assertTrue( $updater->updateRev( $page, $rev ) );
 	}
 
-	public function provideIDsSuccess(): array {
+	public static function provideIDsSuccess(): array {
 		return [
 			'local only' => [ [ 'local' => [ 1, 2 ], 'global' => [] ] ],
 			'global only' => [ [ 'local' => [], 'global' => [ 1, 2 ] ] ],
@@ -198,7 +203,7 @@ class EditRevUpdaterTest extends MediaWikiUnitTestCase {
 		$updater->setLogIdsForTarget( new TitleValue( NS_MAIN, 'x' ), $ids );
 	}
 
-	public function provideInvalidIDs(): array {
+	public static function provideInvalidIDs(): array {
 		return [
 			'empty' => [ [] ],
 			'missing key' => [ [ 'local' => [ 1 ] ] ],

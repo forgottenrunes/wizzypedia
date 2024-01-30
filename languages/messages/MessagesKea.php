@@ -1,10 +1,8 @@
 <?php
 /** Cape Verdean Creole (kabuverdianu)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Waldir Pimenta
  * @author Amir E. Aharoni
@@ -14,7 +12,7 @@ $fallback = 'pt';
 
 $namespaceNames = [
 	NS_MEDIA            => 'Multimédia',
-	NS_SPECIAL          => 'Special',
+	NS_SPECIAL          => 'Spesial',
 	NS_TALK             => 'Diskuson',
 	NS_USER             => 'Uzuáriu',
 	NS_USER_TALK        => 'Diskuson_di_uzuáriu',
@@ -40,6 +38,12 @@ $namespaceGenderAliases = [
 		'male' => 'Diskuson_di_uzuáriu',
 		'female' => 'Diskuson_di_uzuária'
 	],
+];
+
+$dateFormats = [
+	'dmy time' => 'H:i',
+	'dmy date' => 'j "di" F "di" Y',
+	'dmy both' => 'H:i, j "di" F "di" Y',
 ];
 
 $linkTrail = '/^([áàâãç̈éèêíóòôõúa-z]+)(.*)$/sDu';

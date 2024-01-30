@@ -6,6 +6,8 @@ use MediaWiki\Block\DatabaseBlock;
 use MediaWiki\Block\Restriction\NamespaceRestriction;
 use MediaWiki\Block\Restriction\PageRestriction;
 use MediaWiki\DAO\WikiAwareEntity;
+use MediaWiki\MainConfigNames;
+use MediaWiki\User\User;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
 use MediaWiki\User\UserNameUtils;
@@ -21,23 +23,79 @@ use Wikimedia\Rdbms\LBFactory;
  */
 class DatabaseBlockTest extends MediaWikiLangTestCase {
 
+	public function addDBDataOnce() {
+		$blockList = [
+			[ 'target' => '70.2.0.0/16',
+				'type' => DatabaseBlock::TYPE_RANGE,
+				'desc' => 'Range Hardblock',
+				'ACDisable' => false,
+				'isHardblock' => true,
+				'isAutoBlocking' => false,
+			],
+			[ 'target' => '2001:4860:4001::/48',
+				'type' => DatabaseBlock::TYPE_RANGE,
+				'desc' => 'Range6 Hardblock',
+				'ACDisable' => false,
+				'isHardblock' => true,
+				'isAutoBlocking' => false,
+			],
+			[ 'target' => '60.2.0.0/16',
+				'type' => DatabaseBlock::TYPE_RANGE,
+				'desc' => 'Range Softblock with AC Disabled',
+				'ACDisable' => true,
+				'isHardblock' => false,
+				'isAutoBlocking' => false,
+			],
+			[ 'target' => '50.2.0.0/16',
+				'type' => DatabaseBlock::TYPE_RANGE,
+				'desc' => 'Range Softblock',
+				'ACDisable' => false,
+				'isHardblock' => false,
+				'isAutoBlocking' => false,
+			],
+			[ 'target' => '50.1.1.1',
+				'type' => DatabaseBlock::TYPE_IP,
+				'desc' => 'Exact Softblock',
+				'ACDisable' => false,
+				'isHardblock' => false,
+				'isAutoBlocking' => false,
+			],
+		];
+
+		$blockStore = $this->getServiceContainer()->getDatabaseBlockStore();
+		$blocker = $this->getTestUser()->getUser();
+		foreach ( $blockList as $insBlock ) {
+			$target = $insBlock['target'];
+
+			if ( $insBlock['type'] === DatabaseBlock::TYPE_IP ) {
+				$target = User::newFromName( IPUtils::sanitizeIP( $target ), false )->getName();
+			} elseif ( $insBlock['type'] === DatabaseBlock::TYPE_RANGE ) {
+				$target = IPUtils::sanitizeRange( $target );
+			}
+
+			$block = new DatabaseBlock();
+			$block->setTarget( $target );
+			$block->setBlocker( $blocker );
+			$block->setReason( $insBlock['desc'] );
+			$block->setExpiry( 'infinity' );
+			$block->isCreateAccountBlocked( $insBlock['ACDisable'] );
+			$block->isHardblock( $insBlock['isHardblock'] );
+			$block->isAutoblocking( $insBlock['isAutoBlocking'] );
+			$blockStore->insertBlock( $block );
+		}
+	}
+
 	/**
 	 * @return UserIdentity
 	 */
 	private function getUserForBlocking() {
-		$testUser = $this->getMutableTestUser();
-		$user = $testUser->getUser();
-		$user->addToDatabase();
-		TestUser::setPasswordForUser( $user, 'UTBlockeePassword' );
-		$user->saveSettings();
-		return $testUser->getUserIdentity();
+		return $this->getTestUser()->getUserIdentity();
 	}
 
 	/**
 	 * @param UserIdentity $user
 	 *
 	 * @return DatabaseBlock
-	 * @throws MWException
 	 */
 	private function addBlockForUser( UserIdentity $user ) {
 		$blockStore = $this->getServiceContainer()->getDatabaseBlockStore();
@@ -62,12 +120,54 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 		// its value might change depending on the order the tests are run.
 		// ApiBlockTest insert its own blocks!
 		if ( !$block->getId() ) {
-			throw new MWException( "Failed to insert block for BlockTest; old leftover block remaining?" );
+			throw new RuntimeException( "Failed to insert block for BlockTest; old leftover block remaining?" );
 		}
 
-		$this->addXffBlocks();
-
 		return $block;
+	}
+
+	/**
+	 * @covers ::newFromTarget
+	 */
+	public function testHardBlocks() {
+		// Set up temp user config
+		$this->overrideConfigValue(
+			MainConfigNames::AutoCreateTempUser,
+			[
+				'enabled' => true,
+				'actions' => [ 'edit' ],
+				'genPattern' => '*Unregistered $1',
+				'matchPattern' => '*$1',
+				'serialProvider' => [ 'type' => 'local' ],
+				'serialMapping' => [ 'type' => 'plain-numeric' ],
+			]
+		);
+
+		$blockStore = $this->getServiceContainer()->getDatabaseBlockStore();
+		$blocker = $this->getTestUser()->getUser();
+
+		$block = new DatabaseBlock();
+		$block->setTarget( '1.2.3.4' );
+		$block->setBlocker( $blocker );
+		$block->setReason( 'test' );
+		$block->setExpiry( 'infinity' );
+		$block->isHardblock( false );
+		$blockStore->insertBlock( $block );
+
+		$this->assertFalse(
+			(bool)DatabaseBlock::newFromTarget( '*Unregistered 1' ),
+			'Temporary user is not blocked directly'
+		);
+		$this->assertTrue(
+			(bool)DatabaseBlock::newFromTarget( '*Unregistered 1', '1.2.3.4' ),
+			'Temporary user is blocked by soft block'
+		);
+		$this->assertFalse(
+			(bool)DatabaseBlock::newFromTarget( $blocker, '1.2.3.4' ),
+			'Logged-in user is not blocked by soft block'
+		);
+
+		$blockStore->deleteBlock( $block );
 	}
 
 	/**
@@ -160,8 +260,8 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 		// Should find the block with the narrowest range
 		$block = DatabaseBlock::newFromTarget( $this->getTestUser()->getUserIdentity(), $ip );
 		$this->assertSame(
-			$block->getTargetName(),
-			$expectedTarget
+			$expectedTarget,
+			$block->getTargetName()
 		);
 
 		foreach ( $targets as $target ) {
@@ -170,7 +270,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 		}
 	}
 
-	public function provideNewFromTargetRangeBlocks() {
+	public static function provideNewFromTargetRangeBlocks() {
 		return [
 			'Blocks to IPv4 ranges' => [
 				[ '0.0.0.0/20', '0.0.0.0/30', '0.0.0.0/25' ],
@@ -282,6 +382,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 	 * @covers ::insert
 	 */
 	public function testCrappyCrossWikiBlocks() {
+		$this->filterDeprecated( '/Passing a \$database is no longer supported/' );
 		$blockStore = $this->getServiceContainer()->getDatabaseBlockStore();
 		// Delete the last round's block if it's still there
 		$oldBlock = DatabaseBlock::newFromTarget( 'UserOnForeignWiki' );
@@ -335,76 +436,6 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 			'Correct blocker name' );
 		$this->assertEquals( 'm>MetaWikiUser', $block->getByName(), 'Correct blocker name' );
 		$this->assertSame( 0, $block->getBy(), 'Correct blocker id' );
-	}
-
-	protected function addXffBlocks() {
-		static $inited = false;
-
-		if ( $inited ) {
-			return;
-		}
-
-		$inited = true;
-
-		$blockList = [
-			[ 'target' => '70.2.0.0/16',
-				'type' => DatabaseBlock::TYPE_RANGE,
-				'desc' => 'Range Hardblock',
-				'ACDisable' => false,
-				'isHardblock' => true,
-				'isAutoBlocking' => false,
-			],
-			[ 'target' => '2001:4860:4001::/48',
-				'type' => DatabaseBlock::TYPE_RANGE,
-				'desc' => 'Range6 Hardblock',
-				'ACDisable' => false,
-				'isHardblock' => true,
-				'isAutoBlocking' => false,
-			],
-			[ 'target' => '60.2.0.0/16',
-				'type' => DatabaseBlock::TYPE_RANGE,
-				'desc' => 'Range Softblock with AC Disabled',
-				'ACDisable' => true,
-				'isHardblock' => false,
-				'isAutoBlocking' => false,
-			],
-			[ 'target' => '50.2.0.0/16',
-				'type' => DatabaseBlock::TYPE_RANGE,
-				'desc' => 'Range Softblock',
-				'ACDisable' => false,
-				'isHardblock' => false,
-				'isAutoBlocking' => false,
-			],
-			[ 'target' => '50.1.1.1',
-				'type' => DatabaseBlock::TYPE_IP,
-				'desc' => 'Exact Softblock',
-				'ACDisable' => false,
-				'isHardblock' => false,
-				'isAutoBlocking' => false,
-			],
-		];
-
-		$blockStore = $this->getServiceContainer()->getDatabaseBlockStore();
-		$blocker = $this->getTestUser()->getUser();
-		foreach ( $blockList as $insBlock ) {
-			$target = $insBlock['target'];
-
-			if ( $insBlock['type'] === DatabaseBlock::TYPE_IP ) {
-				$target = User::newFromName( IPUtils::sanitizeIP( $target ), false )->getName();
-			} elseif ( $insBlock['type'] === DatabaseBlock::TYPE_RANGE ) {
-				$target = IPUtils::sanitizeRange( $target );
-			}
-
-			$block = new DatabaseBlock();
-			$block->setTarget( $target );
-			$block->setBlocker( $blocker );
-			$block->setReason( $insBlock['desc'] );
-			$block->setExpiry( 'infinity' );
-			$block->isCreateAccountBlocked( $insBlock['ACDisable'] );
-			$block->isHardblock( $insBlock['isHardblock'] );
-			$block->isAutoblocking( $insBlock['isAutoBlocking'] );
-			$blockStore->insertBlock( $block );
-		}
 	}
 
 	public static function providerXff() {
@@ -511,9 +542,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 	 * @covers ::getByName()
 	 */
 	public function testCrossWikiBlocking() {
-		$this->setMwGlobals( [
-			'wgLocalDatabases' => [ 'm' ],
-		] );
+		$this->overrideConfigValue( MainConfigNames::LocalDatabases, [ 'm' ] );
 		$dbMock = $this->createMock( DBConnRef::class );
 		$dbMock->method( 'decodeExpiry' )->willReturn( 'infinity' );
 		$lbMock = $this->createMock( ILoadBalancer::class );
@@ -575,8 +604,6 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 			'Correct blocker name'
 		);
 		$this->assertEquals( 'm>MetaWikiUser', $block->getByName(), 'Correct blocker name' );
-
-		$this->resetServices();
 	}
 
 	/**
@@ -597,9 +624,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 	 * @covers ::getWikiId
 	 */
 	public function testGetWikiId() {
-		$this->setMwGlobals( [
-			'wgLocalDatabases' => [ 'foo' ],
-		] );
+		$this->overrideConfigValue( MainConfigNames::LocalDatabases, [ 'foo' ] );
 		$dbMock = $this->createMock( DBConnRef::class );
 		$dbMock->method( 'decodeExpiry' )->willReturn( 'infinity' );
 		$lbMock = $this->createMock( ILoadBalancer::class );
@@ -710,12 +735,11 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 		$this->assertFalse( $result );
 
 		// Ensure that there are no restrictions where the blockId is 0.
-		$count = $this->db->selectRowCount(
-			'ipblocks_restrictions',
-			'*',
-			[ 'ir_ipb_id' => 0 ],
-			__METHOD__
-		);
+		$count = $this->db->newSelectQueryBuilder()
+			->select( '*' )
+			->from( 'ipblocks_restrictions' )
+			->where( [ 'ir_ipb_id' => 0 ] )
+			->caller( __METHOD__ )->fetchRowCount();
 		$this->assertSame( 0, $count );
 
 		$blockStore->deleteBlock( $block );
@@ -725,9 +749,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 	 * @covers ::appliesToTitle
 	 */
 	public function testAppliesToTitleReturnsTrueOnSitewideBlock() {
-		$this->setMwGlobals( [
-			'wgBlockDisablesLogin' => false,
-		] );
+		$this->overrideConfigValue( MainConfigNames::BlockDisablesLogin, false );
 		$user = $this->getTestUser()->getUser();
 		$block = new DatabaseBlock( [
 			'expiry' => wfTimestamp( TS_MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
@@ -756,9 +778,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 	 * @covers ::appliesToTitle
 	 */
 	public function testAppliesToTitleOnPartialBlock() {
-		$this->setMwGlobals( [
-			'wgBlockDisablesLogin' => false,
-		] );
+		$this->overrideConfigValue( MainConfigNames::BlockDisablesLogin, false );
 		$user = $this->getTestUser()->getUser();
 		$block = new DatabaseBlock( [
 			'expiry' => wfTimestamp( TS_MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
@@ -792,9 +812,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 	 * @covers ::appliesToPage
 	 */
 	public function testAppliesToReturnsTrueOnSitewideBlock() {
-		$this->setMwGlobals( [
-			'wgBlockDisablesLogin' => false,
-		] );
+		$this->overrideConfigValue( MainConfigNames::BlockDisablesLogin, false );
 		$user = $this->getTestUser()->getUser();
 		$block = new DatabaseBlock( [
 			'expiry' => wfTimestamp( TS_MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
@@ -821,9 +839,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 	 * @covers ::appliesToPage
 	 */
 	public function testAppliesToPageOnPartialPageBlock() {
-		$this->setMwGlobals( [
-			'wgBlockDisablesLogin' => false,
-		] );
+		$this->overrideConfigValue( MainConfigNames::BlockDisablesLogin, false );
 		$user = $this->getTestUser()->getUser();
 		$block = new DatabaseBlock( [
 			'expiry' => wfTimestamp( TS_MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
@@ -854,9 +870,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 	 * @covers ::appliesToNamespace
 	 */
 	public function testAppliesToNamespaceOnPartialNamespaceBlock() {
-		$this->setMwGlobals( [
-			'wgBlockDisablesLogin' => false,
-		] );
+		$this->overrideConfigValue( MainConfigNames::BlockDisablesLogin, false );
 		$user = $this->getTestUser()->getUser();
 		$block = new DatabaseBlock( [
 			'expiry' => wfTimestamp( TS_MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
@@ -882,12 +896,10 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 	/**
 	 * @covers ::appliesToRight
 	 */
-	public function testBlockAllowsPurge() {
-		$this->setMwGlobals( [
-			'wgBlockDisablesLogin' => false,
-		] );
+	public function testBlockAllowsRead() {
+		$this->overrideConfigValue( MainConfigNames::BlockDisablesLogin, false );
 		$block = new DatabaseBlock();
-		$this->assertFalse( $block->appliesToRight( 'purge' ) );
+		$this->assertFalse( $block->appliesToRight( 'read' ) );
 	}
 
 	/**

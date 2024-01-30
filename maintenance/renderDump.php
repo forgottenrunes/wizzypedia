@@ -28,7 +28,7 @@
  * @ingroup Maintenance
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\User\User;
 
 require_once __DIR__ . '/Maintenance.php';
 
@@ -60,14 +60,14 @@ class DumpRenderer extends Maintenance {
 		$this->startTime = microtime( true );
 
 		if ( $this->hasOption( 'parser' ) ) {
-			$this->prefix .= "-{$this->getOption( 'parser' )}";
+			$this->prefix .= '-' . $this->getOption( 'parser' );
 			// T236809: We'll need to provide an alternate ParserFactory
 			// service to make this work.
 			$this->fatalError( 'Parser class configuration temporarily disabled.' );
 		}
 
 		$source = new ImportStreamSource( $this->getStdin() );
-		$importer = MediaWikiServices::getInstance()
+		$importer = $this->getServiceContainer()
 			->getWikiImporterFactory()
 			->getWikiImporter( $source );
 
@@ -108,13 +108,13 @@ class DumpRenderer extends Maintenance {
 			$this->prefix,
 			$this->count,
 			$sanitized );
-		$this->output( sprintf( "%s\n", $filename, $display ) );
+		$this->output( sprintf( "%s\t%s\n", $filename, $display ) );
 
 		$user = new User();
 		$options = ParserOptions::newFromUser( $user );
 
 		$content = $rev->getContent();
-		$contentRenderer = MediaWikiServices::getInstance()->getContentRenderer();
+		$contentRenderer = $this->getServiceContainer()->getContentRenderer();
 		$output = $contentRenderer->getParserOutput( $content, $title, null, $options );
 
 		file_put_contents( $filename,

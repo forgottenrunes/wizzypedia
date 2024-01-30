@@ -14,9 +14,21 @@ class RequestFromGlobalsTest extends MediaWikiIntegrationTestCase {
 	 */
 	private $reqFromGlobals;
 
+	/**
+	 * @var array
+	 */
+	private $oldServer;
+
 	protected function setUp(): void {
 		parent::setUp();
 		$this->reqFromGlobals = new RequestFromGlobals();
+
+		$this->oldServer = $_SERVER;
+	}
+
+	protected function tearDown(): void {
+		$_SERVER = $this->oldServer;
+		parent::tearDown();
 	}
 
 	/**
@@ -100,12 +112,12 @@ class RequestFromGlobalsTest extends MediaWikiIntegrationTestCase {
 			'CONTENT_MD5' => 'rL0Y20zC+Fzt72VPzMSk2A==',
 		] );
 
-		$this->assertEquals( $this->reqFromGlobals->getHeaders(), [
+		$this->assertEquals( [
 			'Host' => [ '[::1]' ],
 			'Content-Length' => [ 6 ],
 			'Content-Type' => [ 'application/json' ],
 			'Content-Md5' => [ 'rL0Y20zC+Fzt72VPzMSk2A==' ],
-		] );
+		], $this->reqFromGlobals->getHeaders() );
 	}
 
 	public function testGetHeaderKeyIsCaseInsensitive() {

@@ -3,13 +3,14 @@ declare( strict_types = 1 );
 
 namespace Wikimedia\Parsoid\Wt2Html\PP\Handlers;
 
-use Wikimedia\Parsoid\Config\Env;
 use Wikimedia\Parsoid\Core\DomSourceRange;
 use Wikimedia\Parsoid\Core\Sanitizer;
 use Wikimedia\Parsoid\DOM\Comment;
 use Wikimedia\Parsoid\DOM\Element;
+use Wikimedia\Parsoid\DOM\Node;
 use Wikimedia\Parsoid\DOM\Text;
 use Wikimedia\Parsoid\NodeData\DataParsoid;
+use Wikimedia\Parsoid\Utils\DOMCompat;
 use Wikimedia\Parsoid\Utils\DOMDataUtils;
 use Wikimedia\Parsoid\Utils\DOMUtils;
 use Wikimedia\Parsoid\Utils\Utils;
@@ -89,16 +90,41 @@ class DisplaySpace {
 	}
 
 	/**
-	 * French spaces, Guillemet-left
+	 * Omit handling node
 	 *
-	 * @param Text $node
-	 * @param Env $env
-	 * @return bool|Element
+	 * @param Node $node
+	 * @return bool|Node
 	 */
-	public static function leftHandler( Text $node, Env $env ) {
-		if ( DOMUtils::isRawTextElement( $node->parentNode ) ) {
+	private static function omitNode( Node $node ) {
+		$nodeName = DOMCompat::nodeName( $node );
+
+		// Go to next sibling if we encounter pre or raw text elements
+		if ( $nodeName === 'pre' || DOMUtils::isRawTextElement( $node ) ) {
+			return $node->nextSibling;
+		}
+
+		// Run handlers only on text nodes
+		if ( !( $node instanceof Text ) ) {
 			return true;
 		}
+
+		return false;
+	}
+
+	/**
+	 * French spaces, Guillemet-left
+	 *
+	 * @param Node $node
+	 * @return bool|Element
+	 */
+	public static function leftHandler( Node $node ) {
+		$omit = self::omitNode( $node );
+		if ( $omit !== false ) {
+			return $omit;
+		}
+
+		'@phan-var Text $node'; // @var Text $node
+
 		$key = array_keys( array_slice( Sanitizer::FIXTAGS, 0, 1 ) )[0];
 		if ( preg_match( $key, $node->nodeValue, $matches, PREG_OFFSET_CAPTURE ) ) {
 			$offset = $matches[0][1];
@@ -111,14 +137,17 @@ class DisplaySpace {
 	/**
 	 * French spaces, Guillemet-right
 	 *
-	 * @param Text $node
-	 * @param Env $env
+	 * @param Node $node
 	 * @return bool|Element
 	 */
-	public static function rightHandler( Text $node, Env $env ) {
-		if ( DOMUtils::isRawTextElement( $node->parentNode ) ) {
-			return true;
+	public static function rightHandler( Node $node ) {
+		$omit = self::omitNode( $node );
+		if ( $omit !== false ) {
+			return $omit;
 		}
+
+		'@phan-var Text $node'; // @var Text $node
+
 		$key = array_keys( array_slice( Sanitizer::FIXTAGS, 1, 1 ) )[0];
 		if ( preg_match( $key, $node->nodeValue, $matches, PREG_OFFSET_CAPTURE ) ) {
 			$offset = $matches[1][1] + strlen( $matches[1][0] );

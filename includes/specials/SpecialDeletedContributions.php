@@ -21,14 +21,27 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use HTMLForm;
+use LogEventsList;
 use MediaWiki\Block\DatabaseBlock;
+use MediaWiki\Cache\LinkBatchFactory;
+use MediaWiki\CommentFormatter\CommentFormatter;
+use MediaWiki\Html\FormOptions;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Pager\DeletedContribsPager;
 use MediaWiki\Permissions\PermissionManager;
 use MediaWiki\Revision\RevisionFactory;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\NamespaceInfo;
+use MediaWiki\User\User;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserNamePrefixSearch;
 use MediaWiki\User\UserNameUtils;
+use MediaWiki\User\UserRigorOptions;
 use Wikimedia\IPUtils;
-use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * Implements Special:DeletedContributions to display archived revisions
@@ -38,59 +51,48 @@ class SpecialDeletedContributions extends SpecialPage {
 	/** @var FormOptions */
 	protected $mOpts;
 
-	/** @var PermissionManager */
-	private $permissionManager;
-
-	/** @var ILoadBalancer */
-	private $loadBalancer;
-
-	/** @var CommentStore */
-	private $commentStore;
-
-	/** @var RevisionFactory */
-	private $revisionFactory;
-
-	/** @var NamespaceInfo */
-	private $namespaceInfo;
-
-	/** @var UserFactory */
-	private $userFactory;
-
-	/** @var UserNameUtils */
-	private $userNameUtils;
-
-	/** @var UserNamePrefixSearch */
-	private $userNamePrefixSearch;
+	private PermissionManager $permissionManager;
+	private IConnectionProvider $dbProvider;
+	private RevisionFactory $revisionFactory;
+	private NamespaceInfo $namespaceInfo;
+	private UserFactory $userFactory;
+	private UserNameUtils $userNameUtils;
+	private UserNamePrefixSearch $userNamePrefixSearch;
+	private CommentFormatter $commentFormatter;
+	private LinkBatchFactory $linkBatchFactory;
 
 	/**
 	 * @param PermissionManager $permissionManager
-	 * @param ILoadBalancer $loadBalancer
-	 * @param CommentStore $commentStore
+	 * @param IConnectionProvider $dbProvider
 	 * @param RevisionFactory $revisionFactory
 	 * @param NamespaceInfo $namespaceInfo
 	 * @param UserFactory $userFactory
 	 * @param UserNameUtils $userNameUtils
 	 * @param UserNamePrefixSearch $userNamePrefixSearch
+	 * @param CommentFormatter $commentFormatter
+	 * @param LinkBatchFactory $linkBatchFactory
 	 */
 	public function __construct(
 		PermissionManager $permissionManager,
-		ILoadBalancer $loadBalancer,
-		CommentStore $commentStore,
+		IConnectionProvider $dbProvider,
 		RevisionFactory $revisionFactory,
 		NamespaceInfo $namespaceInfo,
 		UserFactory $userFactory,
 		UserNameUtils $userNameUtils,
-		UserNamePrefixSearch $userNamePrefixSearch
+		UserNamePrefixSearch $userNamePrefixSearch,
+		CommentFormatter $commentFormatter,
+		LinkBatchFactory $linkBatchFactory
 	) {
 		parent::__construct( 'DeletedContributions', 'deletedhistory' );
 		$this->permissionManager = $permissionManager;
-		$this->loadBalancer = $loadBalancer;
-		$this->commentStore = $commentStore;
+		$this->dbProvider = $dbProvider;
 		$this->revisionFactory = $revisionFactory;
 		$this->namespaceInfo = $namespaceInfo;
 		$this->userFactory = $userFactory;
 		$this->userNameUtils = $userNameUtils;
 		$this->userNamePrefixSearch = $userNamePrefixSearch;
+		$this->commentFormatter = $commentFormatter;
+		$this->linkBatchFactory = $linkBatchFactory;
 	}
 
 	/**
@@ -104,7 +106,10 @@ class SpecialDeletedContributions extends SpecialPage {
 		$this->outputHeader();
 		$this->checkPermissions();
 		$out = $this->getOutput();
-		$out->addModuleStyles( 'mediawiki.interface.helpers.styles' );
+		$out->addModuleStyles( [
+			'mediawiki.interface.helpers.styles',
+			'mediawiki.special.changeslist',
+		] );
 		$this->addHelpLink( 'Help:User contributions' );
 
 		$opts = new FormOptions();
@@ -114,11 +119,12 @@ class SpecialDeletedContributions extends SpecialPage {
 		$opts->add( 'limit', 20 );
 
 		$opts->fetchValuesFromRequest( $this->getRequest() );
-		$opts->validateIntBounds( 'limit', 0, $this->getConfig()->get( 'QueryPageDefaultLimit' ) );
+		$opts->validateIntBounds( 'limit', 0,
+			$this->getConfig()->get( MainConfigNames::QueryPageDefaultLimit ) );
 
 		if ( $par !== null ) {
 			// Beautify the username
-			$par = $this->userNameUtils->getCanonical( $par, UserNameUtils::RIGOR_NONE );
+			$par = $this->userNameUtils->getCanonical( $par, UserRigorOptions::RIGOR_NONE );
 			$opts->setValue( 'target', (string)$par );
 		}
 
@@ -136,28 +142,35 @@ class SpecialDeletedContributions extends SpecialPage {
 			return;
 		}
 
-		$userObj = $this->userFactory->newFromName( $target, UserFactory::RIGOR_NONE );
+		$userObj = $this->userFactory->newFromName( $target, UserRigorOptions::RIGOR_NONE );
 		if ( !$userObj ) {
 			$this->getForm();
 
 			return;
 		}
-		$this->getSkin()->setRelevantUser( $userObj );
+		// Only set valid local user as the relevant user (T344886)
+		// Uses the same condition as the SpecialContributions class did
+		if ( !IPUtils::isValidRange( $target ) &&
+			( $this->userNameUtils->isIP( $target ) || $userObj->isRegistered() )
+		) {
+			$this->getSkin()->setRelevantUser( $userObj );
+		}
 
 		$target = $userObj->getName();
 
 		$out->addSubtitle( $this->getSubTitle( $userObj ) );
-		$out->setPageTitle( $this->msg( 'deletedcontributions-title', $target ) );
+		$out->setPageTitleMsg( $this->msg( 'deletedcontributions-title' )->plaintextParams( $target ) );
 
 		$this->getForm();
 
 		$pager = new DeletedContribsPager(
 			$this->getContext(),
-			$this->commentStore,
 			$this->getHookContainer(),
 			$this->getLinkRenderer(),
-			$this->loadBalancer,
+			$this->dbProvider,
 			$this->revisionFactory,
+			$this->commentFormatter,
+			$this->linkBatchFactory,
 			$target,
 			$opts->getValue( 'namespace' )
 		);
@@ -288,7 +301,7 @@ class SpecialDeletedContributions extends SpecialPage {
 			->setWrapperLegendMsg( 'sp-contributions-search' )
 			->setSubmitTextMsg( 'sp-contributions-submit' )
 			// prevent setting subpage and 'target' parameter at the same time
-			->setAction( $this->getPageTitle()->getLocalURL() )
+			->setTitle( $this->getPageTitle() )
 			->setMethod( 'get' )
 			->prepareForm()
 			->displayForm( false );
@@ -317,3 +330,8 @@ class SpecialDeletedContributions extends SpecialPage {
 		return 'users';
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialDeletedContributions::class, 'SpecialDeletedContributions' );

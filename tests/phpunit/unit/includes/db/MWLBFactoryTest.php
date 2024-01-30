@@ -18,8 +18,13 @@
  * @file
  */
 
+use MediaWiki\Config\ServiceOptions;
+use Wikimedia\Rdbms\ChronologyProtector;
+use Wikimedia\Rdbms\ConfiguredReadOnlyMode;
 use Wikimedia\Rdbms\DatabaseDomain;
 use Wikimedia\Rdbms\LBFactorySimple;
+use Wikimedia\RequestTimeout\CriticalSectionProvider;
+use Wikimedia\RequestTimeout\RequestTimeout;
 
 /**
  * @covers \Wikimedia\Rdbms\LBFactory
@@ -27,6 +32,20 @@ use Wikimedia\Rdbms\LBFactorySimple;
  * @covers \Wikimedia\Rdbms\LBFactoryMulti
  */
 class MWLBFactoryTest extends MediaWikiUnitTestCase {
+
+	private function newMWLBFactory() {
+		return new MWLBFactory(
+			new ServiceOptions( [], [] ),
+			new ConfiguredReadOnlyMode( 'Test' ),
+			new ChronologyProtector(),
+			new EmptyBagOStuff(),
+			new WANObjectCache( [ 'cache' => new EmptyBagOStuff() ] ),
+			new CriticalSectionProvider( RequestTimeout::singleton(), 1, null, null ),
+			new NullStatsdDataFactory(),
+			[]
+		);
+	}
+
 	/**
 	 * @covers MWLBFactory::getLBFactoryClass
 	 * @dataProvider getLBFactoryClassProvider
@@ -34,11 +53,11 @@ class MWLBFactoryTest extends MediaWikiUnitTestCase {
 	public function testGetLBFactoryClass( $config, $expected ) {
 		$this->assertEquals(
 			$expected,
-			MWLBFactory::getLBFactoryClass( $config )
+			$this->newMWLBFactory()->getLBFactoryClass( $config )
 		);
 	}
 
-	public function getLBFactoryClassProvider() {
+	public static function getLBFactoryClassProvider() {
 		yield 'undercore alias default' => [
 			[ 'class' => 'LBFactory_Simple' ],
 			Wikimedia\Rdbms\LBFactorySimple::class,
@@ -65,12 +84,12 @@ class MWLBFactoryTest extends MediaWikiUnitTestCase {
 			'servers' => $servers,
 			'localDomain' => new DatabaseDomain( $dbname, null, $prefix )
 		] );
-		MWLBFactory::setDomainAliases( $lbFactory );
+		$this->newMWLBFactory()->setDomainAliases( $lbFactory );
 
 		$rawDomain = rtrim( "$dbname-$prefix", '-' );
 		$this->assertEquals(
 			$expectedDomain,
-			$lbFactory->resolveDomainID( $rawDomain ),
+			$lbFactory->getMainLB()->resolveDomainID( $rawDomain ),
 			'Domain aliases set'
 		);
 	}

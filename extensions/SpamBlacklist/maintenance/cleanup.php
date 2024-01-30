@@ -6,10 +6,13 @@
  * If all revisions contain spam, blanks the page
  */
 
+use MediaWiki\Extension\SpamBlacklist\BaseBlacklist;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Page\WikiPageFactory;
 use MediaWiki\Revision\RevisionLookup;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Title\Title;
 
 $IP = getenv( 'MW_INSTALL_PATH' );
 if ( $IP === false ) {
@@ -22,11 +25,14 @@ class Cleanup extends Maintenance {
 	private $revisionLookup;
 	/** @var TitleFormatter */
 	private $titleFormatter;
+	/** @var WikiPageFactory */
+	private $wikiPageFactory;
 
 	public function __construct() {
 		parent::__construct();
 		$this->revisionLookup = MediaWikiServices::getInstance()->getRevisionLookup();
 		$this->titleFormatter = MediaWikiServices::getInstance()->getTitleFormatter();
+		$this->wikiPageFactory = MediaWikiServices::getInstance()->getWikiPageFactory();
 
 		$this->requireExtension( 'SpamBlacklist' );
 		$this->addOption( 'dry-run', 'Only do a dry run' );
@@ -46,7 +52,7 @@ class Cleanup extends Maintenance {
 		$maxID = (int)$dbr->selectField( 'page', 'MAX(page_id)', [], __METHOD__ );
 		$reportingInterval = 100;
 
-		$this->output( "Regexes are " . implode( ', ', array_map( 'count', $regexes ) ) . " bytes\n" );
+		$this->output( "Regexes are " . implode( ', ', array_map( 'strlen', $regexes ) ) . " bytes\n" );
 		$this->output( "Searching for spam in $maxID pages...\n" );
 		if ( $dryRun ) {
 			$this->output( "Dry run only\n" );
@@ -117,7 +123,7 @@ class Cleanup extends Maintenance {
 				ContentHandler::makeContent( '', $title );
 			$comment = "Cleaning up links to $match";
 		}
-		$wikiPage = new WikiPage( $title );
+		$wikiPage = $this->wikiPageFactory->newFromTitle( $title );
 		$wikiPage->doUserEditContent( $content, $user, $comment );
 	}
 }

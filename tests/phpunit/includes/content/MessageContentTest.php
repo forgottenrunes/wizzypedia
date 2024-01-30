@@ -1,5 +1,7 @@
 <?php
 
+use MediaWiki\Language\RawMessage;
+
 /**
  * @group ContentHandler
  * @covers MessageContent
@@ -20,6 +22,14 @@ class MessageContentTest extends MediaWikiLangTestCase {
 		$cnt = new MessageContent( $msg );
 
 		$this->assertEquals( $msg, $cnt->getMessage() );
+	}
+
+	public function testGetTextForSummary() {
+		$msg = new RawMessage( 'ää' );
+		$this->hideDeprecated( 'MessageContent' );
+		$cnt = new MessageContent( $msg );
+
+		$this->assertSame( 'ä', $cnt->getTextForSummary( 3 ) );
 	}
 
 	public function testSerialize() {

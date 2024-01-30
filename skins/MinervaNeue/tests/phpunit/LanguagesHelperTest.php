@@ -1,10 +1,13 @@
 <?php
 
-namespace Tests\MediaWiki\Minerva;
+namespace MediaWiki\Minerva;
 
 use ILanguageConverter;
+use Language;
 use MediaWiki\Languages\LanguageConverterFactory;
-use MediaWiki\Minerva\LanguagesHelper;
+use MediaWiki\Title\Title;
+use MediaWikiIntegrationTestCase;
+use OutputPage;
 use PHPUnit\Framework\MockObject\Invocation;
 
 /**
@@ -12,15 +15,15 @@ use PHPUnit\Framework\MockObject\Invocation;
  * @group MinervaNeue
  * @coversDefaultClass \MediaWiki\Minerva\LanguagesHelper
  */
-class LanguagesHelperTest extends \MediaWikiIntegrationTestCase {
+class LanguagesHelperTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * Build test Output object
 	 * @param array $langLinks
-	 * @return \OutputPage
+	 * @return OutputPage
 	 */
 	private function getOutput( array $langLinks ) {
-		$out = $this->createMock( \OutputPage::class );
+		$out = $this->createMock( OutputPage::class );
 		$out->expects( $this->once() )
 			->method( 'getLanguageLinks' )
 			->willReturn( $langLinks );
@@ -32,17 +35,17 @@ class LanguagesHelperTest extends \MediaWikiIntegrationTestCase {
 	 * Build test Title object
 	 * @param bool $hasVariants
 	 * @param Invocation|null $matcher
-	 * @return \Title
+	 * @return Title
 	 */
 	private function getTitle( $hasVariants, Invocation $matcher = null ) {
-		$languageMock = $this->createMock( \Language::class );
+		$languageMock = $this->createMock( Language::class );
 		$langConv = $this->createMock( ILanguageConverter::class );
 		$langConv->expects( $matcher ?? $this->any() )->method( 'hasVariants' )->willReturn( $hasVariants );
 		$langConvFactory = $this->createMock( LanguageConverterFactory::class );
 		$langConvFactory->method( 'getLanguageConverter' )->with( $languageMock )->willReturn( $langConv );
 		$this->setService( 'LanguageConverterFactory', $langConvFactory );
 
-		$title = $this->createMock( \Title::class );
+		$title = $this->createMock( Title::class );
 		$title->expects( $matcher ?? $this->any() )
 			->method( 'getPageLanguage' )
 			->willReturn( $languageMock );

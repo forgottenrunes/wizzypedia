@@ -80,16 +80,6 @@ class MultiWriteBagOStuff extends BagOStuff {
 			if ( $cacheInfo instanceof BagOStuff ) {
 				$this->caches[] = $cacheInfo;
 			} else {
-				if ( !isset( $cacheInfo['args'] ) ) {
-					// B/C for when $cacheInfo was for ObjectCache::newFromParams().
-					// Callers intending this to be for ObjectFactory::getObjectFromSpec
-					// should have set "args" per the docs above. Doings so avoids extra
-					// (likely harmless) params (factory/class/calls) ending up in "args".
-					$cacheInfo['args'] = [ $cacheInfo ];
-				}
-
-				// ObjectFactory::getObjectFromSpec accepts an array, not just a callable (phan bug)
-				// @phan-suppress-next-line PhanTypeInvalidCallableArraySize
 				$this->caches[] = ObjectFactory::getObjectFromSpec( $cacheInfo );
 			}
 		}
@@ -122,7 +112,8 @@ class MultiWriteBagOStuff extends BagOStuff {
 		}
 
 		$value = false;
-		$missIndexes = []; // backends checked
+		// backends checked
+		$missIndexes = [];
 		foreach ( $this->cacheIndexes as $i ) {
 			$value = $this->callKeyMethodOnTierCache(
 				$i,
@@ -145,7 +136,6 @@ class MultiWriteBagOStuff extends BagOStuff {
 			// Backfill the value to the higher (and often faster/smaller) cache tiers
 			$this->callKeyWriteMethodOnTierCaches(
 				$missIndexes,
-				$this->asyncWrites,
 				'set',
 				self::ARG0_KEY,
 				self::RES_NONKEY,
@@ -159,7 +149,6 @@ class MultiWriteBagOStuff extends BagOStuff {
 	public function set( $key, $value, $exptime = 0, $flags = 0 ) {
 		return $this->callKeyWriteMethodOnTierCaches(
 			$this->cacheIndexes,
-			$this->useAsyncSecondaryWrites( $flags ),
 			__FUNCTION__,
 			self::ARG0_KEY,
 			self::RES_NONKEY,
@@ -170,7 +159,6 @@ class MultiWriteBagOStuff extends BagOStuff {
 	public function delete( $key, $flags = 0 ) {
 		return $this->callKeyWriteMethodOnTierCaches(
 			$this->cacheIndexes,
-			$this->useAsyncSecondaryWrites( $flags ),
 			__FUNCTION__,
 			self::ARG0_KEY,
 			self::RES_NONKEY,
@@ -194,7 +182,6 @@ class MultiWriteBagOStuff extends BagOStuff {
 			// keys. In that case, it makes no sense to return false due to "self-conflicts".
 			$okSecondaries = $this->callKeyWriteMethodOnTierCaches(
 				array_slice( $this->cacheIndexes, 1 ),
-				$this->useAsyncSecondaryWrites( $flags ),
 				'set',
 				self::ARG0_KEY,
 				self::RES_NONKEY,
@@ -211,7 +198,6 @@ class MultiWriteBagOStuff extends BagOStuff {
 	public function merge( $key, callable $callback, $exptime = 0, $attempts = 10, $flags = 0 ) {
 		return $this->callKeyWriteMethodOnTierCaches(
 			$this->cacheIndexes,
-			$this->useAsyncSecondaryWrites( $flags ),
 			__FUNCTION__,
 			self::ARG0_KEY,
 			self::RES_NONKEY,
@@ -222,7 +208,6 @@ class MultiWriteBagOStuff extends BagOStuff {
 	public function changeTTL( $key, $exptime = 0, $flags = 0 ) {
 		return $this->callKeyWriteMethodOnTierCaches(
 			$this->cacheIndexes,
-			$this->useAsyncSecondaryWrites( $flags ),
 			__FUNCTION__,
 			self::ARG0_KEY,
 			self::RES_NONKEY,
@@ -284,7 +269,6 @@ class MultiWriteBagOStuff extends BagOStuff {
 	public function setMulti( array $valueByKey, $exptime = 0, $flags = 0 ) {
 		return $this->callKeyWriteMethodOnTierCaches(
 			$this->cacheIndexes,
-			$this->useAsyncSecondaryWrites( $flags ),
 			__FUNCTION__,
 			self::ARG0_KEYMAP,
 			self::RES_NONKEY,
@@ -295,7 +279,6 @@ class MultiWriteBagOStuff extends BagOStuff {
 	public function deleteMulti( array $keys, $flags = 0 ) {
 		return $this->callKeyWriteMethodOnTierCaches(
 			$this->cacheIndexes,
-			$this->useAsyncSecondaryWrites( $flags ),
 			__FUNCTION__,
 			self::ARG0_KEYARR,
 			self::RES_NONKEY,
@@ -306,31 +289,8 @@ class MultiWriteBagOStuff extends BagOStuff {
 	public function changeTTLMulti( array $keys, $exptime, $flags = 0 ) {
 		return $this->callKeyWriteMethodOnTierCaches(
 			$this->cacheIndexes,
-			$this->useAsyncSecondaryWrites( $flags ),
 			__FUNCTION__,
 			self::ARG0_KEYARR,
-			self::RES_NONKEY,
-			func_get_args()
-		);
-	}
-
-	public function incr( $key, $value = 1, $flags = 0 ) {
-		return $this->callKeyWriteMethodOnTierCaches(
-			$this->cacheIndexes,
-			$this->useAsyncSecondaryWrites( $flags ),
-			__FUNCTION__,
-			self::ARG0_KEY,
-			self::RES_NONKEY,
-			func_get_args()
-		);
-	}
-
-	public function decr( $key, $value = 1, $flags = 0 ) {
-		return $this->callKeyWriteMethodOnTierCaches(
-			$this->cacheIndexes,
-			$this->useAsyncSecondaryWrites( $flags ),
-			__FUNCTION__,
-			self::ARG0_KEY,
 			self::RES_NONKEY,
 			func_get_args()
 		);
@@ -339,39 +299,8 @@ class MultiWriteBagOStuff extends BagOStuff {
 	public function incrWithInit( $key, $exptime, $step = 1, $init = null, $flags = 0 ) {
 		return $this->callKeyWriteMethodOnTierCaches(
 			$this->cacheIndexes,
-			$this->useAsyncSecondaryWrites( $flags ),
 			__FUNCTION__,
 			self::ARG0_KEY,
-			self::RES_NONKEY,
-			func_get_args()
-		);
-	}
-
-	public function makeKeyInternal( $keyspace, $components ) {
-		return $this->genericKeyFromComponents( $keyspace, ...$components );
-	}
-
-	public function makeKey( $collection, ...$components ) {
-		return $this->genericKeyFromComponents( $this->keyspace, $collection, ...$components );
-	}
-
-	public function makeGlobalKey( $collection, ...$components ) {
-		return $this->genericKeyFromComponents( self::GLOBAL_KEYSPACE, $collection, ...$components );
-	}
-
-	protected function convertGenericKey( $key ) {
-		return $key; // short-circuit; already uses "generic" keys
-	}
-
-	public function addBusyCallback( callable $workCallback ) {
-		$this->caches[0]->addBusyCallback( $workCallback );
-	}
-
-	public function setNewPreparedValues( array $valueByKey ) {
-		return $this->callKeyMethodOnTierCache(
-			0,
-			__FUNCTION__,
-			self::ARG0_KEYMAP,
 			self::RES_NONKEY,
 			func_get_args()
 		);
@@ -402,7 +331,6 @@ class MultiWriteBagOStuff extends BagOStuff {
 	 * Call a write method on the cache instances, in order, for the given tiers (indexes)
 	 *
 	 * @param int[] $indexes List of cache tiers
-	 * @param bool $asyncSecondary Whether to use asynchronous writes for secondary tiers
 	 * @param string $method Method name
 	 * @param int $arg0Sig BagOStuff::ARG0_* constant describing argument 0
 	 * @param int $resSig BagOStuff::RES_* constant describing the return value
@@ -411,7 +339,6 @@ class MultiWriteBagOStuff extends BagOStuff {
 	 */
 	private function callKeyWriteMethodOnTierCaches(
 		array $indexes,
-		$asyncSecondary,
 		$method,
 		$arg0Sig,
 		$resSig,
@@ -419,7 +346,7 @@ class MultiWriteBagOStuff extends BagOStuff {
 	) {
 		$res = null;
 
-		if ( $asyncSecondary && array_diff( $indexes, [ 0 ] ) && $method !== 'merge' ) {
+		if ( $this->asyncWrites && array_diff( $indexes, [ 0 ] ) && $method !== 'merge' ) {
 			// Deep-clone $args to prevent misbehavior when something writes an
 			// object to the BagOStuff then modifies it afterwards, e.g. T168040.
 			$args = unserialize( serialize( $args ) );
@@ -428,13 +355,14 @@ class MultiWriteBagOStuff extends BagOStuff {
 		foreach ( $indexes as $i ) {
 			$cache = $this->caches[$i];
 
-			if ( $i == 0 || !$asyncSecondary ) {
+			if ( $i == 0 || !$this->asyncWrites ) {
 				// Tier 0 store or in sync mode: write synchronously and get result
 				$storeRes = $cache->proxyCall( $method, $arg0Sig, $resSig, $args, $this );
 				if ( $storeRes === false ) {
 					$res = false;
 				} elseif ( $res === null ) {
-					$res = $storeRes; // first synchronous result
+					// first synchronous result
+					$res = $storeRes;
 				}
 			} else {
 				// Secondary write in async mode: do not block this HTTP request
@@ -447,13 +375,5 @@ class MultiWriteBagOStuff extends BagOStuff {
 		}
 
 		return $res;
-	}
-
-	/**
-	 * @param int $flags
-	 * @return bool
-	 */
-	private function useAsyncSecondaryWrites( $flags ) {
-		return $this->fieldHasFlags( $flags, self::WRITE_SYNC ) ? false : $this->asyncWrites;
 	}
 }

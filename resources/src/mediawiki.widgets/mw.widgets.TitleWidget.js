@@ -21,14 +21,16 @@
 	 * @cfg {boolean} [relative=true] If a namespace is set, display titles relative to it
 	 * @cfg {boolean} [suggestions=true] Display search suggestions
 	 * @cfg {boolean} [showRedirectTargets=true] Show the targets of redirects
-	 * @cfg {boolean} [showImages] Show page images
-	 * @cfg {boolean} [showDescriptions] Show page descriptions
-	 * @cfg {boolean} [showDisambigsLast] Show disambiguation pages as the last results
-	 * @cfg {boolean} [showMissing=true] Show missing pages
+	 * @cfg {boolean} [showImages=false] Show page images
+	 * @cfg {boolean} [showDescriptions=false] Show page descriptions
+	 * @cfg {boolean} [showDisambigsLast=false] Show disambiguation pages as the last results
+	 * @cfg {boolean} [showMissing] Show the user's input as a missing page when a page with this
+	 *  exact name doesn't exist. Disabled by default when the namespace option is used, otherwise
+	 *  enabled by default.
 	 * @cfg {boolean} [showInterwikis=false] Show pages with a valid interwiki prefix
 	 * @cfg {boolean} [addQueryInput=true] Add exact user's input query to results
-	 * @cfg {boolean} [excludeCurrentPage] Exclude the current page from suggestions
-	 * @cfg {boolean} [excludeDynamicNamespaces] Exclude pages whose namespace is negative
+	 * @cfg {boolean} [excludeCurrentPage=false] Exclude the current page from suggestions
+	 * @cfg {boolean} [excludeDynamicNamespaces=false] Exclude pages whose namespace is negative
 	 * @cfg {boolean} [validateTitle=true] Whether the input must be a valid title
 	 * @cfg {boolean} [required=false] Whether the input must not be empty
 	 * @cfg {boolean} [highlightSearchQuery=true] Highlight the partial query the user used for this title
@@ -52,7 +54,7 @@
 		this.showImages = !!config.showImages;
 		this.showDescriptions = !!config.showDescriptions;
 		this.showDisambigsLast = !!config.showDisambigsLast;
-		this.showMissing = config.showMissing !== false;
+		this.showMissing = config.showMissing !== undefined ? !!config.showMissing : this.namespace === null;
 		this.showInterwikis = !!config.showInterwikis;
 		this.addQueryInput = config.addQueryInput !== false;
 		this.excludeCurrentPage = !!config.excludeCurrentPage;
@@ -61,15 +63,10 @@
 		this.highlightSearchQuery = config.highlightSearchQuery === undefined ? true : !!config.highlightSearchQuery;
 		this.cache = config.cache;
 		this.api = config.api || new mw.Api();
-		// Supports: IE10, FF28, Chrome23
-		// eslint-disable-next-line compat/compat
-		this.compare = window.Intl && Intl.Collator ?
-			// eslint-disable-next-line compat/compat
-			new Intl.Collator(
-				mw.language.bcp47( mw.config.get( 'wgContentLanguage' ) ),
-				{ sensitivity: 'base' }
-			).compare :
-			null;
+		this.compare = new Intl.Collator(
+			mw.language.bcp47( mw.config.get( 'wgContentLanguage' ) ),
+			{ sensitivity: 'base' }
+		).compare;
 
 		// Initialization
 		this.$element.addClass( 'mw-widget-titleWidget' );
@@ -185,8 +182,12 @@
 				if ( !widget.showMissing ) {
 					return prefixSearchResponse;
 				}
+				var title = widget.namespace && widget.getMWTitle( query );
 				// Add the query title as the first result, after looking up its details.
-				var queryTitleRequest = api.get( { action: 'query', titles: query } );
+				var queryTitleRequest = api.get( {
+					action: 'query',
+					titles: title ? title.getPrefixedDb() : query
+				} );
 				promiseAbortObject.abort = queryTitleRequest.abort.bind( queryTitleRequest );
 				return queryTitleRequest.then( function ( queryTitleResponse ) {
 					// By default, return the prefix-search result.
@@ -419,7 +420,7 @@
 	mw.widgets.TitleWidget.prototype.getOptionWidgetData = function ( title, data ) {
 		var mwTitle = new mw.Title( title ),
 			description = data.description;
-		if ( data.missing && !description ) {
+		if ( !description && ( data.missing && !data.known ) ) {
 			description = mw.msg( 'mw-widgets-titleinput-description-new-page' );
 		}
 		return {
@@ -430,7 +431,7 @@
 			showImages: this.showImages,
 			imageUrl: this.showImages ? data.imageUrl : null,
 			description: this.showDescriptions ? description : null,
-			missing: data.missing,
+			missing: data.missing && !data.known,
 			redirect: data.redirect,
 			disambiguation: data.disambiguation,
 			query: this.highlightSearchQuery ? this.getQueryValue() : null,

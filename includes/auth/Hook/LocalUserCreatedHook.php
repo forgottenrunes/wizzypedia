@@ -2,7 +2,7 @@
 
 namespace MediaWiki\Auth\Hook;
 
-use User;
+use MediaWiki\User\User;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.
@@ -14,6 +14,9 @@ use User;
 interface LocalUserCreatedHook {
 	/**
 	 * This hook is called when a local user has been created.
+	 *
+	 * After this hook User::saveSettings is called to save all modification done in the hook handlers,
+	 * like changed user properties or changed user preferences.
 	 *
 	 * @since 1.35
 	 *

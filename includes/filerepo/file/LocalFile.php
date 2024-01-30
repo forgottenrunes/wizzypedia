@@ -1,7 +1,5 @@
 <?php
 /**
- * Local file in the wiki's own database.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,24 +16,27 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup FileAbstraction
  */
 
+use MediaWiki\CommentStore\CommentStoreComment;
 use MediaWiki\Deferred\LinksUpdate\LinksUpdate;
+use MediaWiki\FileRepo\File\FileSelectQueryBuilder;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Permissions\Authority;
-use MediaWiki\Revision\RevisionRecord;
-use MediaWiki\Storage\BlobStore;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
 use Wikimedia\Rdbms\Blob;
 use Wikimedia\Rdbms\Database;
-use Wikimedia\Rdbms\IDatabase;
+use Wikimedia\Rdbms\IReadableDatabase;
 use Wikimedia\Rdbms\IResultWrapper;
+use Wikimedia\Rdbms\SelectQueryBuilder;
 
 /**
- * Class to represent a local file in the wiki's own database
+ * Local file in the wiki's own database.
  *
  * Provides methods to retrieve paths (physical, logical, URL),
  * to generate image thumbnails or for uploading.
@@ -177,6 +178,9 @@ class LocalFile extends File {
 	/** @var bool True if file is not present in file system. Not to be cached in memcached */
 	private $missing;
 
+	/** @var MetadataStorageHelper */
+	private $metadataStorageHelper;
+
 	// @note: higher than IDBAccessObject constants
 	private const LOAD_ALL = 16; // integer; load all the lazy fields too (like metadata)
 
@@ -191,7 +195,7 @@ class LocalFile extends File {
 	 * @stable to override
 	 *
 	 * @param Title $title
-	 * @param FileRepo $repo
+	 * @param LocalRepo $repo
 	 * @param null $unused
 	 *
 	 * @return static
@@ -207,7 +211,7 @@ class LocalFile extends File {
 	 * @stable to override
 	 *
 	 * @param stdClass $row
-	 * @param FileRepo $repo
+	 * @param LocalRepo $repo
 	 *
 	 * @return static
 	 */
@@ -227,21 +231,20 @@ class LocalFile extends File {
 	 *
 	 * @param string $sha1 Base-36 SHA-1
 	 * @param LocalRepo $repo
-	 * @param string|bool $timestamp MW_timestamp (optional)
-	 * @return bool|LocalFile
+	 * @param string|false $timestamp MW_timestamp (optional)
+	 * @return static|false
 	 */
 	public static function newFromKey( $sha1, $repo, $timestamp = false ) {
 		$dbr = $repo->getReplicaDB();
+		$queryBuilder = FileSelectQueryBuilder::newForFile( $dbr );
 
-		$conds = [ 'img_sha1' => $sha1 ];
+		$queryBuilder->where( [ 'img_sha1' => $sha1 ] );
+
 		if ( $timestamp ) {
-			$conds['img_timestamp'] = $dbr->timestamp( $timestamp );
+			$queryBuilder->andWhere( [ 'img_timestamp' => $dbr->timestamp( $timestamp ) ] );
 		}
 
-		$fileQuery = static::getQueryInfo();
-		$row = $dbr->selectRow(
-			$fileQuery['tables'], $fileQuery['fields'], $conds, __METHOD__, [], $fileQuery['joins']
-		);
+		$row = $queryBuilder->caller( __METHOD__ )->fetchRow();
 		if ( $row ) {
 			return static::newFromRow( $row, $repo );
 		} else {
@@ -260,52 +263,24 @@ class LocalFile extends File {
 	 * @since 1.31
 	 * @stable to override
 	 *
+	 * @deprecated since 1.41 use FileSelectQueryBuilder instead
 	 * @param string[] $options
 	 *   - omit-lazy: Omit fields that are lazily cached.
 	 * @return array[] With three keys:
-	 *   - tables: (string[]) to include in the `$table` to `IDatabase->select()`
-	 *   - fields: (string[]) to include in the `$vars` to `IDatabase->select()`
-	 *   - joins: (array) to include in the `$join_conds` to `IDatabase->select()`
+	 *   - tables: (string[]) to include in the `$table` to `IDatabase->select()` or `SelectQueryBuilder::tables`
+	 *   - fields: (string[]) to include in the `$vars` to `IDatabase->select()` or `SelectQueryBuilder::fields`
+	 *   - joins: (array) to include in the `$join_conds` to `IDatabase->select()` or `SelectQueryBuilder::joinConds`
+	 * @phan-return array{tables:string[],fields:string[],joins:array}
 	 */
 	public static function getQueryInfo( array $options = [] ) {
-		$commentQuery = MediaWikiServices::getInstance()->getCommentStore()->getJoin( 'img_description' );
-		$ret = [
-			'tables' => [
-				'image',
-				'image_actor' => 'actor'
-			] + $commentQuery['tables'],
-			'fields' => [
-				'img_name',
-				'img_size',
-				'img_width',
-				'img_height',
-				'img_metadata',
-				'img_bits',
-				'img_media_type',
-				'img_major_mime',
-				'img_minor_mime',
-				'img_timestamp',
-				'img_sha1',
-				'img_actor',
-				'img_user' => 'image_actor.actor_user',
-				'img_user_text' => 'image_actor.actor_name',
-			] + $commentQuery['fields'],
-			'joins' => [
-				'image_actor' => [ 'JOIN', 'actor_id=img_actor' ]
-			] + $commentQuery['joins'],
+		$dbr = MediaWikiServices::getInstance()->getDBLoadBalancerFactory()->getReplicaDatabase();
+		$queryInfo = FileSelectQueryBuilder::newForFile( $dbr, $options )->getQueryInfo();
+		// needs remapping...
+		return [
+			'tables' => $queryInfo['tables'],
+			'fields' => $queryInfo['fields'],
+			'joins' => $queryInfo['join_conds'],
 		];
-
-		if ( in_array( 'omit-nonlazy', $options, true ) ) {
-			// Internal use only for getting only the lazy fields
-			$ret['fields'] = [];
-		}
-		if ( !in_array( 'omit-lazy', $options, true ) ) {
-			// Note: Keep this in sync with self::getLazyCacheFields() and
-			// self::loadExtraFromDB()
-			$ret['fields'][] = 'img_metadata';
-		}
-
-		return $ret;
 	}
 
 	/**
@@ -313,17 +288,18 @@ class LocalFile extends File {
 	 * @stable to call
 	 *
 	 * @param Title $title
-	 * @param FileRepo $repo
+	 * @param LocalRepo $repo
 	 */
 	public function __construct( $title, $repo ) {
 		parent::__construct( $title, $repo );
+		$this->metadataStorageHelper = new MetadataStorageHelper( $repo );
 
 		$this->assertRepoDefined();
 		$this->assertTitleDefined();
 	}
 
 	/**
-	 * @return LocalRepo|bool
+	 * @return LocalRepo|false
 	 */
 	public function getRepo() {
 		return $this->repo;
@@ -333,19 +309,10 @@ class LocalFile extends File {
 	 * Get the memcached key for the main data for this file, or false if
 	 * there is no access to the shared cache.
 	 * @stable to override
-	 * @return string|bool
+	 * @return string|false
 	 */
 	protected function getCacheKey() {
 		return $this->repo->getSharedCacheKey( 'file', sha1( $this->getName() ) );
-	}
-
-	/**
-	 * @param WANObjectCache $cache
-	 * @return string[]
-	 * @since 1.28
-	 */
-	public function getMutableCacheKeys( WANObjectCache $cache ) {
-		return [ $this->getCacheKey() ];
 	}
 
 	/**
@@ -515,16 +482,10 @@ class LocalFile extends File {
 		$dbr = ( $flags & self::READ_LATEST )
 			? $this->repo->getPrimaryDB()
 			: $this->repo->getReplicaDB();
+		$queryBuilder = FileSelectQueryBuilder::newForFile( $dbr );
 
-		$fileQuery = static::getQueryInfo();
-		$row = $dbr->selectRow(
-			$fileQuery['tables'],
-			$fileQuery['fields'],
-			[ 'img_name' => $this->getName() ],
-			$fname,
-			[],
-			$fileQuery['joins']
-		);
+		$queryBuilder->where( [ 'img_name' => $this->getName() ] );
+		$row = $queryBuilder->caller( $fname )->fetchRow();
 
 		if ( $row ) {
 			$this->loadFromRow( $row );
@@ -565,41 +526,25 @@ class LocalFile extends File {
 	}
 
 	/**
-	 * @param IDatabase $dbr
+	 * @param IReadableDatabase $dbr
 	 * @param string $fname
-	 * @return string[]|bool
+	 * @return string[]|false
 	 */
-	private function loadExtraFieldsWithTimestamp( $dbr, $fname ) {
+	private function loadExtraFieldsWithTimestamp( IReadableDatabase $dbr, $fname ) {
 		$fieldMap = false;
 
-		$fileQuery = self::getQueryInfo( [ 'omit-nonlazy' ] );
-		$row = $dbr->selectRow(
-			$fileQuery['tables'],
-			$fileQuery['fields'],
-			[
-				'img_name' => $this->getName(),
-				'img_timestamp' => $dbr->timestamp( $this->getTimestamp() ),
-			],
-			$fname,
-			[],
-			$fileQuery['joins']
-		);
+		$queryBuilder = FileSelectQueryBuilder::newForFile( $dbr, [ 'omit-nonlazy' ] );
+		$queryBuilder->where( [ 'img_name' => $this->getName() ] )
+			->andWhere( [ 'img_timestamp' => $dbr->timestamp( $this->getTimestamp() ) ] );
+		$row = $queryBuilder->caller( $fname )->fetchRow();
 		if ( $row ) {
 			$fieldMap = $this->unprefixRow( $row, 'img_' );
 		} else {
 			# File may have been uploaded over in the meantime; check the old versions
-			$fileQuery = OldLocalFile::getQueryInfo( [ 'omit-nonlazy' ] );
-			$row = $dbr->selectRow(
-				$fileQuery['tables'],
-				$fileQuery['fields'],
-				[
-					'oi_name' => $this->getName(),
-					'oi_timestamp' => $dbr->timestamp( $this->getTimestamp() ),
-				],
-				$fname,
-				[],
-				$fileQuery['joins']
-			);
+			$queryBuilder = FileSelectQueryBuilder::newForOldFile( $dbr, [ 'omit-nonlazy' ] );
+			$row = $queryBuilder->where( [ 'oi_name' => $this->getName() ] )
+				->andWhere( [ 'oi_timestamp' => $dbr->timestamp( $this->getTimestamp() ) ] )
+				->caller( __METHOD__ )->fetchRow();
 			if ( $row ) {
 				$fieldMap = $this->unprefixRow( $row, 'oi_' );
 			}
@@ -619,7 +564,7 @@ class LocalFile extends File {
 		$prefixLength = strlen( $prefix );
 
 		// Double check prefix once
-		if ( substr( key( $array ), 0, $prefixLength ) !== $prefix ) {
+		if ( substr( array_key_first( $array ), 0, $prefixLength ) !== $prefix ) {
 			throw new MWException( __METHOD__ . ': incorrect $prefix parameter' );
 		}
 
@@ -744,7 +689,7 @@ class LocalFile extends File {
 	 * @internal
 	 */
 	public function maybeUpgradeRow() {
-		if ( wfReadOnly() || $this->upgrading ) {
+		if ( MediaWikiServices::getInstance()->getReadOnlyMode()->isReadOnly() || $this->upgrading ) {
 			return;
 		}
 
@@ -820,12 +765,13 @@ class LocalFile extends File {
 			return;
 		}
 
-		list( $major, $minor ) = self::splitMime( $this->mime );
+		[ $major, $minor ] = self::splitMime( $this->mime );
 
 		wfDebug( __METHOD__ . ': upgrading ' . $this->getName() . " to the current schema" );
 
-		$dbw->update( 'image',
-			[
+		$dbw->newUpdateQueryBuilder()
+			->update( 'image' )
+			->set( [
 				'img_size' => $this->size,
 				'img_width' => $this->width,
 				'img_height' => $this->height,
@@ -835,13 +781,10 @@ class LocalFile extends File {
 				'img_minor_mime' => $minor,
 				'img_metadata' => $this->getMetadataForDb( $dbw ),
 				'img_sha1' => $this->sha1,
-			],
-			array_merge(
-				[ 'img_name' => $this->getName() ],
-				$freshnessCondition
-			),
-			__METHOD__
-		);
+			] )
+			->where( [ 'img_name' => $this->getName() ] )
+			->andWhere( $freshnessCondition )
+			->caller( __METHOD__ )->execute();
 
 		$this->invalidateCache();
 
@@ -853,19 +796,18 @@ class LocalFile extends File {
 	 * format.
 	 */
 	protected function reserializeMetadata() {
-		if ( wfReadOnly() ) {
+		if ( MediaWikiServices::getInstance()->getReadOnlyMode()->isReadOnly() ) {
 			return;
 		}
 		$dbw = $this->repo->getPrimaryDB();
-		$dbw->update(
-			'image',
-			[ 'img_metadata' => $this->getMetadataForDb( $dbw ) ],
-			[
+		$dbw->newUpdateQueryBuilder()
+			->update( 'image' )
+			->set( [ 'img_metadata' => $this->getMetadataForDb( $dbw ) ] )
+			->where( [
 				'img_name' => $this->name,
 				'img_timestamp' => $dbw->timestamp( $this->timestamp ),
-			],
-			__METHOD__
-		);
+			] )
+			->caller( __METHOD__ )->execute();
 		$this->upgraded = true;
 	}
 
@@ -904,7 +846,7 @@ class LocalFile extends File {
 			$this->mime = "{$info['major_mime']}/{$info['minor_mime']}";
 		} elseif ( isset( $info['mime'] ) ) {
 			$this->mime = $info['mime'];
-			list( $this->major_mime, $this->minor_mime ) = self::splitMime( $this->mime );
+			[ $this->major_mime, $this->minor_mime ] = self::splitMime( $this->mime );
 		}
 
 		if ( isset( $info['metadata'] ) ) {
@@ -1093,67 +1035,19 @@ class LocalFile extends File {
 				$addresses[$itemName] = $this->unloadedMetadataBlobs[$itemName];
 			}
 		}
+
 		if ( $addresses ) {
-			$blobStore = $this->repo->getBlobStore();
-			if ( !$blobStore ) {
-				LoggerFactory::getInstance( 'LocalFile' )->warning(
-					"Unable to load metadata: repo has no blob store" );
-				return $result;
-			}
-			$status = $blobStore->getBlobBatch( $addresses );
-			if ( !$status->isGood() ) {
-				$msg = Status::wrap( $status )->getWikiText(
-					false, false, 'en' );
-				LoggerFactory::getInstance( 'LocalFile' )->warning(
-					"Error loading metadata from BlobStore: $msg" );
-			}
+			$resultFromBlob = $this->metadataStorageHelper->getMetadataFromBlobStore( $addresses );
 			foreach ( $addresses as $itemName => $address ) {
 				unset( $this->unloadedMetadataBlobs[$itemName] );
-				$json = $status->getValue()[$address] ?? null;
-				if ( $json !== null ) {
-					$value = $this->jsonDecode( $json );
+				$value = $resultFromBlob[$itemName] ?? null;
+				if ( $value !== null ) {
 					$result[$itemName] = $value;
 					$this->metadataArray[$itemName] = $value;
 				}
 			}
 		}
 		return $result;
-	}
-
-	/**
-	 * Do JSON encoding with local flags. Throw an exception if the data cannot be
-	 * serialized.
-	 *
-	 * @throws MWException
-	 * @param mixed $data
-	 * @return string
-	 */
-	private function jsonEncode( $data ): string {
-		$s = json_encode( $data,
-			JSON_INVALID_UTF8_IGNORE |
-			JSON_UNESCAPED_SLASHES |
-			JSON_UNESCAPED_UNICODE );
-		if ( $s === false ) {
-			throw new MWException( __METHOD__ . ': metadata is not JSON-serializable ' .
-				'(type = ' . $this->getMimeType() . ')' );
-		}
-		return $s;
-	}
-
-	/**
-	 * Do JSON decoding with local flags.
-	 *
-	 * This doesn't use JsonCodec because JsonCodec can construct objects,
-	 * which we don't want.
-	 *
-	 * Does not throw. Returns false on failure.
-	 *
-	 * @param string $s
-	 * @return mixed The decoded value, or false on failure
-	 */
-	private function jsonDecode( string $s ) {
-		// phpcs:ignore Generic.PHP.NoSilencedErrors.Discouraged
-		return @json_decode( $s, true, 512, JSON_INVALID_UTF8_IGNORE );
 	}
 
 	/**
@@ -1164,10 +1058,10 @@ class LocalFile extends File {
 	 * returning their addresses.
 	 *
 	 * @internal
-	 * @param IDatabase $db
+	 * @param IReadableDatabase $db
 	 * @return string|Blob
 	 */
-	public function getMetadataForDb( IDatabase $db ) {
+	public function getMetadataForDb( IReadableDatabase $db ) {
 		$this->load( self::LOAD_ALL );
 		if ( !$this->metadataArray && !$this->metadataBlobs ) {
 			$s = '';
@@ -1199,42 +1093,7 @@ class LocalFile extends File {
 			$envelope['blobs'] = $this->metadataBlobs;
 		}
 
-		// Try encoding
-		$s = $this->jsonEncode( $envelope );
-
-		// Decide whether to try splitting the metadata.
-		// Return early if it's not going to happen.
-		if ( !$this->repo->isSplitMetadataEnabled()
-			|| !$this->getHandler()
-			|| !$this->getHandler()->useSplitMetadata()
-		) {
-			return $s;
-		}
-		$threshold = $this->repo->getSplitMetadataThreshold();
-		if ( !$threshold || strlen( $s ) <= $threshold ) {
-			return $s;
-		}
-		$blobStore = $this->repo->getBlobStore();
-		if ( !$blobStore ) {
-			return $s;
-		}
-
-		// The data as a whole is above the item threshold. Look for
-		// large items that can be split out.
-		$blobAddresses = [];
-		foreach ( $envelope['data'] as $name => $value ) {
-			$encoded = $this->jsonEncode( $value );
-			if ( strlen( $encoded ) > $threshold ) {
-				$blobAddresses[$name] = $blobStore->storeBlob(
-					$encoded,
-					[ BlobStore::IMAGE_HINT => $this->getName() ]
-				);
-			}
-		}
-		// Remove any items that were split out
-		$envelope['data'] = array_diff_key( $envelope['data'], $blobAddresses );
-		$envelope['blobs'] = $blobAddresses;
-		$s = $this->jsonEncode( $envelope );
+		[ $s, $blobAddresses ] = $this->metadataStorageHelper->getJsonMetadata( $this, $envelope );
 
 		// Repeated calls to this function should not keep inserting more blobs
 		$this->metadataBlobs += $blobAddresses;
@@ -1255,7 +1114,7 @@ class LocalFile extends File {
 		$threshold = $this->repo->getSplitMetadataThreshold();
 		$directItems = array_diff_key( $this->metadataArray, $this->metadataBlobs );
 		foreach ( $directItems as $value ) {
-			if ( strlen( $this->jsonEncode( $value ) ) > $threshold ) {
+			if ( strlen( $this->metadataStorageHelper->jsonEncode( $value ) ) > $threshold ) {
 				return true;
 			}
 		}
@@ -1267,16 +1126,16 @@ class LocalFile extends File {
 	 * in $this.
 	 *
 	 * @since 1.37
-	 * @param IDatabase $db
+	 * @param IReadableDatabase $db
 	 * @param string|Blob $metadataBlob
 	 */
-	protected function loadMetadataFromDbFieldValue( IDatabase $db, $metadataBlob ) {
+	protected function loadMetadataFromDbFieldValue( IReadableDatabase $db, $metadataBlob ) {
 		$this->loadMetadataFromString( $db->decodeBlob( $metadataBlob ) );
 	}
 
 	/**
 	 * Unserialize a metadata string which came from some non-DB source, or is
-	 * the return value of IDatabase::decodeBlob().
+	 * the return value of IReadableDatabase::decodeBlob().
 	 *
 	 * @since 1.37
 	 * @param string $metadataString
@@ -1292,7 +1151,7 @@ class LocalFile extends File {
 			return;
 		}
 		if ( $metadataString[0] === '{' ) {
-			$envelope = $this->jsonDecode( $metadataString );
+			$envelope = $this->metadataStorageHelper->jsonDecode( $metadataString );
 			if ( !$envelope ) {
 				// Legacy error encoding
 				$this->metadataArray = [ '_error' => $metadataString ];
@@ -1392,9 +1251,14 @@ class LocalFile extends File {
 	/** getLastError inherited */
 
 	/**
-	 * Get all thumbnail names previously generated for this file
+	 * Get all thumbnail names previously generated for this file.
+	 *
+	 * This should be called during POST requests only (and other db-writing
+	 * contexts) as it may involve connections across multiple data centers
+	 * (e.g. both backends of a FileBackendMultiWrite setup).
+	 *
 	 * @stable to override
-	 * @param string|bool $archiveName Name of an archive file, default false
+	 * @param string|false $archiveName Name of an archive file, default false
 	 * @return array First element is the base dir, then files in that base dir.
 	 */
 	protected function getThumbnails( $archiveName = false ) {
@@ -1407,7 +1271,7 @@ class LocalFile extends File {
 		$backend = $this->repo->getBackend();
 		$files = [ $dir ];
 		try {
-			$iterator = $backend->getFileList( [ 'dir' => $dir ] );
+			$iterator = $backend->getFileList( [ 'dir' => $dir, 'forWrite' => true ] );
 			if ( $iterator !== null ) {
 				foreach ( $iterator as $file ) {
 					$files[] = $file;
@@ -1526,7 +1390,7 @@ class LocalFile extends File {
 	 */
 	public function prerenderThumbnails() {
 		$uploadThumbnailRenderMap = MediaWikiServices::getInstance()
-			->getMainConfig()->get( 'UploadThumbnailRenderMap' );
+			->getMainConfig()->get( MainConfigNames::UploadThumbnailRenderMap );
 
 		$jobs = [];
 
@@ -1539,15 +1403,14 @@ class LocalFile extends File {
 				// a flood of jobs for huge files.
 				$pageLimit = min( $this->pageCount(), self::MAX_PAGE_RENDER_JOBS );
 
-				for ( $page = 1; $page <= $pageLimit; $page++ ) {
-					$jobs[] = new ThumbnailRenderJob(
-						$this->getTitle(),
-						[ 'transformParams' => [
-							'width' => $size,
-							'page' => $page,
-						] ]
-					);
-				}
+				$jobs[] = new ThumbnailRenderJob(
+					$this->getTitle(),
+					[
+					'transformParams' => [ 'width' => $size, 'page' => 1 ],
+					'enqueueNextPage' => true,
+					'pageLimit' => $pageLimit
+					]
+				);
 			} elseif ( $this->isVectorized() || $this->getWidth() > $size ) {
 				$jobs[] = new ThumbnailRenderJob(
 					$this->getTitle(),
@@ -1584,8 +1447,8 @@ class LocalFile extends File {
 		foreach ( $files as $file ) {
 			# Check that the reference (filename or sha1) is part of the thumb name
 			# This is a basic check to avoid erasing unrelated directories
-			if ( strpos( $file, $reference ) !== false
-				|| strpos( $file, "-thumbnail" ) !== false // "short" thumb name
+			if ( str_contains( $file, $reference )
+				|| str_contains( $file, "-thumbnail" ) // "short" thumb name
 			) {
 				$purgeList[] = "{$dir}/{$file}";
 			}
@@ -1665,7 +1528,7 @@ class LocalFile extends File {
 	 *  1      query for old versions, return first one
 	 *  2, ... return next old version from above query
 	 * @stable to override
-	 * @return stdClass|bool
+	 * @return stdClass|false
 	 */
 	public function nextHistoryLine() {
 		if ( !$this->exists() ) {
@@ -1678,17 +1541,11 @@ class LocalFile extends File {
 		$dbr = $this->repo->getReplicaDB();
 
 		if ( $this->historyLine == 0 ) { // called for the first time, return line from cur
-			$fileQuery = self::getQueryInfo();
-			$this->historyRes = $dbr->select( $fileQuery['tables'],
-				$fileQuery['fields'] + [
-					'oi_archive_name' => $dbr->addQuotes( '' ),
-					'oi_deleted' => 0,
-				],
-				[ 'img_name' => $this->title->getDBkey() ],
-				$fname,
-				[],
-				$fileQuery['joins']
-			);
+			$queryBuilder = FileSelectQueryBuilder::newForFile( $dbr );
+
+			$queryBuilder->fields( [ 'oi_archive_name' => $dbr->addQuotes( '' ), 'oi_deleted' => '0' ] )
+				->where( [ 'img_name' => $this->title->getDBkey() ] );
+			$this->historyRes = $queryBuilder->caller( $fname )->fetchResultSet();
 
 			if ( $this->historyRes->numRows() == 0 ) {
 				$this->historyRes = null;
@@ -1696,15 +1553,11 @@ class LocalFile extends File {
 				return false;
 			}
 		} elseif ( $this->historyLine == 1 ) {
-			$fileQuery = OldLocalFile::getQueryInfo();
-			$this->historyRes = $dbr->select(
-				$fileQuery['tables'],
-				$fileQuery['fields'],
-				[ 'oi_name' => $this->title->getDBkey() ],
-				$fname,
-				[ 'ORDER BY' => 'oi_timestamp DESC' ],
-				$fileQuery['joins']
-			);
+			$queryBuilder = FileSelectQueryBuilder::newForOldFile( $dbr );
+
+			$this->historyRes = $queryBuilder->where( [ 'oi_name' => $this->title->getDBkey() ] )
+				->orderBy( 'oi_timestamp', SelectQueryBuilder::SORT_DESC )
+				->caller( $fname )->fetchResultSet();
 		}
 		$this->historyLine++;
 
@@ -1741,12 +1594,12 @@ class LocalFile extends File {
 	 * @param string $comment Upload description
 	 * @param string $pageText Text to use for the new description page,
 	 *   if a new description page is created
-	 * @param int|bool $flags Flags for publish()
-	 * @param array|bool $props File properties, if known. This can be used to
+	 * @param int $flags Flags for publish()
+	 * @param array|false $props File properties, if known. This can be used to
 	 *   reduce the upload time when uploading virtual URLs for which the file
 	 *   info is already known
-	 * @param string|bool $timestamp Timestamp for img_timestamp, or false to use the
-	 *   current time
+	 * @param string|false $timestamp Timestamp for img_timestamp, or false to use the
+	 *   current time. Can be in any format accepted by ConvertibleTimestamp.
 	 * @param Authority|null $uploader object or null to use the context authority
 	 * @param string[] $tags Change tags to add to the log entry and page revision.
 	 *   (This doesn't check $uploader's permissions.)
@@ -1814,16 +1667,11 @@ class LocalFile extends File {
 			// updated and we must therefore update the DB too.
 			$oldver = $status->value;
 
-			if ( $uploader === null ) {
-				// Uploader argument is optional, fall back to the context authority
-				$uploader = RequestContext::getMain()->getAuthority();
-			}
-
 			$uploadStatus = $this->recordUpload3(
 				$oldver,
 				$comment,
 				$pageText,
-				$uploader,
+				$uploader ?? RequestContext::getMain()->getAuthority(),
 				$props,
 				$timestamp,
 				$tags,
@@ -1849,10 +1697,10 @@ class LocalFile extends File {
 	 * @stable to override
 	 * @param string $oldver
 	 * @param string $comment
-	 * @param string $pageText
+	 * @param string $pageText File description page text (only used for new uploads)
 	 * @param Authority $performer
-	 * @param bool|array $props
-	 * @param string|bool $timestamp
+	 * @param array|false $props
+	 * @param string|false $timestamp Can be in any format accepted by ConvertibleTimestamp
 	 * @param string[] $tags
 	 * @param bool $createNullRevision Set to false to avoid creation of a null revision on file
 	 *   upload, see T193621
@@ -1906,8 +1754,10 @@ class LocalFile extends File {
 		$commentStore = MediaWikiServices::getInstance()->getCommentStore();
 		$commentFields = $commentStore->insert( $dbw, 'img_description', $comment );
 		$actorFields = [ 'img_actor' => $actorId ];
-		$dbw->insert( 'image',
-			[
+		$dbw->newInsertQueryBuilder()
+			->insertInto( 'image' )
+			->ignore()
+			->row( [
 				'img_name' => $this->getName(),
 				'img_size' => $this->size,
 				'img_width' => intval( $this->width ),
@@ -1916,23 +1766,19 @@ class LocalFile extends File {
 				'img_media_type' => $this->media_type,
 				'img_major_mime' => $this->major_mime,
 				'img_minor_mime' => $this->minor_mime,
-				'img_timestamp' => $timestamp,
+				'img_timestamp' => $dbw->timestamp( $timestamp ),
 				'img_metadata' => $this->getMetadataForDb( $dbw ),
 				'img_sha1' => $this->sha1
-			] + $commentFields + $actorFields,
-			__METHOD__,
-			[ 'IGNORE' ]
-		);
+			] + $commentFields + $actorFields )
+			->caller( __METHOD__ )->execute();
 		$reupload = ( $dbw->affectedRows() == 0 );
 
 		if ( $reupload ) {
-			$row = $dbw->selectRow(
-				'image',
-				[ 'img_timestamp', 'img_sha1' ],
-				[ 'img_name' => $this->getName() ],
-				__METHOD__,
-				[ 'LOCK IN SHARE MODE' ]
-			);
+			$row = $dbw->newSelectQueryBuilder()
+				->select( [ 'img_timestamp', 'img_sha1' ] )
+				->from( 'image' )
+				->where( [ 'img_name' => $this->getName() ] )
+				->caller( __METHOD__ )->fetchRow();
 
 			if ( $row && $row->img_sha1 === $this->sha1 ) {
 				$dbw->endAtomic( __METHOD__ );
@@ -1982,8 +1828,9 @@ class LocalFile extends File {
 				[ 'img_name' => $this->getName() ], __METHOD__, [], [], $joins );
 
 			# Update the current image row
-			$dbw->update( 'image',
-				[
+			$dbw->newUpdateQueryBuilder()
+				->update( 'image' )
+				->set( [
 					'img_size' => $this->size,
 					'img_width' => intval( $this->width ),
 					'img_height' => intval( $this->height ),
@@ -1991,18 +1838,21 @@ class LocalFile extends File {
 					'img_media_type' => $this->media_type,
 					'img_major_mime' => $this->major_mime,
 					'img_minor_mime' => $this->minor_mime,
-					'img_timestamp' => $timestamp,
+					'img_timestamp' => $dbw->timestamp( $timestamp ),
 					'img_metadata' => $this->getMetadataForDb( $dbw ),
 					'img_sha1' => $this->sha1
-				] + $commentFields + $actorFields,
-				[ 'img_name' => $this->getName() ],
-				__METHOD__
-			);
+				] + $commentFields + $actorFields )
+				->where( [ 'img_name' => $this->getName() ] )
+				->caller( __METHOD__ )->execute();
 		}
 
 		$descTitle = $this->getTitle();
 		$descId = $descTitle->getArticleID();
-		$wikiPage = new WikiFilePage( $descTitle );
+		$wikiPage = MediaWikiServices::getInstance()->getWikiPageFactory()->newFromTitle( $descTitle );
+		if ( !$wikiPage instanceof WikiFilePage ) {
+			throw new MWException( 'Cannot instance WikiFilePage for ' . $this->getName()
+				. ', got instance of ' . get_class( $wikiPage ) );
+		}
 		$wikiPage->setFile( $this );
 
 		// Determine log action. If reupload is done by reverting, use a special log_action.
@@ -2086,7 +1936,6 @@ class LocalFile extends File {
 		$purgeUpdate = new AutoCommitUpdate(
 			$dbw,
 			__METHOD__,
-			/** @suppress PhanTypeArraySuspiciousNullable False positives with $this->status->value */
 			function () use (
 				$reupload, $wikiPage, $newPageContent, $comment, $performer,
 				$logEntry, $logId, $descId, $tags, $fname
@@ -2106,17 +1955,13 @@ class LocalFile extends File {
 						EDIT_NEW | EDIT_SUPPRESS_RC
 					);
 
-					if ( isset( $status->value['revision-record'] ) ) {
-						/** @var RevisionRecord $revRecord */
-						$revRecord = $status->value['revision-record'];
+					$revRecord = $status->getNewRevision();
+					if ( $revRecord ) {
 						// Associate new page revision id
 						$logEntry->setAssociatedRevId( $revRecord->getId() );
-					}
-					// This relies on the resetArticleID() call in WikiPage::insertOn(),
-					// which is triggered on $descTitle by doUserEditContent() above.
-					if ( isset( $status->value['revision-record'] ) ) {
-						/** @var RevisionRecord $revRecord */
-						$revRecord = $status->value['revision-record'];
+
+						// This relies on the resetArticleID() call in WikiPage::insertOn(),
+						// which is triggered on $descTitle by doUserEditContent() above.
 						$updateLogPage = $revRecord->getPageId();
 					}
 				} else {
@@ -2138,12 +1983,12 @@ class LocalFile extends File {
 					# Also log page, in case where we just created it above
 					$update['log_page'] = $updateLogPage;
 				}
-				$this->getRepo()->getPrimaryDB()->update(
-					'logging',
-					$update,
-					[ 'log_id' => $logId ],
-					$fname
-				);
+				$this->getRepo()->getPrimaryDB()->newUpdateQueryBuilder()
+					->update( 'logging' )
+					->set( $update )
+					->where( [ 'log_id' => $logId ] )
+					->caller( $fname )->execute();
+
 				$this->getRepo()->getPrimaryDB()->insert(
 					'log_search',
 					[
@@ -2513,14 +2358,11 @@ class LocalFile extends File {
 	/**
 	 * Get the URL of the file description page.
 	 * @stable to override
-	 * @return string|bool
+	 * @return string|false
 	 */
 	public function getDescriptionUrl() {
-		if ( !$this->title ) {
-			return false; // Avoid hard failure when the file does not exist. T221812
-		}
-
-		return $this->title->getLocalURL();
+		// Avoid hard failure when the file does not exist. T221812
+		return $this->title ? $this->title->getLocalURL() : false;
 	}
 
 	/**
@@ -2599,7 +2441,7 @@ class LocalFile extends File {
 
 	/**
 	 * @stable to override
-	 * @return bool|string
+	 * @return string|false TS_MW timestamp, a string with 14 digits
 	 */
 	public function getTimestamp() {
 		$this->load();
@@ -2609,7 +2451,7 @@ class LocalFile extends File {
 
 	/**
 	 * @stable to override
-	 * @return bool|string
+	 * @return string|false
 	 */
 	public function getDescriptionTouched() {
 		if ( !$this->exists() ) {
@@ -2620,11 +2462,12 @@ class LocalFile extends File {
 		// itself gets it from elsewhere. To avoid repeating the DB lookups in such a case, we
 		// need to differentiate between null (uninitialized) and false (failed to load).
 		if ( $this->descriptionTouched === null ) {
-			$cond = [
-				'page_namespace' => $this->title->getNamespace(),
-				'page_title' => $this->title->getDBkey()
-			];
-			$touched = $this->repo->getReplicaDB()->selectField( 'page', 'page_touched', $cond, __METHOD__ );
+			$touched = $this->repo->getReplicaDB()->newSelectQueryBuilder()
+				->select( 'page_touched' )
+				->from( 'page' )
+				->where( [ 'page_namespace' => $this->title->getNamespace() ] )
+				->andWhere( [ 'page_title' => $this->title->getDBkey() ] )
+				->caller( __METHOD__ )->fetchField();
 			$this->descriptionTouched = $touched ? wfTimestamp( TS_MW, $touched ) : false;
 		}
 

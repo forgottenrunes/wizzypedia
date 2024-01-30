@@ -21,6 +21,18 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use ErrorPageError;
+use HTMLForm;
+use MediaWiki\Session\SessionManager;
+use MediaWiki\SpecialPage\FormSpecialPage;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Status\Status;
+use MWException;
+use PermissionsError;
+use ThrottledError;
+
 /**
  * Implements Special:Userlogout
  *
@@ -41,7 +53,7 @@ class SpecialUserLogout extends FormSpecialPage {
 	}
 
 	public function isListed() {
-		return false;
+		return $this->getAuthManager()->canAuthenticateNow();
 	}
 
 	protected function getGroupName() {
@@ -70,7 +82,9 @@ class SpecialUserLogout extends FormSpecialPage {
 
 	public function alterForm( HTMLForm $form ) {
 		$form->setTokenSalt( 'logoutToken' );
-		$form->addHeaderText( $this->msg( 'userlogout-continue' ) );
+		$form->addHeaderHtml( $this->msg(
+			$this->getUser()->isTemp() ? 'userlogout-temp' : 'userlogout-continue'
+		) );
 
 		$form->addHiddenFields( $this->getRequest()->getValues( 'returnto', 'returntoquery' ) );
 	}
@@ -86,13 +100,13 @@ class SpecialUserLogout extends FormSpecialPage {
 	 */
 	public function onSubmit( array $data ) {
 		// Make sure it's possible to log out
-		$session = MediaWiki\Session\SessionManager::getGlobalSession();
+		$session = SessionManager::getGlobalSession();
 		if ( !$session->canSetUser() ) {
 			throw new ErrorPageError(
 				'cannotlogoutnow-title',
 				'cannotlogoutnow-text',
 				[
-					$session->getProvider()->describe( RequestContext::getMain()->getLanguage() )
+					$session->getProvider()->describe( $this->getLanguage() )
 				]
 			);
 		}
@@ -131,3 +145,9 @@ class SpecialUserLogout extends FormSpecialPage {
 		return false;
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialUserLogout::class, 'SpecialUserLogout' );

@@ -3,6 +3,7 @@
 namespace MediaWiki\Extension\AbuseFilter\VariableGenerator;
 
 use Content;
+use LogicException;
 use MediaWiki\Extension\AbuseFilter\Hooks\AbuseFilterHookRunner;
 use MediaWiki\Extension\AbuseFilter\TextExtractor;
 use MediaWiki\Extension\AbuseFilter\Variables\VariableHolder;
@@ -10,12 +11,12 @@ use MediaWiki\Page\WikiPageFactory;
 use MediaWiki\Revision\MutableRevisionRecord;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Title\Title;
 use MimeAnalyzer;
-use MWException;
 use MWFileProps;
-use Title;
 use UploadBase;
 use User;
+use Wikimedia\Assert\PreconditionException;
 use WikiPage;
 
 /**
@@ -26,12 +27,12 @@ class RunVariableGenerator extends VariableGenerator {
 	/**
 	 * @var User
 	 */
-	protected $user;
+	private $user;
 
 	/**
 	 * @var Title
 	 */
-	protected $title;
+	private $title;
 
 	/** @var TextExtractor */
 	private $textExtractor;
@@ -100,13 +101,18 @@ class RunVariableGenerator extends VariableGenerator {
 	 * @param string $slot
 	 * @return array|null
 	 */
-	protected function getEditTextForFiltering( WikiPage $page, Content $content, $slot ): ?array {
+	private function getEditTextForFiltering( WikiPage $page, Content $content, $slot ): ?array {
 		$oldRevRecord = $page->getRevisionRecord();
 		if ( !$oldRevRecord ) {
 			return null;
 		}
 
 		$oldContent = $oldRevRecord->getContent( SlotRecord::MAIN, RevisionRecord::RAW );
+		if ( !$oldContent ) {
+			// @codeCoverageIgnoreStart
+			throw new LogicException( 'Content cannot be null' );
+			// @codeCoverageIgnoreEnd
+		}
 		$oldAfText = $this->textExtractor->revisionToString( $oldRevRecord, $this->user );
 
 		// XXX: Recreate what the new revision will probably be so we can get the full AF
@@ -119,7 +125,7 @@ class RunVariableGenerator extends VariableGenerator {
 		// stringified contents as well, e.g. for line endings normalization (T240115).
 		// Don't treat content model change as null edit though.
 		if (
-			( $oldContent && $content->equals( $oldContent ) ) ||
+			$content->equals( $oldContent ) ||
 			( $oldContent->getModel() === $content->getModel() && strcmp( $oldAfText, $text ) === 0 )
 		) {
 			return null;
@@ -136,7 +142,6 @@ class RunVariableGenerator extends VariableGenerator {
 	 * @param string $oldtext
 	 * @param Content|null $oldcontent
 	 * @return VariableHolder
-	 * @throws MWException
 	 */
 	private function newVariableHolderForEdit(
 		WikiPage $page,
@@ -160,7 +165,16 @@ class RunVariableGenerator extends VariableGenerator {
 		$this->vars->setVar( 'new_content_model', $newcontent->getModel() );
 		$this->vars->setVar( 'old_wikitext', $oldtext );
 		$this->vars->setVar( 'new_wikitext', $text );
-		$this->addEditVars( $page, $this->user );
+
+		try {
+			$update = $page->getCurrentUpdate();
+			$update->getParserOutputForMetaData();
+		} catch ( PreconditionException | LogicException $exception ) {
+			// Temporary workaround until this becomes
+			// a hook parameter
+			$update = null;
+		}
+		$this->addEditVars( $page, $this->user, true, $update );
 
 		return $this->vars;
 	}
@@ -278,7 +292,7 @@ class RunVariableGenerator extends VariableGenerator {
 
 		// We only have the upload comment and page text when using the UploadVerifyUpload hook
 		if ( $summary !== null && $text !== null ) {
-			// This block is adapted from self::getTextForFiltering()
+			// This block is adapted from self::getEditTextForFiltering()
 			$page = $this->wikiPageFactory->newFromTitle( $this->title );
 			if ( $this->title->exists() ) {
 				$revRec = $page->getRevisionRecord();
@@ -300,8 +314,8 @@ class RunVariableGenerator extends VariableGenerator {
 			$this->vars->setVar( 'summary', $summary );
 			$this->vars->setVar( 'old_wikitext', $oldtext );
 			$this->vars->setVar( 'new_wikitext', $text );
-			// TODO: set old_content and new_content vars, use them
-			$this->addEditVars( $page, $this->user );
+			// TODO: set old_content_model and new_content_model vars, use them
+			$this->addEditVars( $page, $this->user, true );
 		}
 		return $this->vars;
 	}

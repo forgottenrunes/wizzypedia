@@ -3,8 +3,8 @@
 namespace MediaWiki\Extension\Nuke;
 
 use MediaWiki\Hook\ContributionsToolLinksHook;
-use SpecialPage;
-use Title;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
 use Wikimedia\IPUtils;
 
 class Hooks implements ContributionsToolLinksHook {
@@ -23,7 +23,10 @@ class Hooks implements ContributionsToolLinksHook {
 			$tools['nuke'] = $specialPage->getLinkRenderer()->makeKnownLink(
 				SpecialPage::getTitleFor( 'Nuke' ),
 				$specialPage->msg( 'nuke-linkoncontribs' )->text(),
-				[ 'title' => $specialPage->msg( 'nuke-linkoncontribs-text', $username )->text() ],
+				[
+					'title' => $specialPage->msg( 'nuke-linkoncontribs-text', $username )->text(),
+					'class' => 'mw-contributions-link-nuke'
+				],
 				[ 'target' => $username ]
 			);
 		}

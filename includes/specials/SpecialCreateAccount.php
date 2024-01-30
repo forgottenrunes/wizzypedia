@@ -21,8 +21,15 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use ErrorPageError;
 use MediaWiki\Auth\AuthManager;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\SpecialPage\LoginSignupSpecialPage;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
+use StatusValue;
 
 /**
  * Implements Special:CreateAccount
@@ -57,10 +64,17 @@ class SpecialCreateAccount extends LoginSignupSpecialPage {
 	public function checkPermissions() {
 		parent::checkPermissions();
 
-		$user = $this->getUser();
-		$status = $this->getAuthManager()->checkAccountCreatePermissions( $user );
+		$performer = $this->getAuthority();
+		$authManager = $this->getAuthManager();
+
+		$status = $this->mPosted ?
+			$authManager->authorizeCreateAccount( $performer ) :
+			$authManager->probablyCanCreateAccount( $performer );
 		if ( !$status->isGood() ) {
-			throw new ErrorPageError( 'createacct-error', $status->getMessage() );
+			throw new ErrorPageError(
+				'createacct-error',
+				Status::wrap( $status )->getMessage()
+			);
 		}
 	}
 
@@ -73,7 +87,7 @@ class SpecialCreateAccount extends LoginSignupSpecialPage {
 	}
 
 	public function getDescription() {
-		return $this->msg( 'createaccount' )->text();
+		return $this->msg( 'createaccount' );
 	}
 
 	protected function isSignup() {
@@ -111,7 +125,7 @@ class SpecialCreateAccount extends LoginSignupSpecialPage {
 
 				$out = $this->getOutput();
 				// @phan-suppress-next-line PhanImpossibleCondition
-				$out->setPageTitle( $this->msg( $byEmail ? 'accmailtitle' : 'accountcreated' ) );
+				$out->setPageTitleMsg( $this->msg( $byEmail ? 'accmailtitle' : 'accountcreated' ) );
 				// @phan-suppress-next-line PhanImpossibleCondition
 				if ( $byEmail ) {
 					$out->addWikiMsg( 'accmailtext', $user->getName(), $user->getEmail() );
@@ -142,7 +156,9 @@ class SpecialCreateAccount extends LoginSignupSpecialPage {
 		 */
 		$this->getHookRunner()->onBeforeWelcomeCreation( $welcome_creation_msg, $injected_html );
 
-		$this->showSuccessPage( 'signup', $this->msg( 'welcomeuser', $this->getUser()->getName() ),
+		$this->showSuccessPage( 'signup',
+			// T308471: ensure username is plaintext (aka escaped)
+			$this->msg( 'welcomeuser' )->plaintextParams( $this->getUser()->getName() ),
 			$welcome_creation_msg, $injected_html, $extraMessages );
 	}
 
@@ -151,7 +167,7 @@ class SpecialCreateAccount extends LoginSignupSpecialPage {
 	}
 
 	protected function clearToken() {
-		return $this->getRequest()->getSession()->resetToken( 'createaccount' );
+		$this->getRequest()->getSession()->resetToken( 'createaccount' );
 	}
 
 	protected function getTokenName() {
@@ -159,7 +175,7 @@ class SpecialCreateAccount extends LoginSignupSpecialPage {
 	}
 
 	protected function getGroupName() {
-		return 'login';
+		return 'users';
 	}
 
 	protected function logAuthResult( $success, $status = null ) {
@@ -170,3 +186,8 @@ class SpecialCreateAccount extends LoginSignupSpecialPage {
 		] );
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialCreateAccount::class, 'SpecialCreateAccount' );

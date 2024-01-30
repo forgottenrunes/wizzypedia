@@ -1,10 +1,8 @@
 <?php
 /** Romansh (rumantsch)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Gion
  * @author Gion-andri
@@ -14,6 +12,8 @@
  * @author Urhixidur
  * @author לערי ריינהארט
  */
+
+$fallback = 'de';
 
 $namespaceNames = [
 	NS_MEDIA            => 'Multimedia',

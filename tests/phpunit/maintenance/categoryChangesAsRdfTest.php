@@ -1,5 +1,8 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\Title\Title;
+use MediaWiki\Utils\MWTimestamp;
 use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
 
@@ -12,14 +15,14 @@ class CategoryChangesAsRdfTest extends MediaWikiLangTestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->setMwGlobals( [
-			'wgServer' => 'http://acme.test',
-			'wgCanonicalServer' => 'http://acme.test',
-			'wgArticlePath' => '/wiki/$1',
+		$this->overrideConfigValues( [
+			MainConfigNames::Server => 'http://acme.test',
+			MainConfigNames::CanonicalServer => 'http://acme.test',
+			MainConfigNames::ArticlePath => '/wiki/$1',
 		] );
 	}
 
-	public function provideCategoryData() {
+	public static function provideCategoryData() {
 		return [
 			'delete category' => [
 				__DIR__ . "/../data/categoriesrdf/delete.sparql",
@@ -264,16 +267,19 @@ class CategoryChangesAsRdfTest extends MediaWikiLangTestCase {
 	}
 
 	public function testCategorization() {
-		$this->setMwGlobals( [ 'wgRCWatchCategoryMembership' => true ] );
+		$this->overrideConfigValue(
+			MainConfigNames::RCWatchCategoryMembership,
+			true
+		);
 		$start = new MWTimestamp( "2020-07-31T10:00:00" );
 		$end = new MWTimestamp( "2020-07-31T10:01:00" );
 		ConvertibleTimestamp::setFakeTime( "2020-07-31T10:00:00" );
 		$l1 = Title::makeTitle( NS_CATEGORY, __CLASS__ . "_L1" );
 		$l2 = Title::makeTitle( NS_CATEGORY, __CLASS__ . "_L2" );
-		$pageInL2 = Title::makeTitle( NS_MAIN, __CLASS__ . "_Page" );
-		$this->editPage( $l1->getPrefixedText(), "", "", NS_CATEGORY );
-		$this->editPage( $l2->getPrefixedText(), "[[{$l1->getPrefixedText()}]]", "", NS_CATEGORY );
-		$this->editPage( $pageInL2->getPrefixedText(), "[[{$l2->getPrefixedText()}]]", "", NS_CATEGORY );
+		$pageInL2 = Title::makeTitle( NS_CATEGORY, __CLASS__ . "_Page" );
+		$this->editPage( $l1, "" );
+		$this->editPage( $l2, "[[{$l1->getPrefixedText()}]]" );
+		$this->editPage( $pageInL2, "[[{$l2->getPrefixedText()}]]" );
 
 		$output = fopen( "php://memory", "w+b" );
 

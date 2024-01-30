@@ -15,12 +15,16 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  * http://www.gnu.org/copyleft/gpl.html
  *
- * @author Happy-melon
  * @file
  */
-use MediaWiki\MediaWikiServices;
+
+use MediaWiki\Config\Config;
+use MediaWiki\Output\OutputPage;
 use MediaWiki\Permissions\Authority;
+use MediaWiki\Request\WebRequest;
 use MediaWiki\Session\CsrfTokenSet;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 use Wikimedia\NonSerializable\NonSerializableTrait;
 
 /**
@@ -29,6 +33,7 @@ use Wikimedia\NonSerializable\NonSerializableTrait;
  *
  * @stable to extend
  * @since 1.18
+ * @author Happy-melon
  */
 abstract class ContextSource implements IContextSource {
 	use NonSerializableTrait;
@@ -181,17 +186,6 @@ abstract class ContextSource implements IContextSource {
 	 */
 	public function getTiming() {
 		return $this->getContext()->getTiming();
-	}
-
-	/**
-	 * @deprecated since 1.27 use a StatsdDataFactory from MediaWikiServices (preferably injected)
-	 *
-	 * @since 1.25
-	 * @stable to override
-	 * @return IBufferingStatsdDataFactory
-	 */
-	public function getStats() {
-		return MediaWikiServices::getInstance()->getStatsdDataFactory();
 	}
 
 	/**

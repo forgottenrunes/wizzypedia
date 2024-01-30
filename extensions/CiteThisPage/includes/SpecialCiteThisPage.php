@@ -3,13 +3,14 @@
 namespace MediaWiki\Extension\CiteThisPage;
 
 use FormSpecialPage;
+use Html;
 use HTMLForm;
 use MediaWiki\Revision\RevisionLookup;
+use MediaWiki\Title\Title;
 use Parser;
 use ParserFactory;
 use ParserOptions;
 use SearchEngineFactory;
-use Title;
 
 class SpecialCiteThisPage extends FormSpecialPage {
 
@@ -128,8 +129,11 @@ class SpecialCiteThisPage extends FormSpecialPage {
 		$revTimestamp = $this->revisionLookup->getTimestampFromId( $revId );
 
 		if ( !$revTimestamp ) {
-			$out->wrapWikiMsg( '<div class="errorbox">$1</div>',
-				[ 'citethispage-badrevision', $title->getPrefixedText(), $revId ] );
+			$out->addHTML(
+				Html::errorBox(
+					$out->msg( 'citethispage-badrevision', $title->getPrefixedText(), $revId )->parse()
+				)
+			);
 			return;
 		}
 
@@ -176,10 +180,10 @@ class SpecialCiteThisPage extends FormSpecialPage {
 			$dir = __DIR__ . '/../';
 			$contentLang = $this->getContentLanguage();
 			$code = $contentLang->lc( $contentLang->getCode() );
-			if ( file_exists( "${dir}citethispage-content-$code" ) ) {
-				$msg = file_get_contents( "${dir}citethispage-content-$code" );
-			} elseif ( file_exists( "${dir}citethispage-content" ) ) {
-				$msg = file_get_contents( "${dir}citethispage-content" );
+			if ( file_exists( "{$dir}citethispage-content-$code" ) ) {
+				$msg = file_get_contents( "{$dir}citethispage-content-$code" );
+			} elseif ( file_exists( "{$dir}citethispage-content" ) ) {
+				$msg = file_get_contents( "{$dir}citethispage-content" );
 			}
 		}
 
@@ -192,7 +196,7 @@ class SpecialCiteThisPage extends FormSpecialPage {
 	 * @return ParserOptions
 	 */
 	private function getParserOptions() {
-		$parserOptions = ParserOptions::newFromUser( $this->getUser() );
+		$parserOptions = ParserOptions::newFromContext( $this->getContext() );
 		$parserOptions->setDateFormat( 'default' );
 		$parserOptions->setInterfaceMessage( true );
 		return $parserOptions;

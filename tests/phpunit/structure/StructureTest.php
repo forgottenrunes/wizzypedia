@@ -5,6 +5,7 @@ use SebastianBergmann\FileIterator\Facade;
 /**
  * The tests here verify the structure of the code.  This is for outright bugs,
  * not just style issues.
+ * @coversNothing
  */
 class StructureTest extends \PHPUnit\Framework\TestCase {
 	/**
@@ -24,8 +25,8 @@ class StructureTest extends \PHPUnit\Framework\TestCase {
 			$results,
 			static function ( $filename ) use ( $testClassRegex, $suitesPath ) {
 				// Remove testUnitTestFileNamesEndWithTest false positives
-				if ( strpos( $filename, $suitesPath ) === 0
-					|| substr( $filename, -8 ) === 'Test.php'
+				if ( str_starts_with( $filename, $suitesPath ) ||
+					str_ends_with( $filename, 'Test.php' )
 				) {
 					return false;
 				}

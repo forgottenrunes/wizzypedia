@@ -21,6 +21,7 @@
  * @ingroup Media
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use Wikimedia\RequestTimeout\TimeoutException;
 
@@ -75,7 +76,7 @@ class GIFHandler extends BitmapHandler {
 	/**
 	 * Return the standard metadata elements for #filemetadata parser func.
 	 * @param File $image
-	 * @return array|bool
+	 * @return array
 	 */
 	public function getCommonMetaArray( File $image ) {
 		$meta = $image->getMetadataArray();
@@ -97,9 +98,8 @@ class GIFHandler extends BitmapHandler {
 		$metadata = $image->getMetadataArray();
 		if ( isset( $metadata['frameCount'] ) && $metadata['frameCount'] > 0 ) {
 			return $image->getWidth() * $image->getHeight() * $metadata['frameCount'];
-		} else {
-			return $image->getWidth() * $image->getHeight();
 		}
+		return $image->getWidth() * $image->getHeight();
 	}
 
 	/**
@@ -121,7 +121,8 @@ class GIFHandler extends BitmapHandler {
 	 * @return bool
 	 */
 	public function canAnimateThumbnail( $file ) {
-		$maxAnimatedGifArea = MediaWikiServices::getInstance()->getMainConfig()->get( 'MaxAnimatedGifArea' );
+		$maxAnimatedGifArea = MediaWikiServices::getInstance()->getMainConfig()
+			->get( MainConfigNames::MaxAnimatedGifArea );
 
 		return $this->getImageArea( $file ) <= $maxAnimatedGifArea;
 	}
@@ -144,7 +145,7 @@ class GIFHandler extends BitmapHandler {
 		}
 
 		if ( !isset( $data['metadata']['_MW_GIF_VERSION'] )
-			|| $data['metadata']['_MW_GIF_VERSION'] != GIFMetadataExtractor::VERSION
+			|| $data['metadata']['_MW_GIF_VERSION'] !== GIFMetadataExtractor::VERSION
 		) {
 			wfDebug( __METHOD__ . " old but compatible GIF metadata" );
 
@@ -201,8 +202,7 @@ class GIFHandler extends BitmapHandler {
 
 		if ( !$metadata || !isset( $metadata['duration'] ) || !$metadata['duration'] ) {
 			return 0.0;
-		} else {
-			return (float)$metadata['duration'];
 		}
+		return (float)$metadata['duration'];
 	}
 }

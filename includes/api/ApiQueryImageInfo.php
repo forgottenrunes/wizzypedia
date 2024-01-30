@@ -20,8 +20,14 @@
  * @file
  */
 
-use MediaWiki\BadFileLookup;
+use MediaWiki\Linker\Linker;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Page\File\BadFileLookup;
+use MediaWiki\Specials\SpecialUpload;
+use MediaWiki\Title\Title;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\IntegerDef;
 
 /**
  * A query action to get image information and upload history.
@@ -32,14 +38,9 @@ class ApiQueryImageInfo extends ApiQueryBase {
 	public const TRANSFORM_LIMIT = 50;
 	private static $transformCount = 0;
 
-	/** @var RepoGroup */
-	private $repoGroup;
-
-	/** @var Language */
-	private $contentLanguage;
-
-	/** @var BadFileLookup */
-	private $badFileLookup;
+	private RepoGroup $repoGroup;
+	private Language $contentLanguage;
+	private BadFileLookup $badFileLookup;
 
 	/**
 	 * @param ApiQuery $query
@@ -96,7 +97,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 
 		if ( isset( $params['badfilecontexttitle'] ) ) {
 			$badFileContextTitle = Title::newFromText( $params['badfilecontexttitle'] );
-			if ( !$badFileContextTitle ) {
+			if ( !$badFileContextTitle || $badFileContextTitle->isExternal() ) {
 				$p = $this->getModulePrefix();
 				$this->dieWithError( [ 'apierror-bad-badfilecontexttitle', $p ], 'invalid-title' );
 			}
@@ -111,9 +112,8 @@ class ApiQueryImageInfo extends ApiQueryBase {
 
 			$fromTitle = null;
 			if ( $params['continue'] !== null ) {
-				$cont = explode( '|', $params['continue'] );
-				$this->dieContinueUsageIf( count( $cont ) != 2 );
-				$fromTitle = strval( $cont[0] );
+				$cont = $this->parseContinueParamOrDie( $params['continue'], [ 'string', 'string' ] );
+				$fromTitle = $cont[0];
 				$fromTimestamp = $cont[1];
 				// Filter out any titles before $fromTitle
 				foreach ( $titles as $key => $title ) {
@@ -143,6 +143,8 @@ class ApiQueryImageInfo extends ApiQueryBase {
 			foreach ( $titles as $title ) {
 				$info = [];
 				$pageId = $pageIds[NS_FILE][$title];
+				// @phan-suppress-next-next-line PhanPossiblyUndeclaredVariable
+				// $fromTimestamp declared when $fromTitle notnull
 				$start = $title === $fromTitle ? $fromTimestamp : $params['start'];
 
 				if ( !isset( $images[$title] ) ) {
@@ -204,6 +206,14 @@ class ApiQueryImageInfo extends ApiQueryBase {
 
 				// Check if we can make the requested thumbnail, and get transform parameters.
 				$finalThumbParams = $this->mergeThumbParams( $img, $scale, $params['urlparam'] );
+
+				// Parser::makeImage always sets a targetlang, usually based on the language
+				// the content is in.  To support Parsoid's standalone mode, overload the badfilecontexttitle
+				// to also set the targetlang based on the page language.  Don't add this unless we're
+				// already scaling since a set $finalThumbParams usually expects a width.
+				if ( $badFileContextTitle && $finalThumbParams ) {
+					$finalThumbParams['targetlang'] = $badFileContextTitle->getPageLanguage()->getCode();
+				}
 
 				// Get information about the current version first
 				// Check that the current version is within the start-end boundaries
@@ -317,7 +327,8 @@ class ApiQueryImageInfo extends ApiQueryBase {
 			// don't have a width of their own, so pick something arbitrary so
 			// thumbnailing the default icon works.
 			if ( $image->getWidth() <= 0 ) {
-				$thumbParams['width'] = max( $this->getConfig()->get( 'ThumbLimits' ) );
+				$thumbParams['width'] =
+					max( $this->getConfig()->get( MainConfigNames::ThumbLimits ) );
 			} else {
 				$thumbParams['width'] = $image->getWidth();
 			}
@@ -347,12 +358,13 @@ class ApiQueryImageInfo extends ApiQueryBase {
 			return $thumbParams;
 		}
 
-		if ( isset( $paramList['width'] ) && isset( $thumbParams['width'] ) ) {
-			if ( (int)$paramList['width'] != (int)$thumbParams['width'] ) {
-				$this->addWarning(
-					[ 'apiwarn-urlparamwidth', $p, $paramList['width'], $thumbParams['width'] ]
-				);
-			}
+		if (
+			isset( $paramList['width'] ) && isset( $thumbParams['width'] ) &&
+			(int)$paramList['width'] != (int)$thumbParams['width']
+		) {
+			$this->addWarning(
+				[ 'apiwarn-urlparamwidth', $p, $paramList['width'], $thumbParams['width'] ]
+			);
 		}
 
 		foreach ( $paramList as $name => $value ) {
@@ -410,10 +422,12 @@ class ApiQueryImageInfo extends ApiQueryBase {
 	public static function getInfo( $file, $prop, $result, $thumbParams = null, $opts = false ) {
 		$anyHidden = false;
 
+		$services = MediaWikiServices::getInstance();
+
 		if ( !$opts || is_string( $opts ) ) {
 			$opts = [
 				'version' => $opts ?: 'latest',
-				'language' => MediaWikiServices::getInstance()->getContentLanguage(),
+				'language' => $services->getContentLanguage(),
 				'multilang' => false,
 				'extmetadatafilter' => [],
 				'revdelUser' => null,
@@ -498,7 +512,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 			}
 			if ( $canShowField( File::DELETED_COMMENT ) ) {
 				if ( $pcomment ) {
-					$vals['parsedcomment'] = Linker::formatComment(
+					$vals['parsedcomment'] = $services->getCommentFormatter()->format(
 						$file->getDescription( File::RAW ), $file->getTitle() );
 				}
 				if ( $comment ) {
@@ -546,12 +560,14 @@ class ApiQueryImageInfo extends ApiQueryBase {
 		}
 
 		if ( $url ) {
+			$urlUtils = $services->getUrlUtils();
+
 			if ( $exists ) {
 				if ( $thumbParams !== null ) {
 					$mto = $file->transform( $thumbParams );
 					self::$transformCount++;
 					if ( $mto && !$mto->isError() ) {
-						$vals['thumburl'] = wfExpandUrl( $mto->getUrl(), PROTO_CURRENT );
+						$vals['thumburl'] = (string)$urlUtils->expand( $mto->getUrl(), PROTO_CURRENT );
 
 						// T25834 - If the URLs are the same, we haven't resized it, so shouldn't give the wanted
 						// thumbnail sizes for the thumbnail actual size
@@ -564,7 +580,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 						}
 
 						if ( isset( $prop['thumbmime'] ) && $file->getHandler() ) {
-							list( , $mime ) = $file->getHandler()->getThumbType(
+							[ , $mime ] = $file->getHandler()->getThumbType(
 								$mto->getExtension(), $file->getMimeType(), $thumbParams );
 							$vals['thumbmime'] = $mime;
 						}
@@ -574,7 +590,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 							'height' => $vals['thumbheight']
 						] + $thumbParams );
 						foreach ( $mto->responsiveUrls as $density => $url ) {
-							$vals['responsiveUrls'][$density] = wfExpandUrl( $url, PROTO_CURRENT );
+							$vals['responsiveUrls'][$density] = (string)$urlUtils->expand( $url, PROTO_CURRENT );
 						}
 					} elseif ( $mto && $mto->isError() ) {
 						/** @var MediaTransformError $mto */
@@ -582,13 +598,13 @@ class ApiQueryImageInfo extends ApiQueryBase {
 						$vals['thumberror'] = $mto->toText();
 					}
 				}
-				$vals['url'] = wfExpandUrl( $file->getFullUrl(), PROTO_CURRENT );
+				$vals['url'] = (string)$urlUtils->expand( $file->getFullUrl(), PROTO_CURRENT );
 			}
-			$vals['descriptionurl'] = wfExpandUrl( $file->getDescriptionUrl(), PROTO_CURRENT );
+			$vals['descriptionurl'] = (string)$urlUtils->expand( $file->getDescriptionUrl(), PROTO_CURRENT );
 
 			$shortDescriptionUrl = $file->getDescriptionShortUrl();
 			if ( $shortDescriptionUrl !== null ) {
-				$vals['descriptionshorturl'] = wfExpandUrl( $shortDescriptionUrl, PROTO_CURRENT );
+				$vals['descriptionshorturl'] = (string)$urlUtils->expand( $shortDescriptionUrl, PROTO_CURRENT );
 			}
 		}
 
@@ -701,74 +717,73 @@ class ApiQueryImageInfo extends ApiQueryBase {
 	 * @return string
 	 */
 	protected function getContinueStr( $img, $start = null ) {
-		if ( $start === null ) {
-			$start = $img->getTimestamp();
-		}
-
-		return $img->getOriginalTitle()->getDBkey() . '|' . $start;
+		return $img->getOriginalTitle()->getDBkey() . '|' . ( $start ?? $img->getTimestamp() );
 	}
 
 	public function getAllowedParams() {
 		return [
 			'prop' => [
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_DFLT => 'timestamp|user',
-				ApiBase::PARAM_TYPE => static::getPropertyNames(),
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_DEFAULT => 'timestamp|user',
+				ParamValidator::PARAM_TYPE => static::getPropertyNames(),
 				ApiBase::PARAM_HELP_MSG_PER_VALUE => static::getPropertyMessages(),
 			],
 			'limit' => [
-				ApiBase::PARAM_TYPE => 'limit',
-				ApiBase::PARAM_DFLT => 1,
-				ApiBase::PARAM_MIN => 1,
-				ApiBase::PARAM_MAX => ApiBase::LIMIT_BIG1,
-				ApiBase::PARAM_MAX2 => ApiBase::LIMIT_BIG2
+				ParamValidator::PARAM_TYPE => 'limit',
+				ParamValidator::PARAM_DEFAULT => 1,
+				IntegerDef::PARAM_MIN => 1,
+				IntegerDef::PARAM_MAX => ApiBase::LIMIT_BIG1,
+				IntegerDef::PARAM_MAX2 => ApiBase::LIMIT_BIG2
 			],
 			'start' => [
-				ApiBase::PARAM_TYPE => 'timestamp'
+				ParamValidator::PARAM_TYPE => 'timestamp'
 			],
 			'end' => [
-				ApiBase::PARAM_TYPE => 'timestamp'
+				ParamValidator::PARAM_TYPE => 'timestamp'
 			],
 			'urlwidth' => [
-				ApiBase::PARAM_TYPE => 'integer',
-				ApiBase::PARAM_DFLT => -1,
+				ParamValidator::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_DEFAULT => -1,
 				ApiBase::PARAM_HELP_MSG => [
 					'apihelp-query+imageinfo-param-urlwidth',
 					self::TRANSFORM_LIMIT,
 				],
 			],
 			'urlheight' => [
-				ApiBase::PARAM_TYPE => 'integer',
-				ApiBase::PARAM_DFLT => -1
+				ParamValidator::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_DEFAULT => -1
 			],
 			'metadataversion' => [
-				ApiBase::PARAM_TYPE => 'string',
-				ApiBase::PARAM_DFLT => '1',
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_DEFAULT => '1',
 			],
 			'extmetadatalanguage' => [
-				ApiBase::PARAM_TYPE => 'string',
-				ApiBase::PARAM_DFLT =>
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_DEFAULT =>
 					$this->contentLanguage->getCode(),
 			],
 			'extmetadatamultilang' => [
-				ApiBase::PARAM_TYPE => 'boolean',
-				ApiBase::PARAM_DFLT => false,
+				ParamValidator::PARAM_TYPE => 'boolean',
+				ParamValidator::PARAM_DEFAULT => false,
 			],
 			'extmetadatafilter' => [
-				ApiBase::PARAM_TYPE => 'string',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'urlparam' => [
-				ApiBase::PARAM_DFLT => '',
-				ApiBase::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_DEFAULT => '',
+				ParamValidator::PARAM_TYPE => 'string',
 			],
 			'badfilecontexttitle' => [
-				ApiBase::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_TYPE => 'string',
 			],
 			'continue' => [
 				ApiBase::PARAM_HELP_MSG => 'api-help-param-continue',
 			],
-			'localonly' => false,
+			'localonly' => [
+				ParamValidator::PARAM_TYPE => 'boolean',
+				ParamValidator::PARAM_DEFAULT => false,
+			],
 		];
 	}
 

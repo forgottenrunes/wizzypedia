@@ -9,6 +9,7 @@ use MediaWiki\Permissions\UltimateAuthority;
 use MediaWiki\Revision\ContributionsLookup;
 use MediaWiki\Revision\ContributionsSegment;
 use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\User\User;
 use MediaWiki\User\UserIdentityValue;
 use MediaWikiIntegrationTestCase;
 use Message;
@@ -28,7 +29,7 @@ class ContributionsLookupTest extends MediaWikiIntegrationTestCase {
 	private static $storedRevisions;
 
 	/**
-	 * @var \User
+	 * @var User
 	 */
 	private static $testUser;
 
@@ -53,18 +54,18 @@ class ContributionsLookupTest extends MediaWikiIntegrationTestCase {
 
 	private const TAG_DISPLAY = 'ContributionsLookup Tag Display Text';
 
-	public function setUp(): void {
+	protected function setUp(): void {
 		parent::setUp();
 
-		// Work around T256006
-		ChangeTags::$avoidReopeningTablesForTesting = true;
+		if ( $this->db->getType() == 'mysql' && strpos( $this->db->getSoftwareLink(), 'MySQL' ) ) {
+			$this->markTestSkipped( 'See T256006' );
+		}
 
 		// MessageCache needs to be explicitly enabled to load changetag display text.
 		$this->getServiceContainer()->getMessageCache()->enable();
 	}
 
-	public function tearDown(): void {
-		ChangeTags::$avoidReopeningTablesForTesting = false;
+	protected function tearDown(): void {
 		$this->getServiceContainer()->getMessageCache()->disable();
 
 		parent::tearDown();
@@ -86,13 +87,13 @@ class ContributionsLookupTest extends MediaWikiIntegrationTestCase {
 		self::$storedDeltas = [ 1 => 5, 2 => 11, 3 => -2, 4 => -6 ];
 
 		self::$storedRevisions[1] = $this->editPage( __METHOD__ . '_1', $revisionText[1], 'test', NS_MAIN, $user )
-			->getValue()['revision-record'];
+			->getNewRevision();
 		self::$storedRevisions[2] = $this->editPage( __METHOD__ . '_2', $revisionText[2], 'test', NS_TALK, $user )
-			->getValue()['revision-record'];
+			->getNewRevision();
 		self::$storedRevisions[3] = $this->editPage( __METHOD__ . '_1', $revisionText[3], 'test', NS_MAIN, $user )
-			->getValue()['revision-record'];
+			->getNewRevision();
 		self::$storedRevisions[4] = $this->editPage( __METHOD__ . '_2', $revisionText[4], 'test', NS_TALK, $user )
-			->getValue()['revision-record'];
+			->getNewRevision();
 
 		ChangeTags::defineTag( self::TAG1 );
 		ChangeTags::defineTag( self::TAG2 );
@@ -161,9 +162,9 @@ class ContributionsLookupTest extends MediaWikiIntegrationTestCase {
 		$user = $this->getTestUser()->getUser();
 
 		$rev1 = $this->editPage( __METHOD__ . '_1', 'foo', 'test', NS_MAIN, $user )
-			->getValue()['revision-record'];
+			->getNewRevision();
 		$rev2 = $this->editPage( __METHOD__ . '_2', 'bar', 'test', NS_TALK, $user )
-			->getValue()['revision-record'];
+			->getNewRevision();
 
 		// Parent of revision 1 is not in revision table (deleted)
 		$this->db->update(
@@ -242,7 +243,7 @@ class ContributionsLookupTest extends MediaWikiIntegrationTestCase {
 		$segment0 =
 			$contributionsLookup->getContributions( $target, 10, self::$performer, '', 'not-a-tag' );
 
-		$this->assertEmpty( $segment0->getRevisions() );
+		$this->assertSame( [], $segment0->getRevisions() );
 	}
 
 	/**
@@ -310,7 +311,7 @@ class ContributionsLookupTest extends MediaWikiIntegrationTestCase {
 		}
 	}
 
-	public function provideBadSegmentMarker() {
+	public static function provideBadSegmentMarker() {
 		yield [ '' ];
 		yield [ '|' ];
 		yield [ '0' ];

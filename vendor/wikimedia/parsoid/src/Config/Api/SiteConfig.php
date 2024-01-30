@@ -5,10 +5,7 @@ declare( strict_types = 1 );
 namespace Wikimedia\Parsoid\Config\Api;
 
 use Liuggio\StatsdClient\Factory\StatsdDataFactoryInterface;
-use Monolog\Formatter\LineFormatter;
-use Monolog\Handler\ErrorLogHandler;
-use Monolog\Logger;
-use Psr\Log\LoggerInterface;
+use Wikimedia\Bcp47Code\Bcp47Code;
 use Wikimedia\Parsoid\Config\SiteConfig as ISiteConfig;
 use Wikimedia\Parsoid\Config\StubMetadataCollector;
 use Wikimedia\Parsoid\Core\ContentMetadataCollector;
@@ -74,10 +71,10 @@ class SiteConfig extends ISiteConfig {
 	/** @var array|null */
 	private $interwikiMap;
 
-	/** @var array|null */
+	/** @var array<string,array>|null Keys are stored as lowercased BCP-47 code strings */
 	private $variants;
 
-	/** @var array|null */
+	/** @var array<string,bool>|null Keys are stored as lowercased BCP-47 code strings */
 	private $langConverterEnabled;
 
 	/** @var array|null */
@@ -140,13 +137,7 @@ class SiteConfig extends ISiteConfig {
 		if ( isset( $opts['logger'] ) ) {
 			$this->setLogger( $opts['logger'] );
 		} else {
-			// Use Monolog's PHP console handler
-			$logger = new Logger( "Parsoid CLI" );
-			$handler = new ErrorLogHandler();
-			// Don't suppress inline newlines
-			$handler->setFormatter( new LineFormatter( '%message%', null, true ) );
-			$logger->pushHandler( $handler );
-			$this->setLogger( $logger );
+			$this->setLogger( self::createLogger() );
 		}
 
 		if ( isset( $opts['wt2htmlLimits'] ) ) {
@@ -167,7 +158,7 @@ class SiteConfig extends ISiteConfig {
 		$this->relativeLinkPrefix = null;
 		// Superclass value reset since parsertests reuse SiteConfig objects
 		$this->linkTrailRegex = false;
-		$this->magicWordMap = null;
+		$this->mwAliases = null;
 		$this->interwikiMapNoNamespaces = null;
 	}
 
@@ -217,7 +208,7 @@ class SiteConfig extends ISiteConfig {
 			$this->featureDetectionDone = true;
 			$data = $this->api->makeRequest( [ 'action' => 'paraminfo', 'modules' => 'query' ] );
 			$props = $data["paraminfo"]["modules"][0]["parameters"]["0"]["type"] ?? [];
-			$this->hasVideoInfo = array_search( 'videoinfo', $props, true ) !== false;
+			$this->hasVideoInfo = in_array( 'videoinfo', $props, true );
 		}
 	}
 
@@ -294,15 +285,22 @@ class SiteConfig extends ISiteConfig {
 		$this->interwikiMap = ConfigUtils::computeInterwikiMap( $data['interwikimap'] );
 
 		// Parse variant data from the API
+		# T320662: API should return these in BCP-47 forms
 		$this->langConverterEnabled = [];
 		$this->variants = [];
 		foreach ( $data['languagevariants'] as $base => $variants ) {
+			$baseBcp47 = Utils::mwCodeToBcp47( $base );
 			if ( $this->siteData['langconversion'] ) {
-				$this->langConverterEnabled[$base] = true;
+				$baseKey = strtolower( $baseBcp47->toBcp47Code() );
+				$this->langConverterEnabled[$baseKey] = true;
 				foreach ( $variants as $code => $vdata ) {
-					$this->variants[$code] = [
-						'base' => $base,
-						'fallbacks' => $vdata['fallbacks'],
+					$variantKey = strtolower( Utils::mwCodeToBcp47( $code )->toBcp47Code() );
+					$this->variants[$variantKey] = [
+						'base' => $baseBcp47,
+						'fallbacks' => array_map(
+							[ Utils::class, 'mwCodeToBcp47' ],
+							$vdata['fallbacks']
+						),
 					];
 				}
 			}
@@ -357,14 +355,6 @@ class SiteConfig extends ISiteConfig {
 		$this->savedCategoryRegexp = "@{$category}@";
 		$this->savedRedirectRegexp = "@{$redirect}@";
 		$this->savedBswRegexp = "@{$bswRegexp}@";
-	}
-
-	/**
-	 * Set the log channel, for debugging
-	 * @param ?LoggerInterface $logger
-	 */
-	public function setLogger( ?LoggerInterface $logger ): void {
-		$this->logger = $logger;
 	}
 
 	public function galleryOptions(): array {
@@ -505,9 +495,9 @@ class SiteConfig extends ISiteConfig {
 		return $this->siteData['linktrail'];
 	}
 
-	public function lang(): string {
+	public function langBcp47(): Bcp47Code {
 		$this->loadSiteData();
-		return $this->siteData['lang'];
+		return Utils::mwCodeToBcp47( $this->siteData['lang'] );
 	}
 
 	public function mainpage(): string {
@@ -515,12 +505,22 @@ class SiteConfig extends ISiteConfig {
 		return $this->siteData['mainpage'];
 	}
 
-	public function responsiveReferences(): array {
+	/** @inheritDoc */
+	public function getMWConfigValue( string $key ) {
 		$this->loadSiteData();
-		return [
-			'enabled' => $this->siteData['citeresponsivereferences'] ?? false,
-			'threshold' => 10,
-		];
+		switch ( $key ) {
+			// Hardcoded values for these 2 keys
+			case 'CiteResponsiveReferences':
+				return $this->siteData['citeresponsivereferences'] ?? false;
+
+			case 'CiteResponsiveReferencesThreshold':
+				return 10;
+
+			// We can add more hardcoded keys based on testing needs
+			// but null is the default for keys unsupported in this mode.
+			default:
+				return null;
+		}
 	}
 
 	public function rtl(): bool {
@@ -529,9 +529,9 @@ class SiteConfig extends ISiteConfig {
 	}
 
 	/** @inheritDoc */
-	public function langConverterEnabled( string $lang ): bool {
+	public function langConverterEnabledBcp47( Bcp47Code $lang ): bool {
 		$this->loadSiteData();
-		return $this->langConverterEnabled[$lang] ?? false;
+		return $this->langConverterEnabled[strtolower( $lang->toBcp47Code() )] ?? false;
 	}
 
 	public function script(): string {
@@ -552,11 +552,11 @@ class SiteConfig extends ISiteConfig {
 	/**
 	 * @inheritDoc
 	 */
-	public function exportMetadataToHead(
+	public function exportMetadataToHeadBcp47(
 		Document $document,
 		ContentMetadataCollector $metadata,
 		string $defaultTitle,
-		string $lang
+		Bcp47Code $lang
 	): void {
 		'@phan-var StubMetadataCollector $metadata'; // @var StubMetadataCollector $metadata
 		$moduleLoadURI = $this->server() . $this->scriptpath() . '/load.php';
@@ -598,9 +598,10 @@ class SiteConfig extends ISiteConfig {
 		return $this->siteData['timeoffset'];
 	}
 
-	public function variants(): array {
+	/** @inheritDoc */
+	public function variantsFor( Bcp47Code $lang ): ?array {
 		$this->loadSiteData();
-		return $this->variants;
+		return $this->variants[strtolower( $lang->toBcp47Code() )] ?? null;
 	}
 
 	public function widthOption(): int {
@@ -761,32 +762,30 @@ class SiteConfig extends ISiteConfig {
 		return $this->protocols;
 	}
 
-	/**
-	 * @param array $parsoidSettings
-	 * @return SiteConfig
-	 */
-	public static function fromSettings( array $parsoidSettings ): SiteConfig {
-		$opts = [];
-		if ( isset( $parsoidSettings['linting'] ) ) {
-			$opts['linting'] = !empty( $parsoidSettings['linting'] );
-		}
-		if ( isset( $parsoidSettings['wt2htmlLimits'] ) ) {
-			$opts['wt2htmlLimits'] = $parsoidSettings['wt2htmlLimits'];
-		}
-		if ( isset( $parsoidSettings['html2wtLimits'] ) ) {
-			$opts['html2wtLimits'] = $parsoidSettings['html2wtLimits'];
-		}
-		$api = ApiHelper::fromSettings( $parsoidSettings );
-		return new SiteConfig( $api, $opts );
-	}
+	/** @var ?MockMetrics */
+	private $metrics;
 
 	/** @inheritDoc */
 	public function metrics(): ?StatsdDataFactoryInterface {
-		static $metrics = null;
-		if ( $metrics === null ) {
-			$metrics = new MockMetrics();
+		if ( $this->metrics === null ) {
+			$this->metrics = new MockMetrics();
 		}
-		return $metrics;
+		return $this->metrics;
 	}
 
+	/** @inheritDoc */
+	public function getNoFollowConfig(): array {
+		$this->loadSiteData();
+		return [
+			'nofollow' => $this->siteData['nofollowlinks'] ?? true,
+			'nsexceptions' => $this->siteData['nofollownsexceptions'] ?? [],
+			'domainexceptions' => $this->siteData['nofollowdomainexceptions'] ?? [ 'mediawiki.org' ]
+		];
+	}
+
+	/** @inheritDoc */
+	public function getExternalLinkTarget() {
+		$this->loadSiteData();
+		return $this->siteData['externallinktarget'] ?? false;
+	}
 }

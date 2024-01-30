@@ -26,12 +26,13 @@
  * @file
  */
 
-use MediaWiki\HookContainer\HookContainer;
-use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Permissions\PermissionManager;
+use MediaWiki\Permissions\RestrictionStore;
 use MediaWiki\Revision\RevisionLookup;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\User\User;
 
 /**
  * A simple method to retrieve the plain source of an article,
@@ -41,39 +42,32 @@ use MediaWiki\Revision\SlotRecord;
  */
 class RawAction extends FormlessAction {
 
-	/** @var HookRunner */
-	private $hookRunner;
-
-	/** @var Parser */
-	private $parser;
-
-	/** @var PermissionManager */
-	private $permissionManager;
-
-	/** @var RevisionLookup */
-	private $revisionLookup;
+	private Parser $parser;
+	private PermissionManager $permissionManager;
+	private RevisionLookup $revisionLookup;
+	private RestrictionStore $restrictionStore;
 
 	/**
-	 * @param Page $page
+	 * @param Article $article
 	 * @param IContextSource $context
-	 * @param HookContainer $hookContainer
 	 * @param Parser $parser
 	 * @param PermissionManager $permissionManager
 	 * @param RevisionLookup $revisionLookup
+	 * @param RestrictionStore $restrictionStore
 	 */
 	public function __construct(
-		Page $page,
+		Article $article,
 		IContextSource $context,
-		HookContainer $hookContainer,
 		Parser $parser,
 		PermissionManager $permissionManager,
-		RevisionLookup $revisionLookup
+		RevisionLookup $revisionLookup,
+		RestrictionStore $restrictionStore
 	) {
-		parent::__construct( $page, $context );
-		$this->hookRunner = new HookRunner( $hookContainer );
+		parent::__construct( $article, $context );
 		$this->parser = $parser;
 		$this->permissionManager = $permissionManager;
 		$this->revisionLookup = $revisionLookup;
+		$this->restrictionStore = $restrictionStore;
 	}
 
 	public function getName() {
@@ -106,7 +100,7 @@ class RawAction extends FormlessAction {
 
 		$contentType = $this->getContentType();
 
-		$maxage = $request->getInt( 'maxage', $config->get( 'CdnMaxAge' ) );
+		$maxage = $request->getInt( 'maxage', $config->get( MainConfigNames::CdnMaxAge ) );
 		$smaxage = $request->getIntOrNull( 'smaxage' );
 		if ( $smaxage === null ) {
 			if (
@@ -117,7 +111,7 @@ class RawAction extends FormlessAction {
 				// CSS/JSON/JS raw content has its own CDN max age configuration.
 				// Note: HtmlCacheUpdater::getUrls() includes action=raw for css/json/js
 				// pages, so if using the canonical url, this will get HTCP purges.
-				$smaxage = intval( $config->get( 'ForcedRawSMaxage' ) );
+				$smaxage = intval( $config->get( MainConfigNames::ForcedRawSMaxage ) );
 			} else {
 				// No CDN cache for anything else
 				$smaxage = 0;
@@ -148,8 +142,8 @@ class RawAction extends FormlessAction {
 			// even if subpages are disabled.
 			$rootPage = strtok( $title->getText(), '/' );
 			$userFromTitle = User::newFromName( $rootPage, 'usable' );
-			if ( !$userFromTitle || $userFromTitle->getId() === 0 ) {
-				$elevated = $this->getContext()->getAuthority()->isAllowed( 'editinterface' );
+			if ( !$userFromTitle || !$userFromTitle->isRegistered() ) {
+				$elevated = $this->getAuthority()->isAllowed( 'editinterface' );
 				$elevatedText = $elevated ? 'by elevated ' : '';
 				$log = LoggerFactory::getInstance( "security" );
 				$log->warning(
@@ -171,12 +165,13 @@ class RawAction extends FormlessAction {
 		// but for now be more permissive. Allowing protected pages outside of
 		// NS_USER and NS_MEDIAWIKI in particular should be considered a temporary
 		// allowance.
+		$pageRestrictions = $this->restrictionStore->getRestrictions( $title, 'edit' );
 		if (
 			$contentType === 'text/javascript' &&
 			!$title->isUserJsConfigPage() &&
 			!$title->inNamespace( NS_MEDIAWIKI ) &&
-			!in_array( 'sysop', $title->getRestrictions( 'edit' ) ) &&
-			!in_array( 'editprotected', $title->getRestrictions( 'edit' ) )
+			!in_array( 'sysop', $pageRestrictions ) &&
+			!in_array( 'editprotected', $pageRestrictions )
 		) {
 
 			$log = LoggerFactory::getInstance( "security" );
@@ -201,7 +196,7 @@ class RawAction extends FormlessAction {
 			$response->statusHeader( 404 );
 		}
 
-		if ( !$this->hookRunner->onRawPageViewBeforeOutput( $this, $text ) ) {
+		if ( !$this->getHookRunner()->onRawPageViewBeforeOutput( $this, $text ) ) {
 			wfDebug( __METHOD__ . ": RawPageViewBeforeOutput hook broke raw page output." );
 		}
 
@@ -214,7 +209,7 @@ class RawAction extends FormlessAction {
 	 * Get the text that should be returned, or false if the page or revision
 	 * was not found.
 	 *
-	 * @return string|bool
+	 * @return string|false
 	 */
 	public function getRawText() {
 		$text = false;
@@ -228,11 +223,21 @@ class RawAction extends FormlessAction {
 			$request->response()->header( "Last-modified: $lastmod" );
 
 			// Public-only due to cache headers
-			$content = $rev->getContent( SlotRecord::MAIN );
+			// Fetch specific slot if defined
+			$slot = $this->getRequest()->getText( 'slot' );
+			if ( $slot ) {
+				if ( $rev->hasSlot( $slot ) ) {
+					$content = $rev->getContent( $slot );
+				} else {
+					$content = null;
+				}
+			} else {
+				$content = $rev->getContent( SlotRecord::MAIN );
+			}
 
 			if ( $content === null ) {
-				// revision not found (or suppressed)
-			} elseif ( !$content instanceof TextContent ) {
+				// revision or slot not found (or suppressed)
+			} elseif ( !$content instanceof TextContent && !method_exists( $content, 'getText' ) ) {
 				// non-text content
 				wfHttpError( 415, "Unsupported Media Type", "The requested page uses the content model `"
 					. $content->getModel() . "` which is not supported via this interface." );
@@ -301,6 +306,7 @@ class RawAction extends FormlessAction {
 				break;
 		}
 
+		// @phan-suppress-next-line PhanTypeMismatchReturnNullable RevisionRecord::getId does not return null here
 		return $oldid;
 	}
 
@@ -314,7 +320,7 @@ class RawAction extends FormlessAction {
 		$ctype = $this->getRequest()->getRawVal( 'ctype' );
 
 		if ( $ctype == '' ) {
-			// Legacy compatibilty
+			// Legacy compatibility
 			$gen = $this->getRequest()->getRawVal( 'gen' );
 			if ( $gen == 'js' ) {
 				$ctype = 'text/javascript';

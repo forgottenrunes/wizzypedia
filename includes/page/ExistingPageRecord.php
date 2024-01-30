@@ -1,4 +1,5 @@
 <?php
+
 namespace MediaWiki\Page;
 
 /**
@@ -8,8 +9,9 @@ namespace MediaWiki\Page;
  * @note This is intended to become an alias for PageRecord, once PageRecord is guaranteed
  *       to be immutable and to represent existing pages.
  *
- * @stable to type
+ * @see https://www.mediawiki.org/wiki/Manual:Modeling_pages
  *
+ * @stable to type
  * @since 1.36
  */
 interface ExistingPageRecord extends PageRecord {

@@ -1,4 +1,7 @@
 <?php
+
+use MediaWiki\Output\OutputPage;
+
 /**
  * @covers BadTitleError
  * @author Addshore
@@ -6,9 +9,7 @@
 class BadTitleErrorTest extends MediaWikiIntegrationTestCase {
 
 	public function testExceptionSetsStatusCode() {
-		$mockOut = $this->getMockBuilder( OutputPage::class )
-			->disableOriginalConstructor()
-			->getMock();
+		$mockOut = $this->createMock( OutputPage::class );
 		$mockOut->expects( $this->once() )
 			->method( 'setStatusCode' )
 			->with( 404 );

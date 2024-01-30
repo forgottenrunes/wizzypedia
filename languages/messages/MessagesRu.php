@@ -1,10 +1,8 @@
 <?php
 /** Russian (русский)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author AVRS
  * @author Agilight
@@ -203,6 +201,7 @@ $specialPageAliases = [
 	'Randomredirect'            => [ 'Случайное_перенаправление' ],
 	'Recentchanges'             => [ 'Свежие_правки' ],
 	'Recentchangeslinked'       => [ 'Связанные_правки' ],
+	'Renameuser'                => [ 'Переименовать_участника' ],
 	'Revisiondelete'            => [ 'Удаление_правки' ],
 	'Search'                    => [ 'Поиск' ],
 	'Shortpages'                => [ 'Короткие_страницы' ],
@@ -422,7 +421,7 @@ $separatorTransformTable = [
 	',' => "\u{00A0}", # nbsp
 	'.' => ','
 ];
-$minimumGroupingDigits = 2; // As per CLDR 31, this value is 1 (T262500)
+$minimumGroupingDigits = 2; // intentional deviation from CLDR (T262500)
 
 $fallback8bitEncoding = 'windows-1251';
 $linkPrefixExtension = false;

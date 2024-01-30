@@ -53,7 +53,7 @@ class ResponseFactoryTest extends MediaWikiUnitTestCase {
 		$this->assertSame( 2, $response->getBody()->getSize() );
 	}
 
-	public function provideUseException() {
+	public static function provideUseException() {
 		return [ [ false ], [ true ] ];
 	}
 
@@ -162,7 +162,7 @@ class ResponseFactoryTest extends MediaWikiUnitTestCase {
 		$body->rewind();
 		$data = json_decode( $body->getContents(), true );
 		$this->assertSame( 500, $data['httpCode'] );
-		$this->assertSame( 'Error: exception of type Exception: hello', $data['message'] );
+		$this->assertSame( 'Error: exception of type Exception', $data['message'] );
 	}
 
 	public function testCreateFromExceptionWrapped() {

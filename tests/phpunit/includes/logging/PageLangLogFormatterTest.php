@@ -1,5 +1,8 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\MainConfigSchema;
+
 /**
  * @covers PageLangLogFormatter
  */
@@ -8,12 +11,15 @@ class PageLangLogFormatterTest extends LogFormatterTestCase {
 	protected function setUp(): void {
 		parent::setUp();
 
-		// Disable cldr extension
-		$this->setMwGlobals( 'wgHooks', [] );
+		// Clear all hooks to disable cldr extension
+		$this->clearHooks();
+
 		// Register LogHandler, see $wgPageLanguageUseDB in Setup.php
-		$this->mergeMwGlobalArrayValue( 'wgLogActionsHandlers', [
-			'pagelang/pagelang' => PageLangLogFormatter::class,
-		] );
+		$this->overrideConfigValue(
+			MainConfigNames::LogActionsHandlers,
+			MainConfigSchema::getDefaultValue( MainConfigNames::LogActionsHandlers ) +
+			[ 'pagelang/pagelang' => PageLangLogFormatter::class ]
+		);
 	}
 
 	/**

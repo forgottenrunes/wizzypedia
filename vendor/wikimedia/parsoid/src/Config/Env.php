@@ -4,10 +4,12 @@ declare( strict_types = 1 );
 namespace Wikimedia\Parsoid\Config;
 
 use Wikimedia\Assert\Assert;
+use Wikimedia\Bcp47Code\Bcp47Code;
 use Wikimedia\Parsoid\Core\ContentMetadataCollector;
 use Wikimedia\Parsoid\Core\ContentModelHandler;
 use Wikimedia\Parsoid\Core\ResourceLimitExceededException;
 use Wikimedia\Parsoid\Core\Sanitizer;
+use Wikimedia\Parsoid\Core\TOCData;
 use Wikimedia\Parsoid\DOM\Document;
 use Wikimedia\Parsoid\DOM\DocumentFragment;
 use Wikimedia\Parsoid\Logger\ParsoidLogger;
@@ -45,6 +47,9 @@ class Env {
 
 	/** @var ContentMetadataCollector */
 	private $metadata;
+
+	/** @var TOCData Table of Contents metadata for the article */
+	private $tocData;
 
 	/**
 	 * The top-level frame for this conversion.  This largely wraps the
@@ -91,6 +96,9 @@ class Env {
 
 	/** @var string */
 	private $currentOffsetType = 'byte';
+
+	/** @var bool */
+	private $skipLanguageConversionPass = false;
 
 	/** @var array<string,mixed> */
 	private $behaviorSwitches = [];
@@ -148,7 +156,7 @@ class Env {
 	/**
 	 * If non-null, the language variant used for Parsoid HTML;
 	 * we convert to this if wt2html, or from this if html2wt.
-	 * @var string
+	 * @var ?Bcp47Code
 	 */
 	private $htmlVariantLanguage;
 
@@ -156,7 +164,7 @@ class Env {
 	 * If non-null, the language variant to be used for wikitext.
 	 * If null, heuristics will be used to identify the original wikitext variant
 	 * in wt2html mode, and in html2wt mode new or edited HTML will be left unconverted.
-	 * @var string
+	 * @var ?Bcp47Code
 	 */
 	private $wtVariantLanguage;
 
@@ -249,11 +257,15 @@ class Env {
 	 *  - offsetType: 'byte' (default), 'ucs2', 'char'
 	 *                See `Parsoid\Wt2Html\PP\Processors\ConvertOffsets`.
 	 *  - logLinterData: (bool) Should we log linter data if linting is enabled?
-	 *  - htmlVariantLanguage: string|null
-	 *      If non-null, the language variant used for Parsoid HTML;
-	 *      we convert to this if wt2html, or from this if html2wt.
-	 *  - wtVariantLanguage: string|null
-	 *      If non-null, the language variant to be used for wikitext.
+	 *  - skipLanguageConversionPass: (bool) Should we skip the language
+	 *      conversion pass? (defaults to false)
+	 *  - htmlVariantLanguage: Bcp47Code|null
+	 *      If non-null, the language variant used for Parsoid HTML
+	 *      as a BCP 47 object.
+	 *      We convert to this if wt2html, or from this if html2wt.
+	 *  - wtVariantLanguage: Bcp47Code|null
+	 *      If non-null, the language variant to be used for wikitext
+	 *      as a BCP 47 object.
 	 *      If null, heuristics will be used to identify the original
 	 *      wikitext variant in wt2html mode, and in html2wt mode new
 	 *      or edited HTML will be left unconverted.
@@ -269,11 +281,12 @@ class Env {
 		?array $options = null
 	) {
 		self::checkPlatform();
-		$options = $options ?? [];
+		$options ??= [];
 		$this->siteConfig = $siteConfig;
 		$this->pageConfig = $pageConfig;
 		$this->dataAccess = $dataAccess;
 		$this->metadata = $metadata;
+		$this->tocData = new TOCData();
 		$this->topFrame = new PageConfigFrame( $this, $pageConfig, $siteConfig );
 		if ( isset( $options['wrapSections'] ) ) {
 			$this->wrapSections = !empty( $options['wrapSections'] );
@@ -291,8 +304,20 @@ class Env {
 			throw new \UnexpectedValueException(
 				$this->outputContentVersion . ' is not an available content version.' );
 		}
-		$this->htmlVariantLanguage = $options['htmlVariantLanguage'] ?? null;
-		$this->wtVariantLanguage = $options['wtVariantLanguage'] ?? null;
+		$this->skipLanguageConversionPass =
+			$options['skipLanguageConversionPass'] ?? false;
+		$this->htmlVariantLanguage = !empty( $options['htmlVariantLanguage'] ) ?
+			Utils::mwCodeToBcp47(
+				$options['htmlVariantLanguage'],
+				// Be strict in what we accept here.
+				true, $this->siteConfig->getLogger()
+			) : null;
+		$this->wtVariantLanguage = !empty( $options['wtVariantLanguage'] ) ?
+			Utils::mwCodeToBcp47(
+				$options['wtVariantLanguage'],
+				// Be strict in what we accept here.
+				true, $this->siteConfig->getLogger()
+			) : null;
 		$this->nativeTemplateExpansion = !empty( $options['nativeTemplateExpansion'] );
 		$this->discardDataParsoid = !empty( $options['discardDataParsoid'] );
 		$this->requestOffsetType = $options['offsetType'] ?? 'byte';
@@ -310,6 +335,21 @@ class Env {
 			$this->profiling = true;
 		}
 		$this->setupTopLevelDoc( $options['topLevelDoc'] ?? null );
+		// NOTE:
+		// Don't try to do this in setupTopLevelDoc since it is called on existing Env objects
+		// in a couple of places. That then leads to a multiple-write to tocdata property on
+		// the metadata object.
+		//
+		// setupTopLevelDoc is called outside Env in these couple cases:
+		// 1. html2wt in ContentModelHandler for dealing with
+		//    missing original HTML.
+		// 2. ParserTestRunner's html2html tests
+		//
+		// That is done to either reuse an existing Env object (as in 1.)
+		// OR to refresh the attached DOC (html2html as in 2.).
+		// Constructing a new Env in both cases could eliminate this issue.
+		$this->metadata->setTOCData( $this->tocData );
+
 		$this->wikitextContentModelHandler = new WikitextContentModelHandler( $this );
 	}
 
@@ -420,7 +460,7 @@ class Env {
 	 * @param string $str
 	 */
 	public function writeDump( string $str ) {
-		error_log( $str );
+		$this->log( 'dump', $str );
 	}
 
 	/**
@@ -453,6 +493,14 @@ class Env {
 	 */
 	public function getMetadata(): ContentMetadataCollector {
 		return $this->metadata;
+	}
+
+	/**
+	 * Return the Table of Contents information for the article.
+	 * @return TOCData
+	 */
+	public function getTOCData(): TOCData {
+		return $this->tocData;
 	}
 
 	public function nativeTemplateExpansionEnabled(): bool {
@@ -546,7 +594,7 @@ class Env {
 		// Resolve lonely fragments (important if the current page is a subpage,
 		// otherwise the relative link will be wrong)
 		if ( $str !== '' && $str[0] === '#' ) {
-			$str = $pageConfig->getTitle() . $str;
+			return $pageConfig->getTitle() . $str;
 		}
 
 		// Default return value
@@ -557,6 +605,10 @@ class Env {
 			if ( preg_match( '!^(?:\.\./)+!', $str, $relUp ) ) {
 				$levels = strlen( $relUp[0] ) / 3;  // Levels are indicated by '../'.
 				$titleBits = explode( '/', $pageConfig->getTitle() );
+				if ( $titleBits[0] === '' ) {
+					// FIXME: Punt on subpages of titles starting with "/" for now
+					return $origName;
+				}
 				if ( count( $titleBits ) <= $levels ) {
 					// Too many levels -- invalid relative link
 					return $origName;
@@ -922,10 +974,11 @@ class Env {
 	}
 
 	/**
+	 * @param string $prefix
 	 * @param mixed ...$args
 	 */
-	public function log( ...$args ): void {
-		$this->parsoidLogger->log( ...$args );
+	public function log( string $prefix, ...$args ): void {
+		$this->parsoidLogger->log( $prefix, ...$args );
 	}
 
 	/**
@@ -988,7 +1041,7 @@ class Env {
 	public function getContentHandler(
 		?string &$contentmodel = null
 	): ContentModelHandler {
-		$contentmodel = $contentmodel ?? $this->pageConfig->getContentModel();
+		$contentmodel ??= $this->pageConfig->getContentModel();
 		$handler = $this->siteConfig->getContentModelHandler( $contentmodel );
 		if ( !$handler && $contentmodel !== 'wikitext' ) {
 			// For now, fallback to 'wikitext' as the default handler
@@ -1005,8 +1058,8 @@ class Env {
 	 * @return bool
 	 */
 	public function langConverterEnabled(): bool {
-		return $this->siteConfig->langConverterEnabledForLanguage(
-			$this->pageConfig->getPageLanguage()
+		return $this->siteConfig->langConverterEnabledBcp47(
+			$this->pageConfig->getPageLanguageBcp47()
 		);
 	}
 
@@ -1034,10 +1087,10 @@ class Env {
 	 * If non-null, the language variant used for Parsoid HTML; we convert
 	 * to this if wt2html, or from this (if html2wt).
 	 *
-	 * @return string|null
+	 * @return ?Bcp47Code a BCP-47 language code
 	 */
-	public function getHtmlVariantLanguage(): ?string {
-		return $this->htmlVariantLanguage;
+	public function getHtmlVariantLanguageBcp47(): ?Bcp47Code {
+		return $this->htmlVariantLanguage; // Stored as BCP-47
 	}
 
 	/**
@@ -1046,10 +1099,14 @@ class Env {
 	 * in wt2html mode, and in html2wt mode new or edited HTML will be left
 	 * unconverted.
 	 *
-	 * @return string|null
+	 * @return ?Bcp47Code a BCP-47 language code
 	 */
-	public function getWtVariantLanguage(): ?string {
+	public function getWtVariantLanguageBcp47(): ?Bcp47Code {
 		return $this->wtVariantLanguage;
+	}
+
+	public function getSkipLanguageConversionPass(): bool {
+		return $this->skipLanguageConversionPass;
 	}
 
 	/**
@@ -1068,12 +1125,12 @@ class Env {
 
 	/**
 	 * Determine an appropriate content-language for the HTML form of this page.
-	 * @return string
+	 * @return Bcp47Code a BCP-47 language code.
 	 */
-	public function htmlContentLanguage(): string {
+	public function htmlContentLanguageBcp47(): Bcp47Code {
 		// PageConfig::htmlVariant is set iff we do variant conversion on the
 		// HTML
-		return $this->pageConfig->getVariant() ??
-			$this->pageConfig->getPageLanguage();
+		return $this->pageConfig->getVariantBcp47() ??
+			$this->pageConfig->getPageLanguageBcp47();
 	}
 }

@@ -3,12 +3,20 @@
 use MediaWiki\Block\BlockManager;
 use MediaWiki\Block\DatabaseBlock;
 use MediaWiki\Linker\LinkTarget;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Page\PageReferenceValue;
 use MediaWiki\Permissions\Authority;
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleValue;
 use MediaWiki\User\UserIdentity;
+use MediaWiki\User\UserIdentityLookup;
 use MediaWiki\User\UserIdentityValue;
 
+/**
+ * @covers Skin
+ * @group Database
+ */
 class SkinTest extends MediaWikiIntegrationTestCase {
 	use MockAuthorityTrait;
 
@@ -22,9 +30,6 @@ class SkinTest extends MediaWikiIntegrationTestCase {
 		$this->assertEquals( 'testname', $skin->getSkinName(), 'Constructor argument' );
 	}
 
-	/**
-	 * @covers Skin::getDefaultModules
-	 */
 	public function testGetDefaultModules() {
 		$skin = $this->getMockBuilder( Skin::class )
 			->onlyMethods( [ 'outputPage' ] )
@@ -48,7 +53,6 @@ class SkinTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @dataProvider provideGetDefaultModulesWatchWrite
-	 * @covers Skin::getDefaultModules
 	 */
 	public function testGetDefaultModulesWatchWrite( Authority $authority, bool $hasModule ) {
 		$skin = new class extends Skin {
@@ -110,7 +114,6 @@ class SkinTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @dataProvider providGetPageClasses
-	 * @covers Skin::getPageClasses
 	 */
 	public function testGetPageClasses(
 		LinkTarget $title,
@@ -135,8 +138,6 @@ class SkinTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * @covers Skin::isResponsive
-	 *
 	 * @dataProvider provideSkinResponsiveOptions
 	 */
 	public function testIsResponsive( array $options, bool $expected ) {
@@ -165,7 +166,7 @@ class SkinTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( $expected, $skin->isResponsive() );
 	}
 
-	public function provideSkinResponsiveOptions() {
+	public static function provideSkinResponsiveOptions() {
 		yield 'responsive not set' => [
 			[ 'name' => 'test', 'userPreference' => true ],
 			false
@@ -188,10 +189,114 @@ class SkinTest extends MediaWikiIntegrationTestCase {
 		];
 	}
 
+	public static function provideMakeLink() {
+		return [
+			'Empty href with link class' => [
+				[
+					'text' => 'Test',
+					'href' => '',
+					'class' => [
+						'class1',
+						'class2'
+					]
+				],
+				[ 'link-class' => 'link-class' ],
+				'<a href="" class="class1 class2 link-class">Test</a>',
+			],
+			'link with link-html' => [
+				[
+					'text' => '',
+					'href' => '#go',
+					'link-html' => '<i>label</i>'
+				],
+				[ 'text-wrapper' => [ 'tag' => 'span' ] ],
+				'<a href="#go"><i>label</i> </a>',
+			],
+			'Basic text wrapper' => [
+				[
+					'text' => 'Test',
+				],
+				[ 'text-wrapper' => [ 'tag' => 'span' ] ],
+				'<span>Test</span>'
+			],
+			'Text wrapper with tooltip ID in id attribute' => [
+				[
+					'text' => 'Test',
+					'id' => 'ii'
+				],
+				[ 'text-wrapper' => [ 'tag' => 'span' ] ],
+				'<span title="(tooltip-ii)">Test</span>'
+			],
+			'Text wrapper with tooltip ID in single-id' => [
+				[
+					'text' => 'Test',
+					'id' => 'foo',
+					'single-id' => 'ii'
+				],
+				[ 'text-wrapper' => [ 'tag' => 'span' ] ],
+				'<span title="(tooltip-ii)">Test</span>'
+			],
+			'Multi-level text wrapper with tooltip' => [
+				[
+					'text' => 'Test',
+					'id' => 'ii'
+				],
+				[ 'text-wrapper' => [
+					[ 'tag' => 'b' ],
+					[ 'tag' => 'i' ]
+				] ],
+				'<b title="(tooltip-ii)"><i>Test</i></b>'
+			],
+			'Multi-level text wrapper with link' => [
+				[
+					'text' => 'Test',
+					'id' => 'ii',
+					'href' => '#',
+				],
+				[ 'text-wrapper' => [
+					[ 'tag' => 'b' ],
+					[ 'tag' => 'i' ]
+				] ],
+				'<a id="ii" href="#" title="(tooltip-ii)(word-separator)(brackets: (accesskey-ii))" ' .
+				'accesskey="(accesskey-ii)"><b><i>Test</i></b></a>'
+			],
+			'Specified HTML' => [
+				[
+					'html' => '<b>1</b>',
+				],
+				[],
+				'<b>1</b>'
+			],
+			'Data attribute' => [
+				[
+					'text' => 'Test',
+					'href' => '#',
+					'data' => [ 'foo' => 'bar' ]
+				],
+				[],
+				'<a href="#" data-foo="bar">Test</a>'
+			],
+			'tooltip only' => [
+				[
+					'text' => 'Save',
+					'id' => 'save',
+					'href' => '#',
+					'tooltiponly' => true,
+				],
+				[],
+				'<a id="save" href="#" title="(tooltip-save)">Save</a>'
+			]
+		];
+	}
+
 	/**
-	 * @covers Skin::makeLink
+	 * @dataProvider provideMakeLink
+	 * @param array $data
+	 * @param array $options
+	 * @param string $expected
 	 */
-	public function testMakeLinkLinkClass() {
+	public function testMakeLinkLink( array $data, array $options, string $expected ) {
+		$this->setUserLang( 'qqx' );
 		$skin = new class extends Skin {
 			public function outputPage() {
 			}
@@ -199,27 +304,88 @@ class SkinTest extends MediaWikiIntegrationTestCase {
 
 		$link = $skin->makeLink(
 			'test',
-			[
-				'text' => 'Test',
-				'href' => '',
-				'class' => [
-					'class1',
-					'class2'
-				]
-			],
-			[ 'link-class' => 'link-class' ]
+			$data,
+			$options
 		);
 
 		$this->assertHTMLEquals(
-			'<a href="" class="class1 class2 link-class">Test</a>',
+			$expected,
 			$link
 		);
 	}
 
+	public static function provideGetPersonalToolsForMakeListItem() {
+		return [
+			[
+				[
+					'foo' => [
+						'class' => 'foo',
+						'link-html' => '<i>text</i>',
+						'text' => 'Hello',
+					],
+				],
+				false,
+				[
+					'foo' => [
+						'links' => [
+							[
+								'single-id' => 'pt-foo',
+								'text' => 'Hello',
+								'link-html' => '<i>text</i>',
+								'class' => 'foo',
+							]
+						],
+						'id' => 'pt-foo',
+					]
+				],
+			],
+			[
+				[
+					'foo' => [
+						'class' => 'foo',
+						'link-html' => '<i>text</i>',
+						'text' => 'Hello',
+					],
+				],
+				true,
+				[
+					'foo' => [
+						'links' => [
+							[
+								'single-id' => 'pt-foo',
+								'text' => 'Hello',
+								'link-html' => '<i>text</i>',
+							]
+						],
+						'id' => 'pt-foo',
+						'class' => 'foo',
+					]
+				],
+			]
+		];
+	}
+
 	/**
-	 * @covers Skin::setRelevantUser
-	 * @covers Skin::getRelevantUser
+	 * @dataProvider provideGetPersonalToolsForMakeListItem
+	 * @param array $urls
+	 * @param bool $applyClassesToListItems
+	 * @param array $expected
 	 */
+	public function testGetPersonalToolsForMakeListItem( array $urls, bool $applyClassesToListItems, array $expected ) {
+		$skin = new class extends Skin {
+			public function outputPage() {
+			}
+		};
+
+		$this->assertSame(
+			$expected,
+			$skin->getPersonalToolsForMakeListItem(
+				$urls,
+				$applyClassesToListItems
+			)
+		);
+	}
+
 	public function testGetRelevantUser_get_set() {
 		$skin = new class extends Skin {
 			public function outputPage() {
@@ -251,7 +417,7 @@ class SkinTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( $relevantUser, $skin->getRelevantUser() );
 	}
 
-	public function provideGetRelevantUser_load_from_title() {
+	public static function provideGetRelevantUser_load_from_title() {
 		yield 'Not user namespace' => [
 			'relevantPage' => PageReferenceValue::localReference( NS_MAIN, '123.123.123.123' ),
 			'expectedUser' => null
@@ -276,7 +442,6 @@ class SkinTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @dataProvider provideGetRelevantUser_load_from_title
-	 * @covers Skin::getRelevantUser
 	 */
 	public function testGetRelevantUser_load_from_title(
 		PageReferenceValue $relevantPage,
@@ -286,7 +451,7 @@ class SkinTest extends MediaWikiIntegrationTestCase {
 			public function outputPage() {
 			}
 		};
-		$skin->setRelevantTitle( Title::castFromPageReference( $relevantPage ) );
+		$skin->setRelevantTitle( Title::newFromPageReference( $relevantPage ) );
 		$relevantUser = $skin->getRelevantUser();
 		if ( $expectedUser ) {
 			$this->assertTrue( $expectedUser->equals( $relevantUser ) );
@@ -295,19 +460,73 @@ class SkinTest extends MediaWikiIntegrationTestCase {
 		}
 	}
 
-	/**
-	 * @covers Skin::getRelevantUser
-	 */
 	public function testGetRelevantUser_load_existing() {
 		$skin = new class extends Skin {
 			public function outputPage() {
 			}
 		};
-		$existingUser = $this->getTestSysop()->getUserIdentity();
+		$user = new UserIdentityValue( 42, 'foo' );
+		$userIdentityLookup = $this->createMock( UserIdentityLookup::class );
+		$userIdentityLookup->method( 'getUserIdentityByName' )
+			->willReturnCallback( function ( $name ) use ( $user ) {
+				if ( $name === $user->getName() ) {
+					return $user;
+				}
+				return $this->createMock( UserIdentity::class );
+			} );
+		$this->setService( 'UserIdentityLookup', $userIdentityLookup );
+		$blockManager = $this->createMock( BlockManager::class );
+		$blockManager->method( 'getUserBlock' )->willReturn( null );
+		$this->setService( 'BlockManager', $blockManager );
 		$skin->setRelevantTitle(
-			Title::makeTitle( NS_USER, $this->getTestSysop()->getUserIdentity()->getName() )
+			Title::makeTitle( NS_USER, $user->getName() )
 		);
-		$this->assertTrue( $existingUser->equals( $skin->getRelevantUser() ) );
-		$this->assertSame( $existingUser->getId(), $skin->getRelevantUser()->getId() );
+		$this->assertTrue( $user->equals( $skin->getRelevantUser() ) );
+		$this->assertSame( $user->getId(), $skin->getRelevantUser()->getId() );
+	}
+
+	public function testBuildSidebarCache() {
+		// T303007: Skin subclasses and Skin hooks may vary their sidebar contents.
+		$this->overrideConfigValues( [
+			MainConfigNames::UseDatabaseMessages => true,
+			MainConfigNames::EnableSidebarCache => true,
+			MainConfigNames::SidebarCacheExpiry => 3600,
+		] );
+		// Mock time (T344191)
+		$clock = 1301644800.0;
+		$this->getServiceContainer()->getMainWANObjectCache()->setMockTime( $clock );
+		$id = 0;
+		$this->setTemporaryHook( 'SkinBuildSidebar',
+			static function ( Skin $skin, array &$bar ) use ( &$id, &$clock ) {
+				$id++;
+				$clock += 1.0;
+				if ( $skin->getSkinName() === 'foo' ) {
+					$bar['myhook'] = "foo $id";
+				}
+				if ( $skin->getSkinName() === 'bar' ) {
+					$bar['myhook'] = "bar $id";
+				}
+			}
+		);
+		$context = RequestContext::newExtraneousContext( Title::makeTitle( NS_SPECIAL, 'Blankpage' ) );
+		$foo1 = new class( 'foo' ) extends Skin {
+			public function outputPage() {
+			}
+		};
+		$foo2 = new class( 'foo' ) extends Skin {
+			public function outputPage() {
+			}
+		};
+		$bar = new class( 'bar' ) extends Skin {
+			public function outputPage() {
+			}
+		};
+		$foo1->setContext( $context );
+		$foo2->setContext( $context );
+		$bar->setContext( $context );
+		$this->assertArrayContains( [ 'myhook' => 'foo 1' ], $foo1->buildSidebar(), 'fresh' );
+		$clock += 0.01;
+		$this->assertArrayContains( [ 'myhook' => 'foo 1' ], $foo2->buildSidebar(), 'cache hit' );
+		$this->assertArrayContains( [ 'myhook' => 'bar 2' ], $bar->buildSidebar(), 'cache miss' );
 	}
 }

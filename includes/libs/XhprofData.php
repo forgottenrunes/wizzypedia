@@ -130,7 +130,7 @@ class XhprofData {
 
 		$keep = [];
 		foreach ( $data as $key => $stats ) {
-			list( $parent, $child ) = self::splitKey( $key );
+			[ $parent, $child ] = self::splitKey( $key );
 			if ( isset( $want[$parent] ) || isset( $want[$child] ) ) {
 				$keep[$key] = $stats;
 			}
@@ -144,7 +144,7 @@ class XhprofData {
 	 * called from that function during the measurement period.
 	 *
 	 * See getRawData() for a description of the metric that are returned for
-	 * each funcition call. The values for the wt, cpu, mu and pmu metrics are
+	 * each function call. The values for the wt, cpu, mu and pmu metrics are
 	 * arrays with these values:
 	 * - total: Cumulative value
 	 * - min: Minimum value
@@ -165,7 +165,7 @@ class XhprofData {
 
 			$inclusive = [];
 			foreach ( $this->hieraData as $key => $stats ) {
-				list( $parent, $child ) = self::splitKey( $key );
+				[ , $child ] = self::splitKey( $key );
 				if ( !isset( $inclusive[$child] ) ) {
 					$inclusive[$child] = [
 						'ct' => 0,
@@ -262,7 +262,7 @@ class XhprofData {
 			}
 
 			foreach ( $this->hieraData as $key => $stats ) {
-				list( $parent, $child ) = self::splitKey( $key );
+				[ $parent, $child ] = self::splitKey( $key );
 				if ( $parent !== null ) {
 					// Track call tree information
 					$this->complete[$child]['calls'][$parent] = $stats;

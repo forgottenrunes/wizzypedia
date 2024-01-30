@@ -10,15 +10,19 @@
 	"type": "antispam",
 	"license-name": "GPL-2.0-or-later",
 	"requires": {
-		"MediaWiki": ">= 1.38.0"
+		"MediaWiki": ">= 1.41"
 	},
 	"GroupPermissions": {
 		"user": {
 			"spamblacklistlog": true
+		},
+		"bot": {
+			"sboverride": true
 		}
 	},
 	"AvailableRights": [
-		"spamblacklistlog"
+		"spamblacklistlog",
+		"sboverride"
 	],
 	"LogTypes": [
 		"spamblacklist"
@@ -27,15 +31,18 @@
 		"spamblacklist": "spamblacklistlog"
 	},
 	"LogActionsHandlers": {
-		"spamblacklist/*": "SpamBlacklistLogFormatter"
+		"spamblacklist/*": "MediaWiki\\Extension\\SpamBlacklist\\SpamBlacklistLogFormatter"
 	},
 	"GrantPermissions": {
 		"viewrestrictedlogs": {
 			"spamblacklistlog": true
+		},
+		"editprotected": {
+			"sboverride": true
 		}
 	},
 	"APIModules": {
-		"spamblacklist": "ApiSpamBlacklist"
+		"spamblacklist": "MediaWiki\\Extension\\SpamBlacklist\\ApiSpamBlacklist"
 	},
 	"MessagesDirs": {
 		"SpamBlackList": [
@@ -43,15 +50,8 @@
 			"i18n/api"
 		]
 	},
-	"AutoloadClasses": {
-		"ApiSpamBlacklist": "includes/ApiSpamBlacklist.php",
-		"BaseBlacklist": "includes/BaseBlacklist.php",
-		"EmailBlacklist": "includes/EmailBlacklist.php",
-		"SpamBlacklistHooks": "includes/SpamBlacklistHooks.php",
-		"SpamBlacklist": "includes/SpamBlacklist.php",
-		"SpamBlacklistLogFormatter": "includes/SpamBlacklistLogFormatter.php",
-		"SpamRegexBatch": "includes/SpamRegexBatch.php",
-		"SpamBlacklistPreAuthenticationProvider": "includes/SpamBlacklistPreAuthenticationProvider.php"
+	"AutoloadNamespaces": {
+		"MediaWiki\\Extension\\SpamBlacklist\\": "includes/"
 	},
 	"ResourceModules": {
 		"ext.spamBlacklist.visualEditor": {
@@ -83,7 +83,13 @@
 	},
 	"HookHandlers": {
 		"SpamBlacklistHookHandler": {
-			"class": "SpamBlacklistHooks"
+			"class": "MediaWiki\\Extension\\SpamBlacklist\\Hooks",
+			"services": [
+				"PermissionManager",
+				"PageEditStash",
+				"ContentRenderer",
+				"ContentHandlerFactory"
+			]
 		}
 	},
 	"config": {
@@ -104,7 +110,7 @@
 	"AuthManagerAutoConfig": {
 		"preauth": {
 			"SpamBlacklistPreAuthenticationProvider": {
-				"class": "SpamBlacklistPreAuthenticationProvider"
+				"class": "MediaWiki\\Extension\\SpamBlacklist\\SpamBlacklistPreAuthenticationProvider"
 			}
 		}
 	},

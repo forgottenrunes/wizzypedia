@@ -1,8 +1,12 @@
+'use strict';
+
 // For a detailed explanation regarding each configuration property, visit:
 // https://jestjs.io/docs/en/configuration.html
 
 module.exports = {
 	moduleNameMapper: {
+		'@wikimedia/codex-search': '@wikimedia/codex',
+		'^./templates/(.*).mustache': '<rootDir>/includes/templates/$1.mustache'
 	},
 
 	// Automatically clear mock calls and instances between every test
@@ -22,25 +26,17 @@ module.exports = {
 
 	// An array of regexp pattern strings used to skip coverage collection
 	coveragePathIgnorePatterns: [
-		'/node_modules/'
+		'/node_modules/',
+		'/resources/skins.vector.typographySurvey/'
 	],
 
 	// An object that configures minimum threshold enforcement for coverage results
 	coverageThreshold: {
 		global: {
-			branches: 14,
-			functions: 24,
-			lines: 22,
-			statements: 22
-		}
-	},
-
-	// A set of global variables that need to be available in all test environments
-	globals: {
-		'vue-jest': {
-			babelConfig: false,
-			hideStyleWarn: true,
-			experimentalCSSCompile: true
+			branches: 31,
+			functions: 39,
+			lines: 38,
+			statements: 38
 		}
 	},
 
@@ -57,7 +53,10 @@ module.exports = {
 		'./jest.setup.js'
 	],
 
+	testEnvironment: 'jsdom',
+
 	transform: {
-		'.*\\.(vue)$': '<rootDir>/node_modules/vue-jest'
+		'^.+\\.mustache?$': 'mustache-jest',
+		'.*\\.(vue)$': '<rootDir>/node_modules/@vue/vue3-jest'
 	}
 };

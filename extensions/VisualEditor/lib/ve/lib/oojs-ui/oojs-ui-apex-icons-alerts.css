@@ -1,12 +1,12 @@
 /*!
- * OOUI v0.43.2-pre (630d30f69c)
+ * OOUI v0.47.4
  * https://www.mediawiki.org/wiki/OOUI
  *
- * Copyright 2011–2022 OOUI Team and other contributors.
+ * Copyright 2011–2023 OOUI Team and other contributors.
  * Released under the MIT license
  * http://oojs.mit-license.org
  *
- * Date: 2022-03-11T22:31:38Z
+ * Date: 2023-07-10T16:09:15Z
  */
 .oo-ui-icon-alert {
   background-image: /* @embed */ url(themes/wikimediaui/images/icons/alert.svg);
@@ -34,6 +34,9 @@
 }
 .oo-ui-icon-speechBubbles {
   background-image: /* @embed */ url(themes/wikimediaui/images/icons/speechBubbles-ltr.svg);
+}
+.oo-ui-icon-success {
+  background-image: /* @embed */ url(themes/wikimediaui/images/icons/success.svg);
 }
 .oo-ui-icon-tray {
   background-image: /* @embed */ url(themes/wikimediaui/images/icons/tray.svg);

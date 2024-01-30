@@ -1,10 +1,8 @@
 <?php
 /** Malay (Bahasa Melayu)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Algazel-ms
  * @author Anakmalaysia
@@ -182,6 +180,7 @@ $specialPageAliases = [
 	'Recentchanges'             => [ 'Perubahan_terkini' ],
 	'Recentchangeslinked'       => [ 'Perubahan_berkaitan' ],
 	'Redirect'                  => [ 'Lencong' ],
+	'Renameuser'                => [ 'Tukar_nama_pengguna' ],
 	'Revisiondelete'            => [ 'Hapus_semakan' ],
 	'Search'                    => [ 'Cari', 'Gelintar' ],
 	'Shortpages'                => [ 'Laman_pendek' ],

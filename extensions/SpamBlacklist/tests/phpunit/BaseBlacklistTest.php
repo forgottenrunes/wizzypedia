@@ -19,8 +19,11 @@
  * @file
  */
 
+use MediaWiki\Extension\SpamBlacklist\BaseBlacklist;
+use MediaWiki\Title\Title;
+
 /**
- * @covers BaseBlacklist
+ * @covers \MediaWiki\Extension\SpamBlacklist\BaseBlacklist
  */
 class BaseBlacklistTest extends MediaWikiIntegrationTestCase {
 

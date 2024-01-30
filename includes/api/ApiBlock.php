@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright © 2007 Roan Kattouw "<Firstname>.<Lastname>@gmail.com"
+ * Copyright © 2007 Roan Kattouw <roan.kattouw@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,12 +29,16 @@ use MediaWiki\Block\DatabaseBlock;
 use MediaWiki\Block\Restriction\ActionRestriction;
 use MediaWiki\Block\Restriction\NamespaceRestriction;
 use MediaWiki\Block\Restriction\PageRestriction;
+use MediaWiki\MainConfigNames;
 use MediaWiki\ParamValidator\TypeDef\TitleDef;
 use MediaWiki\ParamValidator\TypeDef\UserDef;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleFactory;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityLookup;
 use MediaWiki\User\UserOptionsLookup;
 use MediaWiki\Watchlist\WatchlistManager;
+use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\ParamValidator\TypeDef\ExpiryDef;
 
 /**
@@ -48,26 +52,13 @@ class ApiBlock extends ApiBase {
 	use ApiBlockInfoTrait;
 	use ApiWatchlistTrait;
 
-	/** @var BlockPermissionCheckerFactory */
-	private $blockPermissionCheckerFactory;
-
-	/** @var BlockUserFactory */
-	private $blockUserFactory;
-
-	/** @var TitleFactory */
-	private $titleFactory;
-
-	/** @var UserIdentityLookup */
-	private $userIdentityLookup;
-
-	/** @var WatchedItemStoreInterface */
-	private $watchedItemStore;
-
-	/** @var BlockUtils */
-	private $blockUtils;
-
-	/** @var BlockActionInfo */
-	private $blockActionInfo;
+	private BlockPermissionCheckerFactory $blockPermissionCheckerFactory;
+	private BlockUserFactory $blockUserFactory;
+	private TitleFactory $titleFactory;
+	private UserIdentityLookup $userIdentityLookup;
+	private WatchedItemStoreInterface $watchedItemStore;
+	private BlockUtils $blockUtils;
+	private BlockActionInfo $blockActionInfo;
 
 	/**
 	 * @param ApiMain $main
@@ -106,8 +97,9 @@ class ApiBlock extends ApiBase {
 		$this->blockActionInfo = $blockActionInfo;
 
 		// Variables needed in ApiWatchlistTrait trait
-		$this->watchlistExpiryEnabled = $this->getConfig()->get( 'WatchlistExpiry' );
-		$this->watchlistMaxDuration = $this->getConfig()->get( 'WatchlistExpiryMaxDuration' );
+		$this->watchlistExpiryEnabled = $this->getConfig()->get( MainConfigNames::WatchlistExpiry );
+		$this->watchlistMaxDuration =
+			$this->getConfig()->get( MainConfigNames::WatchlistExpiryMaxDuration );
 		$this->watchlistManager = $watchlistManager;
 		$this->userOptionsLookup = $userOptionsLookup;
 	}
@@ -132,14 +124,14 @@ class ApiBlock extends ApiBase {
 				$this->dieWithError( [ 'apierror-nosuchuserid', $params['userid'] ], 'nosuchuserid' );
 			}
 		}
-		list( $target, $targetType ) = $this->blockUtils->parseBlockTarget( $target );
+		[ $target, $targetType ] = $this->blockUtils->parseBlockTarget( $target );
 
 		if (
 			$params['noemail'] &&
 			!$this->blockPermissionCheckerFactory
 				->newBlockPermissionChecker(
 					$target,
-					$this->getUser()
+					$this->getAuthority()
 				)
 				->checkEmailPermissions()
 		) {
@@ -158,7 +150,7 @@ class ApiBlock extends ApiBase {
 			}, (array)$params['namespacerestrictions'] );
 			$restrictions = array_merge( $pageRestrictions, $namespaceRestrictions );
 
-			if ( $this->getConfig()->get( 'EnablePartialActionBlocks' ) ) {
+			if ( $this->getConfig()->get( MainConfigNames::EnablePartialActionBlocks ) ) {
 				$actionRestrictions = array_map( function ( $action ) {
 					return new ActionRestriction( 0, $this->blockActionInfo->getIdFromAction( $action ) );
 				}, (array)$params['actionrestrictions'] );
@@ -216,7 +208,7 @@ class ApiBlock extends ApiBase {
 		$res['nocreate'] = $params['nocreate'];
 		$res['autoblock'] = $params['autoblock'];
 		$res['noemail'] = $params['noemail'];
-		$res['hidename'] = $params['hidename'];
+		$res['hidename'] = $block->getHideName();
 		$res['allowusertalk'] = $params['allowusertalk'];
 		$res['watchuser'] = $params['watchuser'];
 		if ( $watchlistExpiry ) {
@@ -230,7 +222,7 @@ class ApiBlock extends ApiBase {
 		$res['partial'] = $params['partial'];
 		$res['pagerestrictions'] = $params['pagerestrictions'];
 		$res['namespacerestrictions'] = $params['namespacerestrictions'];
-		if ( $this->getConfig()->get( 'EnablePartialActionBlocks' ) ) {
+		if ( $this->getConfig()->get( MainConfigNames::EnablePartialActionBlocks ) ) {
 			$res['actionrestrictions'] = $params['actionrestrictions'];
 		}
 
@@ -248,12 +240,12 @@ class ApiBlock extends ApiBase {
 	public function getAllowedParams() {
 		$params = [
 			'user' => [
-				ApiBase::PARAM_TYPE => 'user',
+				ParamValidator::PARAM_TYPE => 'user',
 				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name', 'ip', 'cidr', 'id' ],
 			],
 			'userid' => [
-				ApiBase::PARAM_TYPE => 'integer',
-				ApiBase::PARAM_DEPRECATED => true,
+				ParamValidator::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_DEPRECATED => true,
 			],
 			'expiry' => 'never',
 			'reason' => '',
@@ -273,7 +265,7 @@ class ApiBlock extends ApiBase {
 		if ( $this->watchlistExpiryEnabled ) {
 			$params += [
 				'watchlistexpiry' => [
-					ApiBase::PARAM_TYPE => 'expiry',
+					ParamValidator::PARAM_TYPE => 'expiry',
 					ExpiryDef::PARAM_MAX => $this->watchlistMaxDuration,
 					ExpiryDef::PARAM_USE_MAX => true,
 				]
@@ -282,12 +274,12 @@ class ApiBlock extends ApiBase {
 
 		$params += [
 			'tags' => [
-				ApiBase::PARAM_TYPE => 'tags',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'tags',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'partial' => false,
 			'pagerestrictions' => [
-				ApiBase::PARAM_TYPE => 'title',
+				ParamValidator::PARAM_TYPE => 'title',
 				TitleDef::PARAM_MUST_EXIST => true,
 
 				// TODO: TitleDef returns instances of TitleValue when PARAM_RETURN_OBJECT is
@@ -296,21 +288,21 @@ class ApiBlock extends ApiBase {
 				// string or instance of Title.
 				//TitleDef::PARAM_RETURN_OBJECT => true,
 
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_ISMULTI_LIMIT1 => 10,
-				ApiBase::PARAM_ISMULTI_LIMIT2 => 10,
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_ISMULTI_LIMIT1 => 10,
+				ParamValidator::PARAM_ISMULTI_LIMIT2 => 10,
 			],
 			'namespacerestrictions' => [
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_TYPE => 'namespace',
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'namespace',
 			],
 		];
 
-		if ( $this->getConfig()->get( 'EnablePartialActionBlocks' ) ) {
+		if ( $this->getConfig()->get( MainConfigNames::EnablePartialActionBlocks ) ) {
 			$params += [
 				'actionrestrictions' => [
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_TYPE => array_keys(
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_TYPE => array_keys(
 						$this->blockActionInfo->getAllBlockActions()
 					),
 				],

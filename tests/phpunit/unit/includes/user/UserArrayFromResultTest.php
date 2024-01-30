@@ -1,5 +1,7 @@
 <?php
 
+use MediaWiki\User\UserArrayFromResult;
+
 /**
  * @author Addshore
  * @covers UserArrayFromResult
@@ -7,16 +9,13 @@
 class UserArrayFromResultTest extends \MediaWikiUnitTestCase {
 
 	private function getMockResultWrapper( $row = null, $numRows = 1 ) {
-		$resultWrapper = $this->getMockBuilder( Wikimedia\Rdbms\IResultWrapper::class )
-			->disableOriginalConstructor();
-
-		$resultWrapper = $resultWrapper->getMock();
+		$resultWrapper = $this->createMock( Wikimedia\Rdbms\IResultWrapper::class );
 		$resultWrapper->expects( $this->atLeastOnce() )
 			->method( 'current' )
 			->willReturn( $row );
 		$resultWrapper->method( 'numRows' )
 			->willReturn( $numRows );
-		$resultWrapper->method( 'next' )
+		$resultWrapper->method( 'fetchObject' )
 			->willReturn( $row );
 
 		return $resultWrapper;

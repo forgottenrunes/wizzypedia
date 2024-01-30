@@ -16,17 +16,37 @@
  * http://www.gnu.org/copyleft/gpl.html
  */
 
+namespace MediaWiki\SyntaxHighlight;
+
+use Content;
+use ExtensionRegistry;
+use FormatJson;
+use Html;
+use IContextSource;
+use MediaWiki\Api\Hook\ApiFormatHighlightHook;
+use MediaWiki\Content\Hook\ContentGetParserOutputHook;
+use MediaWiki\Hook\ParserFirstCallInitHook;
+use MediaWiki\Hook\SoftwareInfoHook;
 use MediaWiki\MediaWikiServices;
-use MediaWiki\SyntaxHighlight\Pygmentize;
-use MediaWiki\SyntaxHighlight\PygmentsException;
+use MediaWiki\Title\Title;
+use Parser;
+use ParserOptions;
+use ParserOutput;
+use RuntimeException;
+use Sanitizer;
+use Status;
+use TextContent;
+use WANObjectCache;
+use Wikimedia\Parsoid\DOM\DocumentFragment;
+use Wikimedia\Parsoid\Ext\ExtensionTagHandler;
+use Wikimedia\Parsoid\Ext\ParsoidExtensionAPI;
 
-class SyntaxHighlight {
-
-	/** @var int The maximum number of lines that may be selected for highlighting. */
-	private const HIGHLIGHT_MAX_LINES = 1000;
-
-	/** @var int Maximum input size for the highlighter (100 kB). */
-	private const HIGHLIGHT_MAX_BYTES = 102400;
+class SyntaxHighlight extends ExtensionTagHandler implements
+	ParserFirstCallInitHook,
+	ContentGetParserOutputHook,
+	ApiFormatHighlightHook,
+	SoftwareInfoHook
+{
 
 	/** @var string CSS class for syntax-highlighted code. Public as used by the updateCSS maintenance script. */
 	public const HIGHLIGHT_CSS_CLASS = 'mw-highlight';
@@ -40,6 +60,26 @@ class SyntaxHighlight {
 		'application/json' => 'javascript',
 		'text/xml'         => 'xml',
 	];
+
+	/**
+	 * Returns the maximum number of lines that may be selected for highlighting
+	 *
+	 * @return int
+	 */
+	private static function getMaxLines(): int {
+		$config = MediaWikiServices::getInstance()->getMainConfig();
+		return $config->get( 'SyntaxHighlightMaxLines' );
+	}
+
+	/**
+	 * Returns the maximum input size for the highlighter
+	 *
+	 * @return int
+	 */
+	private static function getMaxBytes(): int {
+		$config = MediaWikiServices::getInstance()->getMainConfig();
+		return $config->get( 'SyntaxHighlightMaxBytes' );
+	}
 
 	/**
 	 * Get the Pygments lexer name for a particular language.
@@ -70,7 +110,7 @@ class SyntaxHighlight {
 		// a compatible Pygments lexer with a different name.
 		if ( isset( $geshi2pygments[$lexer] ) ) {
 			$lexer = $geshi2pygments[$lexer];
-			if ( in_array( $lexer, $lexers ) ) {
+			if ( in_array( $lexer, $lexers, true ) ) {
 				return $lexer;
 			}
 		}
@@ -83,19 +123,18 @@ class SyntaxHighlight {
 	 *
 	 * @param Parser $parser
 	 */
-	public static function onParserFirstCallInit( Parser $parser ) {
-		$parser->setHook( 'source', [ 'SyntaxHighlight', 'parserHookSource' ] );
-		$parser->setHook( 'syntaxhighlight', [ 'SyntaxHighlight', 'parserHook' ] );
+	public function onParserFirstCallInit( $parser ) {
+		$parser->setHook( 'source', [ self::class, 'parserHookSource' ] );
+		$parser->setHook( 'syntaxhighlight', [ self::class, 'parserHook' ] );
 	}
 
 	/**
 	 * Parser hook for <source> to add deprecated tracking category
 	 *
-	 * @param string $text
+	 * @param ?string $text
 	 * @param array $args
 	 * @param Parser $parser
 	 * @return string
-	 * @throws MWException
 	 */
 	public static function parserHookSource( $text, $args, $parser ) {
 		$parser->addTrackingCategory( 'syntaxhighlight-source-category' );
@@ -103,20 +142,23 @@ class SyntaxHighlight {
 	}
 
 	/**
-	 * Parser hook for both <source> and <syntaxhighlight> logic
+	 * @return array
+	 */
+	private static function getModuleStyles(): array {
+		return [ 'ext.pygments' ];
+	}
+
+	/**
 	 *
 	 * @param string $text
 	 * @param array $args
-	 * @param Parser $parser
-	 * @return string
-	 * @throws MWException
+	 * @param ?Parser $parser
+	 * @return array
 	 */
-	public static function parserHook( $text, $args, $parser ) {
-		// Replace strip markers (For e.g. {{#tag:syntaxhighlight|<nowiki>...}})
-		$out = $parser->getStripState()->unstripNoWiki( $text );
-
+	private static function processContent( string $text, array $args, ?Parser $parser = null ): array {
 		// Don't trim leading spaces away, just the linefeeds
-		$out = preg_replace( '/^\n+/', '', rtrim( $out ) );
+		$out = preg_replace( '/^\n+/', '', rtrim( $text ) );
+		$trackingCats = [];
 
 		// Convert deprecated attributes
 		if ( isset( $args['enclose'] ) ) {
@@ -124,23 +166,58 @@ class SyntaxHighlight {
 				$args['inline'] = true;
 			}
 			unset( $args['enclose'] );
-			$parser->addTrackingCategory( 'syntaxhighlight-enclose-category' );
+			$trackingCats[] = 'syntaxhighlight-enclose-category';
 		}
 
 		$lexer = $args['lang'] ?? '';
 
 		$result = self::highlight( $out, $lexer, $args, $parser );
 		if ( !$result->isGood() ) {
-			$parser->addTrackingCategory( 'syntaxhighlight-error-category' );
+			$trackingCats[] = 'syntaxhighlight-error-category';
 		}
-		$out = $result->getValue();
+
+		return [ 'html' => $result->getValue(), 'cats' => $trackingCats ];
+	}
+
+	/**
+	 * Parser hook for both <source> and <syntaxhighlight> logic
+	 *
+	 * @param ?string $text
+	 * @param array $args
+	 * @param Parser $parser
+	 * @return string
+	 */
+	public static function parserHook( $text, $args, $parser ) {
+		// Replace strip markers (For e.g. {{#tag:syntaxhighlight|<nowiki>...}})
+		$out = $parser->getStripState()->unstripNoWiki( $text ?? '' );
+
+		$result = self::processContent( $out, $args, $parser );
+		foreach ( $result['cats'] as $cat ) {
+			$parser->addTrackingCategory( $cat );
+		}
 
 		// Register CSS
-		// TODO: Consider moving to a separate method so that public method
-		// highlight() can be used without needing to know the module name.
-		$parser->getOutput()->addModuleStyles( [ 'ext.pygments' ] );
+		$parser->getOutput()->addModuleStyles( self::getModuleStyles() );
+		if ( !empty( $args['linelinks'] ) && ctype_alpha( $args['linelinks'] ) ) {
+			$parser->getOutput()->addModules( [ 'ext.pygments.linenumbers' ] );
+		}
 
-		return $out;
+		return $result['html'];
+	}
+
+	/** @inheritDoc */
+	public function sourceToDom(
+		ParsoidExtensionAPI $extApi, string $text, array $extArgs
+	): ?DocumentFragment {
+		$result = self::processContent( $text, $extApi->extArgsToArray( $extArgs ) );
+
+		// FIXME: There is no API method in Parsoid to add tracking categories
+		// So, $result['cats'] is being ignored
+
+		// Register CSS
+		$extApi->addModuleStyles( self::getModuleStyles() );
+
+		return $extApi->htmlToDom( $result['html'] );
 	}
 
 	/**
@@ -155,7 +232,7 @@ class SyntaxHighlight {
 			if ( preg_match( '/^<div class="?mw-highlight"?>(.*)<\/div>$/s', trim( $out ), $m ) ) {
 				$out = trim( $m[1] );
 			} else {
-				throw new MWException( 'Unexpected output from Pygments encountered' );
+				throw new RuntimeException( 'Unexpected output from Pygments encountered' );
 			}
 		}
 		return $out;
@@ -182,9 +259,10 @@ class SyntaxHighlight {
 	 * @param string $code
 	 * @param string|null $lang
 	 * @param array $args
+	 * @param Parser|null $parser Parser, if generating content to be parsed.
 	 * @return Status
 	 */
-	private static function highlightInner( $code, $lang = null, $args = [] ) {
+	private static function highlightInner( $code, $lang = null, $args = [], ?Parser $parser = null ) {
 		$status = new Status;
 
 		$lexer = self::getLexer( $lang );
@@ -199,13 +277,13 @@ class SyntaxHighlight {
 		}
 
 		$length = strlen( $code );
-		if ( strlen( $code ) > self::HIGHLIGHT_MAX_BYTES ) {
+		if ( strlen( $code ) > self::getMaxBytes() ) {
 			// Disable syntax highlighting
 			$lexer = null;
 			$status->warning(
 				'syntaxhighlight-error-exceeds-size-limit',
 				$length,
-				self::HIGHLIGHT_MAX_BYTES
+				self::getMaxBytes()
 			);
 		}
 
@@ -218,6 +296,12 @@ class SyntaxHighlight {
 
 		if ( $lexer === null ) {
 			// When syntax highlighting is disabled..
+			$status->value = self::plainCodeWrap( $code, $isInline );
+			return $status;
+		}
+
+		if ( $parser && !$parser->incrementExpensiveFunctionCount() ) {
+			// Highlighting is expensive, return unstyled
 			$status->value = self::plainCodeWrap( $code, $isInline );
 			return $status;
 		}
@@ -312,7 +396,7 @@ class SyntaxHighlight {
 	 *  code as its value.
 	 */
 	public static function highlight( $code, $lang = null, $args = [], ?Parser $parser = null ) {
-		$status = self::highlightInner( $code, $lang, $args );
+		$status = self::highlightInner( $code, $lang, $args, $parser );
 		$output = $status->getValue();
 
 		$isInline = isset( $args['inline'] );
@@ -432,8 +516,8 @@ class SyntaxHighlight {
 					}
 				}
 			}
-			if ( count( $lines ) > self::HIGHLIGHT_MAX_LINES ) {
-				$lines = array_slice( $lines, 0, self::HIGHLIGHT_MAX_LINES );
+			if ( count( $lines ) > self::getMaxLines() ) {
+				$lines = array_slice( $lines, 0, self::getMaxLines() );
 				break;
 			}
 		}
@@ -454,7 +538,7 @@ class SyntaxHighlight {
 		// given range to reduce the impact.
 		return $start > 0 &&
 			$start < $end &&
-			$end - $start < self::HIGHLIGHT_MAX_LINES;
+			$end - $start < self::getMaxLines();
 	}
 
 	/**
@@ -470,8 +554,8 @@ class SyntaxHighlight {
 	 * @return bool
 	 * @since MW 1.21
 	 */
-	public static function onContentGetParserOutput( Content $content, Title $title,
-		$revId, ParserOptions $options, $generateHtml, ParserOutput &$parserOutput
+	public function onContentGetParserOutput( $content, $title,
+		$revId, $options, $generateHtml, &$parserOutput
 	) {
 		global $wgTextModelsToParse;
 
@@ -504,7 +588,7 @@ class SyntaxHighlight {
 
 		// Parse using the standard parser to get links etc. into the database, HTML is replaced below.
 		// We could do this using $content->fillParserOutput(), but alas it is 'protected'.
-		if ( in_array( $model, $wgTextModelsToParse ) ) {
+		if ( in_array( $model, $wgTextModelsToParse, true ) ) {
 			$parserOutput = MediaWikiServices::getInstance()->getParser()
 				->parse( $text, $title, $options, true, true, $revId );
 		}
@@ -515,7 +599,7 @@ class SyntaxHighlight {
 		}
 		$out = $status->getValue();
 
-		$parserOutput->addModuleStyles( [ 'ext.pygments' ] );
+		$parserOutput->addModuleStyles( self::getModuleStyles() );
 		$parserOutput->addModules( [ 'ext.pygments.linenumbers' ] );
 		$parserOutput->setText( $out );
 
@@ -533,7 +617,7 @@ class SyntaxHighlight {
 	 * @since MW 1.24
 	 * @return bool
 	 */
-	public static function onApiFormatHighlight( IContextSource $context, $text, $mime, $format ) {
+	public function onApiFormatHighlight( $context, $text, $mime, $format ) {
 		if ( !isset( self::$mimeLexers[$mime] ) ) {
 			return true;
 		}
@@ -552,7 +636,7 @@ class SyntaxHighlight {
 			$out = '<pre' . $encodedAttrs . '>' . substr( $out, strlen( $m[0] ) );
 		}
 		$output = $context->getOutput();
-		$output->addModuleStyles( 'ext.pygments' );
+		$output->addModuleStyles( self::getModuleStyles() );
 		$output->addHTML( '<div dir="ltr">' . $out . '</div>' );
 
 		// Inform MediaWiki that we have parsed this page and it shouldn't mess with it.
@@ -565,7 +649,7 @@ class SyntaxHighlight {
 	 * @see https://www.mediawiki.org/wiki/Manual:Hooks/SoftwareInfo
 	 * @param array &$software
 	 */
-	public static function onSoftwareInfo( array &$software ) {
+	public function onSoftwareInfo( &$software ) {
 		try {
 			$software['[https://pygments.org/ Pygments]'] = Pygmentize::getVersion();
 		} catch ( PygmentsException $e ) {

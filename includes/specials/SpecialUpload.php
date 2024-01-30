@@ -22,9 +22,36 @@
  * @ingroup Upload
  */
 
+namespace MediaWiki\Specials;
+
+use BitmapHandler;
+use ChangeTags;
+use ErrorPageError;
+use HTMLForm;
+use ImageGalleryBase;
+use LocalFile;
+use LocalRepo;
+use LogEventsList;
+use MediaWiki\Config\Config;
+use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\Html\Html;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Request\FauxRequest;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\NamespaceInfo;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 use MediaWiki\User\UserOptionsLookup;
 use MediaWiki\Watchlist\WatchlistManager;
+use PermissionsError;
+use RepoGroup;
+use UnexpectedValueException;
+use UploadBase;
+use UploadForm;
+use UploadFromStash;
+use UserBlockedError;
 
 /**
  * Form for handling uploads and special page.
@@ -34,17 +61,10 @@ use MediaWiki\Watchlist\WatchlistManager;
  */
 class SpecialUpload extends SpecialPage {
 
-	/** @var LocalRepo */
-	private $localRepo;
-
-	/** @var UserOptionsLookup */
-	private $userOptionsLookup;
-
-	/** @var NamespaceInfo */
-	private $nsInfo;
-
-	/** @var WatchlistManager */
-	private $watchlistManager;
+	private LocalRepo $localRepo;
+	private UserOptionsLookup $userOptionsLookup;
+	private NamespaceInfo $nsInfo;
+	private WatchlistManager $watchlistManager;
 
 	/**
 	 * @param RepoGroup|null $repoGroup
@@ -61,7 +81,7 @@ class SpecialUpload extends SpecialPage {
 		parent::__construct( 'Upload', 'upload' );
 		// This class is extended and therefor fallback to global state - T265300
 		$services = MediaWikiServices::getInstance();
-		$repoGroup = $repoGroup ?? $services->getRepoGroup();
+		$repoGroup ??= $services->getRepoGroup();
 		$this->localRepo = $repoGroup->getLocalRepo();
 		$this->userOptionsLookup = $userOptionsLookup ?? $services->getUserOptionsLookup();
 		$this->nsInfo = $nsInfo ?? $services->getNamespaceInfo();
@@ -177,13 +197,6 @@ class SpecialUpload extends SpecialPage {
 
 	/**
 	 * @param string|null $par
-	 * @throws ErrorPageError
-	 * @throws Exception
-	 * @throws FatalError
-	 * @throws MWException
-	 * @throws PermissionsError
-	 * @throws ReadOnlyError
-	 * @throws UserBlockedError
 	 */
 	public function execute( $par ) {
 		$this->useTransactionalTimeLimit();
@@ -208,17 +221,8 @@ class SpecialUpload extends SpecialPage {
 		# Check blocks
 		if ( $user->isBlockedFromUpload() ) {
 			throw new UserBlockedError(
+				// @phan-suppress-next-line PhanTypeMismatchArgumentNullable Block is checked and not null
 				$user->getBlock(),
-				$user,
-				$this->getLanguage(),
-				$this->getRequest()->getIP()
-			);
-		}
-
-		// Global blocks
-		if ( $user->isBlockedGlobally() ) {
-			throw new UserBlockedError(
-				$user->getGlobalBlock(),
 				$user,
 				$this->getLanguage(),
 				$this->getRequest()->getIP()
@@ -264,11 +268,6 @@ class SpecialUpload extends SpecialPage {
 	 * @param HTMLForm|string $form An HTMLForm instance or HTML string to show
 	 */
 	protected function showUploadForm( $form ) {
-		# Add links if file was previously deleted
-		if ( $this->mDesiredDestName ) {
-			$this->showViewDeletedLinks();
-		}
-
 		if ( $form instanceof HTMLForm ) {
 			$form->show();
 		} else {
@@ -286,8 +285,6 @@ class SpecialUpload extends SpecialPage {
 	 */
 	protected function getUploadForm( $message = '', $sessionKey = '', $hideIgnoreWarning = false ) {
 		# Initialize form
-		$context = new DerivativeContext( $this->getContext() );
-		$context->setTitle( $this->getPageTitle() ); // Remove subpage
 		$form = new UploadForm(
 			[
 				'watch' => $this->getWatchCheck(),
@@ -301,12 +298,14 @@ class SpecialUpload extends SpecialPage {
 				'textaftersummary' => $this->uploadFormTextAfterSummary,
 				'destfile' => $this->mDesiredDestName,
 			],
-			$context,
+			$this->getContext(),
 			$this->getLinkRenderer(),
 			$this->localRepo,
 			$this->getContentLanguage(),
-			$this->nsInfo
+			$this->nsInfo,
+			$this->getHookContainer()
 		);
+		$form->setTitle( $this->getPageTitle() ); // Remove subpage
 
 		# Check the token, but only if necessary
 		if (
@@ -346,34 +345,6 @@ class SpecialUpload extends SpecialPage {
 		}
 
 		return $form;
-	}
-
-	/**
-	 * Shows the "view X deleted revisions link""
-	 */
-	protected function showViewDeletedLinks() {
-		$title = Title::makeTitleSafe( NS_FILE, $this->mDesiredDestName );
-		$user = $this->getUser();
-		// Show a subtitle link to deleted revisions (to sysops et al only)
-		if ( $title instanceof Title ) {
-			$count = $title->getDeletedEditsCount();
-			if ( $count > 0 && $this->getAuthority()->isAllowed( 'deletedhistory' ) ) {
-				$restorelink = $this->getLinkRenderer()->makeKnownLink(
-					SpecialPage::getTitleFor( 'Undelete', $title->getPrefixedText() ),
-					$this->msg( 'restorelink' )->numParams( $count )->text()
-				);
-				$link = $this->msg(
-					$this->getAuthority()->isAllowed( 'delete' ) ? 'thisisdeleted' : 'viewdeleted'
-				)->rawParams( $restorelink )->parseAsBlock();
-				$this->getOutput()->addHTML(
-					Html::rawElement(
-						'div',
-						[ 'id' => 'contentSub2' ],
-						$link
-					)
-				);
-			}
-		}
 	}
 
 	/**
@@ -574,14 +545,6 @@ class SpecialUpload extends SpecialPage {
 			}
 		}
 
-		// This is as late as we can throttle, after expected issues have been handled
-		if ( UploadBase::isThrottled( $user ) ) {
-			$this->showRecoverableUploadError(
-				$this->msg( 'actionthrottledtext' )->escaped()
-			);
-			return;
-		}
-
 		// Get the page text if this is not a reupload
 		if ( !$this->mForReUpload ) {
 			$pageText = self::getInitialPageText( $this->mComment, $this->mLicense,
@@ -651,7 +614,7 @@ class SpecialUpload extends SpecialPage {
 		}
 
 		$msg = [];
-		$forceUIMsgAsContentMsg = (array)$config->get( 'ForceUIMsgAsContentMsg' );
+		$forceUIMsgAsContentMsg = (array)$config->get( MainConfigNames::ForceUIMsgAsContentMsg );
 		/* These messages are transcluded into the actual text of the description page.
 		 * Thus, forcing them as content messages makes the upload to produce an int: template
 		 * instead of hardcoding it there in the uploader language.
@@ -671,12 +634,12 @@ class SpecialUpload extends SpecialPage {
 
 		$pageText = $comment . "\n";
 		$headerText = '== ' . $msg['filedesc'] . ' ==';
-		if ( $comment !== '' && strpos( $comment, $headerText ) === false ) {
+		if ( $comment !== '' && !str_contains( $comment, $headerText ) ) {
 			// prepend header to page text unless it's already there (or there is no content)
 			$pageText = $headerText . "\n" . $pageText;
 		}
 
-		if ( $config->get( 'UseCopyrightUpload' ) ) {
+		if ( $config->get( MainConfigNames::UseCopyrightUpload ) ) {
 			$pageText .= '== ' . $msg['filestatus'] . " ==\n" . $copyStatus . "\n";
 			$pageText .= $licenseText;
 			$pageText .= '== ' . $msg['filesource'] . " ==\n" . $source;
@@ -685,7 +648,8 @@ class SpecialUpload extends SpecialPage {
 		}
 
 		// allow extensions to modify the content
-		Hooks::runner()->onUploadForm_getInitialPageText( $pageText, $msg, $config );
+		( new HookRunner( MediaWikiServices::getInstance()->getHookContainer() ) )
+			->onUploadForm_getInitialPageText( $pageText, $msg, $config );
 
 		return $pageText;
 	}
@@ -732,7 +696,6 @@ class SpecialUpload extends SpecialPage {
 	 * Provides output to the user for a result of UploadBase::verifyUpload
 	 *
 	 * @param array $details Result of UploadBase::verifyUpload
-	 * @throws MWException
 	 */
 	protected function processVerificationError( $details ) {
 		switch ( $details['status'] ) {
@@ -768,7 +731,8 @@ class SpecialUpload extends SpecialPage {
 				} else {
 					$msg->params( $details['finalExt'] );
 				}
-				$extensions = array_unique( $this->getConfig()->get( 'FileExtensions' ) );
+				$extensions =
+					array_unique( $this->getConfig()->get( MainConfigNames::FileExtensions ) );
 				$msg->params( $this->getLanguage()->commaList( $extensions ),
 					count( $extensions ) );
 
@@ -800,7 +764,7 @@ class SpecialUpload extends SpecialPage {
 				$this->showUploadError( $this->msg( $error, $args )->parse() );
 				break;
 			default:
-				throw new MWException( __METHOD__ . ": Unknown value `{$details['status']}`" );
+				throw new UnexpectedValueException( __METHOD__ . ": Unknown value `{$details['status']}`" );
 		}
 	}
 
@@ -909,3 +873,9 @@ class SpecialUpload extends SpecialPage {
 		return $bitmapHandler->autoRotateEnabled();
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialUpload::class, 'SpecialUpload' );

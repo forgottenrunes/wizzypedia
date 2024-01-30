@@ -20,30 +20,25 @@
 
 namespace MediaWiki\Minerva\Skins;
 
-use Action;
 use ExtensionRegistry;
-use Hooks as MWHooks;
 use Html;
 use Language;
+use MediaWiki\Extension\Notifications\Controller\NotificationController;
+use MediaWiki\Html\TemplateParser;
 use MediaWiki\Linker\LinkTarget;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Minerva\Menu\Main\MainMenuDirector;
 use MediaWiki\Minerva\Menu\PageActions\PageActionsDirector;
 use MediaWiki\Minerva\Menu\User\UserMenuDirector;
-use MediaWiki\Minerva\MinervaUI;
 use MediaWiki\Minerva\Permissions\IMinervaPagePermissions;
 use MediaWiki\Minerva\SkinOptions;
-use MWException;
+use MediaWiki\Title\Title;
 use MWTimestamp;
-use ParserOptions;
-use ParserOutput;
-use RequestContext;
 use RuntimeException;
 use SkinMustache;
 use SkinTemplate;
 use SpecialMobileHistory;
 use SpecialPage;
-use Title;
 
 /**
  * Minerva: Born from the godhead of Jupiter with weapons!
@@ -70,6 +65,9 @@ class SkinMinerva extends SkinMustache {
 	/** @var array|null */
 	private $contentNavigationUrls;
 
+	/** @var TemplateParser|null */
+	private $templateParser;
+
 	/**
 	 * This variable is lazy loaded, please use getPermissions() getter
 	 * @see SkinMinerva::getPermissions()
@@ -93,7 +91,7 @@ class SkinMinerva extends SkinMustache {
 	private function hasPageActions() {
 		$title = $this->getTitle();
 		return !$title->isSpecialPage() && !$title->isMainPage() &&
-			Action::getActionName( $this->getContext() ) === 'view';
+			$this->getContext()->getActionName() === 'view';
 	}
 
 	/**
@@ -107,7 +105,7 @@ class SkinMinerva extends SkinMustache {
 	 * @return bool
 	 */
 	private function isFallbackEditor() {
-		$action = $this->getRequest()->getVal( 'action' );
+		$action = $this->getContext()->getActionName();
 		return $action === 'edit';
 	}
 
@@ -116,7 +114,6 @@ class SkinMinerva extends SkinMustache {
 	 *
 	 * @param array $nav result of SkinTemplate::buildContentNavigationUrls
 	 * @return array|null
-	 * @throws MWException
 	 */
 	private function getPageActions( array $nav ) {
 		if ( $this->isFallbackEditor() || !$this->hasPageActions() ) {
@@ -127,7 +124,99 @@ class SkinMinerva extends SkinMustache {
 		$pageActionsDirector = $services->getService( 'Minerva.Menu.PageActionsDirector' );
 		$sidebar = $this->buildSidebar();
 		$actions = $nav['actions'] ?? [];
-		return $pageActionsDirector->buildMenu( $sidebar['TOOLBOX'], $actions );
+		$views = $nav['views'] ?? [];
+		return $pageActionsDirector->buildMenu( $sidebar['TOOLBOX'], $actions, $views );
+	}
+
+	/**
+	 * A notification icon that links to Special:Mytalk when Echo is not installed.
+	 * Consider upstreaming this to core or removing at a future date.
+	 *
+	 * @return array
+	 */
+	private function getNotificationFallbackButton() {
+		return [
+				'icon' => 'bellOutline-base20',
+				'href' => SpecialPage::getTitleFor( 'Mytalk' )->getLocalURL(
+						[ 'returnto' => $this->getTitle()->getPrefixedText() ]
+				),
+		];
+	}
+
+	/**
+	 * @param array $alert
+	 * @param array $notice
+	 * @return array
+	 */
+	private function getCombinedNotificationButton( array $alert, array $notice ) {
+		// Sum the notifications from the two original buttons
+		$notifCount = ( $alert['data']['counter-num'] ?? 0 ) + ( $notice['data']['counter-num'] ?? 0 );
+		$alert['data']['counter-num'] = $notifCount;
+		// @phan-suppress-next-line PhanUndeclaredClassReference
+		if ( class_exists( NotificationController::class ) ) {
+			// @phan-suppress-next-line PhanUndeclaredClassMethod
+			$alert['data']['counter-text'] = NotificationController::formatNotificationCount( $notifCount );
+		} else {
+			$alert['data']['counter-text'] = $notifCount;
+		}
+
+		$linkClassAlert = $alert['link-class'] ?? [];
+		$hasUnseenAlerts = is_array( $linkClassAlert ) && in_array( 'mw-echo-unseen-notifications', $linkClassAlert );
+		// The circle should only appear if there are unseen notifications.
+		// Once the notifications are seen (by opening the notification drawer)
+		// then the icon reverts to a gray circle, but on page refresh
+		// it should revert back to a bell icon.
+		// If you try and change this behaviour, at time of writing
+		// (December 2022) JavaScript will correct it.
+		if ( $notifCount > 0 && $hasUnseenAlerts ) {
+			$linkClass = $notice['link-class'] ?? [];
+			$hasUnseenNotices = is_array( $linkClass ) && in_array( 'mw-echo-unseen-notifications', $linkClass );
+			return $this->getNotificationCircleButton( $alert, $hasUnseenNotices );
+		} else {
+			return $this->getNotificationButton( $alert );
+		}
+	}
+
+	/**
+	 * Minerva differs from other skins in that for users with unread notifications
+	 * instead of a bell with a small square indicating the number of notifications
+	 * it shows a red circle with a number inside. Ideally Vector and Minerva would
+	 * be treated the same but we'd need to talk to a designer about consolidating these
+	 * before making such a decision.
+	 *
+	 * @param array $alert
+	 * @param bool $hasUnseenNotices does the user have unseen notices?
+	 * @return array
+	 */
+	private function getNotificationCircleButton( array $alert, bool $hasUnseenNotices ) {
+		$alertCount = $alert['data']['counter-num'] ?? 0;
+		$linkClass = $alert['link-class'] ?? [];
+		$hasSeenAlerts = is_array( $linkClass ) && in_array( 'mw-echo-unseen-notifications', $linkClass );
+		$alertText = $alert['data']['counter-text'] ?? $alertCount;
+		$alert['icon'] = 'circle';
+		$alert['class'] = 'notification-count';
+		if ( $hasSeenAlerts || $hasUnseenNotices ) {
+			$alert['class'] .= ' notification-unseen mw-echo-unseen-notifications';
+		}
+		return $alert;
+	}
+
+	/**
+	 * Removes the OOUI icon class and adds Minerva notification classes.
+	 *
+	 * @param array $alert
+	 * @return array
+	 */
+	private function getNotificationButton( array $alert ) {
+		$linkClass = $alert['link-class'];
+		$alert['link-class'] = array_filter(
+			$linkClass,
+			static function ( $class ) {
+				return $class !== 'oo-ui-icon-bellOutline';
+			}
+		);
+		$alert['icon'] = 'bellOutline-base20';
+		return $alert;
 	}
 
 	/**
@@ -140,12 +229,47 @@ class SkinMinerva extends SkinMustache {
 		// There are some SkinTemplate modifications that occur after the execution of this hook
 		// to add rel attributes and ID attributes.
 		// The only one Minerva needs is this one so we manually add it.
-		foreach ( array_keys( $contentNavigationUrls['namespaces'] ) as $id ) {
+		foreach ( array_keys( $contentNavigationUrls['associated-pages'] ) as $id ) {
 			if ( in_array( $id, [ 'user_talk', 'talk' ] ) ) {
-				$contentNavigationUrls['namespaces'][ $id ]['rel'] = 'discussion';
+				$contentNavigationUrls['associated-pages'][ $id ]['rel'] = 'discussion';
 			}
 		}
+		$skinOptions = $this->getSkinOptions();
 		$this->contentNavigationUrls = $contentNavigationUrls;
+
+		//
+		// Echo Technical debt!!
+		// * Convert the Echo button into a single button
+		// * Switch out the icon.
+		//
+		if ( $this->getUser()->isRegistered() ) {
+			if ( count( $contentNavigationUrls['notifications'] ) === 0 ) {
+				// Shown to logged in users when Echo is not installed:
+				$contentNavigationUrls['notifications']['mytalks'] = $this->getNotificationFallbackButton();
+			} elseif ( $skinOptions->get( SkinOptions::SINGLE_ECHO_BUTTON ) ) {
+				// Combine notification icons. Minerva only shows one entry point to notifications.
+				// This can be reconsidered with a solution to https://phabricator.wikimedia.org/T142981
+				$alert = $contentNavigationUrls['notifications']['notifications-alert'] ?? null;
+				$notice = $contentNavigationUrls['notifications']['notifications-notice'] ?? null;
+				if ( $alert && $notice ) {
+					unset( $contentNavigationUrls['notifications']['notifications-notice'] );
+					$contentNavigationUrls['notifications']['notifications-alert'] =
+						$this->getCombinedNotificationButton( $alert, $notice );
+				}
+			} else {
+				// Show desktop alert icon.
+				$alert = $contentNavigationUrls['notifications']['notifications-alert'] ?? null;
+				if ( $alert ) {
+					// Correct the icon to be the bell filled rather than the outline to match
+					// Echo's badge.
+					$linkClass = $alert['link-class'] ?? [];
+					$alert['link-class'] = array_filter( $linkClass, static function ( $class ) {
+						return $class !== 'oo-ui-icon-bellOutline';
+					} );
+					$contentNavigationUrls['notifications']['notifications-alert'] = $alert;
+				}
+			}
+		}
 	}
 
 	/**
@@ -153,6 +277,7 @@ class SkinMinerva extends SkinMustache {
 	 */
 	public function getTemplateData(): array {
 			$data = parent::getTemplateData();
+			$skinOptions = $this->getSkinOptions();
 			// FIXME: Can we use $data instead of calling buildContentNavigationUrls ?
 			$nav = $this->contentNavigationUrls;
 			if ( $nav === null ) {
@@ -173,30 +298,128 @@ class SkinMinerva extends SkinMustache {
 			$usermessage = $data['html-user-message'] ?? '';
 			if ( $usermessage ) {
 				$data['html-user-message'] = Html::warningBox(
-					'<span class="mw-ui-icon mw-ui-icon-wikimedia-userTalk-warning"></span>&nbsp;'
+					'<span class="minerva-icon minerva-icon--userTalk-warning"></span>&nbsp;'
 						. $usermessage,
 					'minerva-anon-talk-message'
 				);
 			}
+			$allLanguages = $data['data-portlets']['data-languages']['array-items'] ?? [];
+			$allVariants = $data['data-portlets']['data-variants']['array-items'] ?? [];
+			$notifications = $data['data-portlets']['data-notifications']['array-items'] ?? [];
+
 			return $data + [
+				'has-minerva-languages' => !empty( $allLanguages ) || !empty( $allVariants ),
 				'array-minerva-banners' => $this->prepareBanners( $data['html-site-notice'] ),
-				'html-minerva-user-notifications' => $this->prepareUserNotificationsButton( $this->getNewtalks() ),
+				'data-minerva-search-box' => $data['data-search-box'] + [
+					'data-btn' => [
+						'data-icon' => [
+							'icon' => 'search-base20',
+						],
+						'label' => $this->msg( 'searchbutton' )->escaped(),
+						'classes' => 'skin-minerva-search-trigger',
+						'array-attributes' => [
+							[
+								'key' => 'id',
+								'value' => 'searchIcon',
+							]
+						]
+					],
+				],
+				'data-minerva-main-menu-btn' => [
+					'data-icon' => [
+						'icon' => 'menu-base20',
+					],
+					'tag-name' => 'label',
+					'classes' => 'toggle-list__toggle',
+					'array-attributes' => [
+						[
+							'key' => 'for',
+							'value' => 'main-menu-input',
+						],
+						[
+							'key' => 'id',
+							'value' => 'mw-mf-main-menu-button',
+						],
+						[
+							'key' => 'aria-hidden',
+							'value' => 'true',
+						],
+						[
+							'key' => 'data-event-name',
+							'value' => 'ui.mainmenu',
+						],
+					],
+					'text' => $this->msg( 'mobile-frontend-main-menu-button-tooltip' )->escaped(),
+				],
 				'data-minerva-main-menu' => $this->getMainMenu()->getMenuData(
 					$nav,
 					$this->buildSidebar()
 				)['items'],
 				'html-minerva-tagline' => $this->getTaglineHtml(),
-				'html-minerva-post-heading' => $this->isTalkPageWithViewAction()
-					? $this->getTalkPagePostHeadingHtml()
-					: '',
 				'html-minerva-user-menu' => $this->getPersonalToolsMenu( $nav['user-menu'] ),
 				'is-minerva-beta' => $this->getSkinOptions()->get( SkinOptions::BETA_MODE ),
+				'data-minerva-notifications' => $notifications ? [
+					'array-buttons' => $this->getNotificationButtons( $notifications ),
+				] : null,
 				'data-minerva-tabs' => $this->getTabsData( $nav ),
 				'data-minerva-page-actions' => $this->getPageActions( $nav ),
 				'data-minerva-secondary-actions' => $this->getSecondaryActions( $nav ),
 				'html-minerva-subject-link' => $this->getSubjectPage(),
 				'data-minerva-history-link' => $this->getHistoryLink( $this->getTitle() ),
 			];
+	}
+
+	/**
+	 * Prepares the notification badges for the Button template.
+	 *
+	 * @internal
+	 * @param array $notifications
+	 * @return array
+	 */
+	public static function getNotificationButtons( array $notifications ) {
+		$btns = [];
+
+		foreach ( $notifications as $notification ) {
+			$linkData = $notification['array-links'][ 0 ] ?? [];
+			$icon = $linkData['icon'] ?? null;
+			if ( !$icon ) {
+				continue;
+			}
+			$id = $notification['id'] ?? null;
+			$classes = '';
+			$attributes = [];
+
+			// We don't want to output multiple attributes.
+			// Iterate through the attributes and pull out ID and class which
+			// will be defined separately.
+			foreach ( $linkData[ 'array-attributes' ] as $keyValuePair ) {
+				if ( $keyValuePair['key'] === 'class' ) {
+					$classes = $keyValuePair['value'];
+				} elseif ( $keyValuePair['key'] === 'id' ) {
+					// ignore. We want to use the LI `id` instead.
+				} else {
+					$attributes[] = $keyValuePair;
+				}
+			}
+			// add LI ID to end for use on the button.
+			if ( $id ) {
+				$attributes[] = [
+					'key' => 'id',
+					'value' => $id,
+				];
+			}
+			$btns[] = [
+				'tag-name' => 'a',
+				// FIXME: Move preg_replace when Echo no longer provides this class.
+				'classes' => preg_replace( '/oo-ui-icon-(bellOutline|tray)/', '', $classes ),
+				'array-attributes' => $attributes,
+				'data-icon' => [
+					'icon' => $icon,
+				],
+				'label' => $linkData['text'] ?? '',
+			];
+		}
+		return $btns;
 	}
 
 	/**
@@ -216,7 +439,8 @@ class SkinMinerva extends SkinMustache {
 			->getSubjectPage( $title );
 		$isMainPageTalk = Title::newFromLinkTarget( $subjectPage )->isMainPage();
 		return (
-				$this->hasPageActions() && !$isMainPageTalk
+				$this->hasPageActions() && !$isMainPageTalk &&
+				$skinOptions->get( SkinOptions::TALK_AT_TOP )
 			) || (
 				$isSpecialPage &&
 				$skinOptions->get( SkinOptions::TABS_ON_SPECIALS )
@@ -228,13 +452,12 @@ class SkinMinerva extends SkinMustache {
 	 * @return array
 	 */
 	private function getTabsData( array $contentNavigationUrls ) {
-		$skinOptions = $this->getSkinOptions();
-		$hasTalkTabs = $skinOptions->get( SkinOptions::TALK_AT_TOP ) && $this->hasPageTabs();
-		if ( !$hasTalkTabs ) {
+		$hasPageTabs = $this->hasPageTabs();
+		if ( !$hasPageTabs ) {
 			return [];
 		}
 		return $contentNavigationUrls ? [
-			'items' => array_values( $contentNavigationUrls['namespaces'] ),
+			'items' => array_values( $contentNavigationUrls['associated-pages'] ),
 		] : [];
 	}
 
@@ -339,16 +562,34 @@ class SkinMinerva extends SkinMustache {
 			 !$nt->isMainPage() ) {
 			$message = $this->msg( 'mobile-frontend-editor-edit' )->inLanguage( $lang )->text();
 			$html = Html::openElement( 'span', [ 'class' => 'mw-editsection' ] );
-			$html .= Html::element( 'a', [
-				'href' => $nt->getLocalURL( [ 'action' => 'edit', 'section' => $section ] ),
-				'title' => $this->msg( 'editsectionhint', $tooltip )->inLanguage( $lang )->text(),
-				'data-section' => $section,
+			if ( !$this->templateParser ) {
+				$this->templateParser = new TemplateParser( __DIR__ );
+			}
+			$templateParser = $this->templateParser;
+			$html .= $templateParser->processTemplate( 'Button', [
+				'tag-name' => 'a',
+				'data-icon' => [
+					'icon' => 'edit-base20'
+				],
+				'array-attributes' => [
+					[
+						'key' => 'href',
+						'value' => $nt->getLocalURL( [ 'action' => 'edit', 'section' => $section ] ),
+					],
+					[
+						'key' => 'title',
+						'value' => $this->msg( 'editsectionhint', $tooltip )->inLanguage( $lang )->text(),
+					],
+					[
+						'key' => 'data-section',
+						'value' => $section,
+					],
+				],
+				'label' => $message,
 				// Note visibility of the edit section link button is controlled by .edit-page in ui.less so
 				// we default to enabled even though this may not be true.
-				'class' => MinervaUI::iconClass(
-					'edit-base20', 'element', 'edit-page mw-ui-icon-flush-right', 'wikimedia'
-				),
-			], $message );
+				'classes' => 'edit-page',
+			] );
 			$html .= Html::closeElement( 'span' );
 			return $html;
 		}
@@ -405,31 +646,6 @@ class SkinMinerva extends SkinMustache {
 	 */
 	public function getUserPageHelper() {
 		return MediaWikiServices::getInstance()->getService( 'Minerva.SkinUserPageHelper' );
-	}
-
-	/**
-	 * Prepares the user button.
-	 * @param string $newTalks New talk page messages for the current user
-	 * @return string
-	 */
-	protected function prepareUserNotificationsButton( $newTalks ) {
-		$user = $this->getUser();
-		if ( $user->isRegistered() ) {
-			$currentTitle = $this->getTitle();
-			$notificationsMsg = $this->msg( 'mobile-frontend-user-button-tooltip' )->text();
-			$notificationIconClass = MinervaUI::iconClass( 'bellOutline-base20',
-				'element', '', 'wikimedia' );
-			$badge = Html::element( 'a', [
-				'class' => $notificationIconClass,
-				'href' => SpecialPage::getTitleFor( 'Mytalk' )->getLocalURL(
-					[ 'returnto' => $currentTitle->getPrefixedText() ]
-				),
-			], $notificationsMsg );
-			MWHooks::run( 'SkinMinervaReplaceNotificationsBadge',
-				[ $user, $currentTitle, &$badge ] );
-			return $badge;
-		}
-		return '';
 	}
 
 	/**
@@ -491,47 +707,37 @@ class SkinMinerva extends SkinMustache {
 	 * @return array|null
 	 */
 	protected function getHistoryLink( Title $title ) {
+		if ( !$title->exists() ||
+			$this->getContext()->getActionName() !== 'view'
+		) {
+			return null;
+		}
+
 		$out = $this->getOutput();
-		$isLatestRevision = $out->getRevisionId() === $title->getLatestRevID();
-		// Get rev_timestamp of current revision (preloaded by MediaWiki core)
-		$timestamp = $out->getRevisionTimestamp();
-		# No cached timestamp, load it from the database
-		if ( $timestamp === null ) {
-			$timestamp = MediaWikiServices::getInstance()
-				->getRevisionLookup()
-				->getTimestampFromId( $out->getRevisionId() );
+
+		if ( !$out->getRevisionId() || !$out->isRevisionCurrent() || $title->isMainPage() ) {
+			$historyLink = $this->getGenericHistoryLink( $title );
+		} else {
+			// Get rev_timestamp of current revision (preloaded by MediaWiki core)
+			$timestamp = $out->getRevisionTimestamp();
+			if ( !$timestamp ) {
+				# No cached timestamp, load it from the database
+				$revisionLookup = MediaWikiServices::getInstance()->getRevisionLookup();
+				$timestamp = $revisionLookup->getTimestampFromId( $out->getRevisionId() );
+			}
+			$historyLink = $this->getRelativeHistoryLink( $title, $timestamp );
 		}
 
-		// Create history link and corresponding icons.
-		$historyLinkAndIcons = [];
-		if ( Action::getActionName( RequestContext::getMain() ) === 'view' ) {
-			$historyIconClasses = [
-				'historyIconClass' => MinervaUI::iconClass(
-					'history-base20', 'mw-ui-icon-small', '', 'wikimedia'
-				),
-				'arrowIconClass' => MinervaUI::iconClass(
-					'expand-gray', 'small',
-					'mf-mw-ui-icon-rotate-anti-clockwise indicator',
-					// Uses icon in MobileFrontend so must be prefixed mf.
-					// Without MobileFrontend it will not render.
-					// Rather than maintain 2 versions (and variants) of the arrow icon which can conflict
-					// with each othe and bloat CSS, we'll
-					// use the MobileFrontend one. Long term when T177432 and T160690 are resolved
-					// we should be able to use one icon definition and break this dependency.
-					'mf'
-				),
-			];
-			$historyLink = !$isLatestRevision || $title->isMainPage() ?
-				$this->getGenericHistoryLink( $title ) :
-				$this->getRelativeHistoryLink( $title, $timestamp );
-
-			$historyLinkAndIcons = $historyLink + $historyIconClasses;
-		}
-
-		$title = $this->getTitle();
-		return $title->canExist() && $title->exists() && !empty( $historyLinkAndIcons )
-			? $historyLinkAndIcons
-			: null;
+		return $historyLink + [
+			'historyIcon' => [
+				'icon' => 'modified-history',
+				'size' => 'medium'
+			],
+			'arrowIcon' => [
+				'icon' => 'expand',
+				'size' => 'small'
+			]
+		];
 	}
 
 	/**
@@ -619,80 +825,6 @@ class SkinMinerva extends SkinMustache {
 	}
 
 	/**
-	 * @return bool Whether or not current title is a Talk page with the default
-	 * action ('view')
-	 */
-	private function isTalkPageWithViewAction() {
-		$title = $this->getTitle();
-
-		// Hook is @unstable and only for use by DiscussionTools. Do not use for any other purpose.
-		$hookContainer = MediaWikiServices::getInstance()->getHookContainer();
-		if ( !$hookContainer->run( 'MinervaNeueTalkPageOverlay', [ $title, $this->getOutput() ] ) ) {
-			return false;
-		}
-
-		return $title->isTalkPage() && Action::getActionName( $this->getContext() ) === "view";
-	}
-
-	/**
-	 * @internal Should not be used outside Minerva.
-	 * @todo Find better place for this.
-	 *
-	 * @return bool Whether or not the simplified talk page is enabled and action is 'view'
-	 */
-	public function isSimplifiedTalkPageEnabled(): bool {
-		$title = $this->getTitle();
-		$skinOptions = $this->getSkinOptions();
-
-		return $this->isTalkPageWithViewAction() &&
-			$skinOptions->get( SkinOptions::SIMPLIFIED_TALK ) &&
-			// Only if viewing the latest revision, as we can't get the section numbers otherwise
-			// (and even if we could, they would be useless, because edits often add and remove sections).
-			$this->getOutput()->getRevisionId() === $title->getLatestRevID() &&
-			$title->getContentModel() === CONTENT_MODEL_WIKITEXT;
-	}
-
-	/**
-	 * Returns the postheadinghtml for the talk page with view action
-	 *
-	 * @return string HTML for postheadinghtml
-	 */
-	private function getTalkPagePostHeadingHtml() {
-		$title = $this->getTitle();
-		$html = '';
-
-		// T237589: We don't want to show the add discussion button on Flow pages,
-		// only wikitext pages
-		if ( $this->getPermissions()->isTalkAllowed() &&
-			$title->getContentModel() === CONTENT_MODEL_WIKITEXT
-		) {
-			$addTopicButton = $this->getTalkButton( $title, wfMessage(
-				'minerva-talk-add-topic' )->text(), true );
-			$html = Html::element( 'a', $addTopicButton['attributes'] + [
-				'data-event-name' => 'talkpage.add-topic'
-			], $addTopicButton['label'] );
-		}
-
-		$title = $this->getTitle();
-		if ( $this->isSimplifiedTalkPageEnabled() && $title->canExist() ) {
-			$parserOutputAccess = MediaWikiServices::getInstance()->getParserOutputAccess();
-			$parserOptions = ParserOptions::newFromContext( $this->getContext() );
-			$pageRecord = $title->toPageRecord();
-			$status = $parserOutputAccess->getParserOutput( $pageRecord, $parserOptions );
-			$statusValue = $status->getValue();
-			$sectionCount = ( $status->isGood() && $statusValue instanceof ParserOutput )
-				? count( $statusValue->getSections() )
-				: 0;
-			$message = $sectionCount > 0 ? wfMessage( 'minerva-talk-explained' )
-				: wfMessage( 'minerva-talk-explained-empty' );
-			$html .= Html::element( 'div', [ 'class' =>
-				'minerva-talk-content-explained' ], $message->text() );
-		}
-
-		return $html;
-	}
-
-	/**
 	 * Load internal banner content to show in pre content in template
 	 * Beware of HTML caching when using this function.
 	 * Content set as "internalbanner"
@@ -714,16 +846,15 @@ class SkinMinerva extends SkinMustache {
 	 * @return array
 	 */
 	protected function getLanguageButton() {
-		$languageUrl = SpecialPage::getTitleFor(
-			'MobileLanguages',
-			$this->getSkin()->getTitle()
-		)->getLocalURL();
-
 		return [
-			'attributes' => [
-				'class' => 'language-selector',
-				'href' => $languageUrl,
+			'array-attributes' => [
+				[
+					'key' => 'href',
+					'value' => '#p-lang'
+				]
 			],
+			'tag-name' => 'a',
+			'classes' => 'language-selector button',
 			'label' => $this->msg( 'mobile-frontend-language-article-heading' )->text()
 		];
 	}
@@ -732,25 +863,22 @@ class SkinMinerva extends SkinMustache {
 	 * Returns an array with details for a talk button.
 	 * @param Title $talkTitle Title object of the talk page
 	 * @param string $label Button label
-	 * @param bool $addSection (optional) when added the talk button will render
-	 *  as an add topic button. Defaults to false.
 	 * @return array
 	 */
-	protected function getTalkButton( $talkTitle, $label, $addSection = false ) {
-		if ( $addSection ) {
-			$params = [ 'action' => 'edit', 'section' => 'new' ];
-			$className = 'minerva-talk-add-button ' . MinervaUI::buttonClass( 'progressive', 'button' );
-		} else {
-			$params = [];
-			$className = 'talk';
-		}
-
+	protected function getTalkButton( $talkTitle, $label ) {
 		return [
-			'attributes' => [
-				'href' => $talkTitle->getLinkURL( $params ),
-				'data-title' => $talkTitle->getFullText(),
-				'class' => $className,
+			'array-attributes' => [
+				[
+					'key' => 'href',
+					'value' => $talkTitle->getLinkURL(),
+				],
+				[
+					'key' => 'data-title',
+					'value' => $talkTitle->getFullText(),
+				]
 			],
+			'tag-name' => 'a',
+			'classes' => 'talk button',
 			'label' => $label,
 		];
 	}
@@ -782,10 +910,9 @@ class SkinMinerva extends SkinMustache {
 			// When showing talk at the bottom we restrict this so it is not shown to anons
 			// https://phabricator.wikimedia.org/T54165
 			// This whole code block can be removed when SkinOptions::TALK_AT_TOP is always true
-			$this->getUser()->isRegistered() &&
-			!$this->isTalkPageWithViewAction()
+			$this->getUser()->isRegistered()
 		) {
-			$namespaces = $contentNavigationUrls['namespaces'];
+			$namespaces = $contentNavigationUrls['associated-pages'];
 			// FIXME [core]: This seems unnecessary..
 			$subjectId = $title->getNamespaceKey( '' );
 			$talkId = $subjectId === 'main' ? 'talk' : "{$subjectId}_talk";
@@ -812,30 +939,16 @@ class SkinMinerva extends SkinMustache {
 	protected function getJsConfigVars(): array {
 		$title = $this->getTitle();
 		$skinOptions = $this->getSkinOptions();
+		$permissions = $this->getPermissions();
 
 		return array_merge( parent::getJsConfigVars(), [
 			'wgMinervaPermissions' => [
-				'watch' => $this->getPermissions()->isAllowed( IMinervaPagePermissions::WATCH ),
-				'talk' => $this->getUserPageHelper()->isUserPage() ||
-					( $this->getPermissions()->isTalkAllowed() || $title->isTalkPage() ) &&
-					$this->isWikiTextTalkPage()
+				'watchable' => $permissions->isAllowed( IMinervaPagePermissions::WATCHABLE ),
+				'watch' => $permissions->isAllowed( IMinervaPagePermissions::WATCH ),
 			],
 			'wgMinervaFeatures' => $skinOptions->getAll(),
 			'wgMinervaDownloadNamespaces' => $this->getConfig()->get( 'MinervaDownloadNamespaces' ),
 		] );
-	}
-
-	/**
-	 * Returns true, if the talk page of this page is wikitext-based.
-	 * @return bool
-	 */
-	protected function isWikiTextTalkPage() {
-		$title = $this->getTitle();
-		if ( !$title->isTalkPage() ) {
-			$namespaceInfo = MediaWikiServices::getInstance()->getNamespaceInfo();
-			$title = Title::newFromLinkTarget( $namespaceInfo->getTalkPage( $title ) );
-		}
-		return $title->isWikitextPage();
 	}
 
 	/**
@@ -847,15 +960,13 @@ class SkinMinerva extends SkinMustache {
 		$modules = parent::getDefaultModules();
 
 		// FIXME: T223204: Dequeue default content modules except for the history
-		// action. Allow default history action content modules
-		// in order to enable toggling of the
-		// filters. Long term this won't be necessary when T111565 is resolved and a
+		// action. Allow default content modules on history action in order to
+		// enable toggling of the filters.
+		// Long term this won't be necessary when T111565 is resolved and a
 		// more general solution can be used.
-		if ( Action::getActionName( $this->getContext() ) !== 'history' ) {
-			// dequeue default content modules (toc, sortable, collapsible, etc.)
+		if ( $this->getContext()->getActionName() !== 'history' ) {
+			// dequeue default content modules (toc, collapsible, etc.)
 			$modules['content'] = array_diff( $modules['content'], [
-				// T233340
-				'jquery.tablesorter',
 				// T111565
 				'jquery.makeCollapsible',
 				// Minerva provides its own implementation. Loading this will break display.
@@ -863,8 +974,6 @@ class SkinMinerva extends SkinMustache {
 			] );
 			// dequeue styles associated with `content` key.
 			$modules['styles']['content'] = array_diff( $modules['styles']['content'], [
-				// T233340
-				'jquery.tablesorter.styles',
 				// T111565
 				'jquery.makeCollapsible.styles',
 			] );
@@ -890,22 +999,33 @@ class SkinMinerva extends SkinMustache {
 	protected function getSkinStyles(): array {
 		$title = $this->getTitle();
 		$skinOptions = $this->getSkinOptions();
+		$request = $this->getRequest();
+		$requestAction = $this->getContext()->getActionName();
+		$viewAction = $requestAction === 'view';
 		$styles = [
 			'skins.minerva.base.styles',
 			'skins.minerva.content.styles.images',
 			'mediawiki.hlist',
-			'mediawiki.ui.icon',
-			'mediawiki.ui.button',
+			'codex-search-styles',
 			'skins.minerva.icons.wikimedia',
 			'skins.minerva.mainMenu.icons',
 			'skins.minerva.mainMenu.styles',
 		];
+
+		// Warning box styles are needed when reviewing old revisions
+		// and inside the fallback editor styles to action=edit page.
+		if (
+			$title->getNamespace() !== NS_MAIN ||
+			$request->getText( 'oldid' ) ||
+			!$viewAction
+		) {
+			$styles[] = 'skins.minerva.messageBox.styles';
+		}
+
 		if ( $title->isMainPage() ) {
 			$styles[] = 'skins.minerva.mainPage.styles';
 		} elseif ( $this->getUserPageHelper()->isUserPage() ) {
 			$styles[] = 'skins.minerva.userpage.styles';
-		} elseif ( $this->isTalkPageWithViewAction() ) {
-			$styles[] = 'skins.minerva.talk.styles';
 		}
 
 		if ( $this->hasCategoryLinks() ) {
@@ -914,7 +1034,6 @@ class SkinMinerva extends SkinMustache {
 
 		if ( $this->getUser()->isRegistered() ) {
 			$styles[] = 'skins.minerva.loggedin.styles';
-			$styles[] = 'skins.minerva.icons.loggedin';
 		}
 
 		// When any of these features are enabled in production

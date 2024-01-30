@@ -22,6 +22,8 @@
 namespace MediaWiki\Auth;
 
 use BagOStuff;
+use MediaWiki\MainConfigNames;
+use MediaWiki\User\User;
 
 /**
  * A pre-authentication provider to throttle authentication actions.
@@ -61,7 +63,7 @@ class ThrottlePreAuthenticationProvider extends AbstractPreAuthenticationProvide
 	}
 
 	protected function postInitSetup() {
-		$accountCreationThrottle = $this->config->get( 'AccountCreationThrottle' );
+		$accountCreationThrottle = $this->config->get( MainConfigNames::AccountCreationThrottle );
 		// Handle old $wgAccountCreationThrottle format (number of attempts per 24 hours)
 		if ( !is_array( $accountCreationThrottle ) ) {
 			$accountCreationThrottle = [ [
@@ -74,7 +76,8 @@ class ThrottlePreAuthenticationProvider extends AbstractPreAuthenticationProvide
 		$this->throttleSettings += [
 		// @codeCoverageIgnoreEnd
 			'accountCreationThrottle' => $accountCreationThrottle,
-			'passwordAttemptThrottle' => $this->config->get( 'PasswordAttemptThrottle' ),
+			'passwordAttemptThrottle' =>
+				$this->config->get( MainConfigNames::PasswordAttemptThrottle ),
 		];
 
 		if ( !empty( $this->throttleSettings['accountCreationThrottle'] ) ) {
@@ -155,7 +158,7 @@ class ThrottlePreAuthenticationProvider extends AbstractPreAuthenticationProvide
 	}
 
 	/**
-	 * @param null|\User $user
+	 * @param null|User $user
 	 * @param AuthenticationResponse $response
 	 */
 	public function postAuthentication( $user, AuthenticationResponse $response ) {

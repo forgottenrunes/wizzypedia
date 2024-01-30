@@ -1,7 +1,5 @@
 <?php
 /**
- * Belarusian in Taraškievica orthography (Беларуская тарашкевіца) specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -21,13 +19,12 @@
  * @author Ævar Arnfjörð Bjarmason <avarab@gmail.com>
  * @license GPL-2.0-or-later
  * @license GFDL-1.3-or-later
- * @ingroup Language
  */
 
 /**
  * Belarusian in Taraškievica orthography (Беларуская тарашкевіца)
  *
- * @ingroup Language
+ * @ingroup Languages
  * @see https://be-tarask.wikipedia.org/wiki/Project_talk:LanguageBe_tarask.php
  */
 // phpcs:ignore Squiz.Classes.ValidClassName.NotCamelCaps
@@ -38,19 +35,15 @@ class LanguageBe_tarask extends Language {
 	 * This function unifies apostrophe sign in search index values
 	 * to enable search using both apostrophe signs.
 	 *
-	 * @param string $string
-	 *
-	 * @return string
+	 * @inheritDoc
 	 */
-	public function normalizeForSearch( $string ) {
+	public function normalizeForSearch( $text ) {
 		# MySQL fulltext index doesn't grok utf-8, so we
 		# need to fold cases and convert to hex
 
 		# Replacing apostrophe sign U+2019 with U+0027
-		$s = str_replace( "\u{2019}", '\'', $string );
+		$text = str_replace( "\u{2019}", '\'', $text );
 
-		$s = parent::normalizeForSearch( $s );
-
-		return $s;
+		return parent::normalizeForSearch( $text );
 	}
 }

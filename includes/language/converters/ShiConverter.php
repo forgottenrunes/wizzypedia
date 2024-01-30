@@ -1,7 +1,5 @@
 <?php
 /**
- * Shilha specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,10 +16,11 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
 
 /**
+ * Shilha specific code.
+ *
  * Conversion script between Latin and Tifinagh for Tachelhit.
  * - Tifinagh -> lowercase Latin
  * - lowercase/uppercase Latin -> Tifinagh
@@ -31,7 +30,7 @@
  *   - https://en.wikipedia.org/wiki/Shilha_language
  *   - LanguageSr.php
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class ShiConverter extends LanguageConverterSpecific {
 	// The Tifinagh alphabet sequence is based on
@@ -151,42 +150,24 @@ class ShiConverter extends LanguageConverterSpecific {
 		'v' => 'ⴼ',
 	];
 
-	/**
-	 * Get main language code.
-	 * @since 1.36
-	 *
-	 * @return string
-	 */
 	public function getMainCode(): string {
 		return 'shi';
 	}
 
-	/**
-	 * Get supported variants of the language.
-	 * @since 1.36
-	 *
-	 * @return array
-	 */
 	public function getLanguageVariants(): array {
 		return [ 'shi', 'shi-tfng', 'shi-latn' ];
 	}
 
-	/**
-	 * Get language variants fallbacks.
-	 * @since 1.36
-	 *
-	 * @return array
-	 */
 	public function getVariantsFallbacks(): array {
 		return [
-			'shi' => 'shi-tfng',
+			'shi' => [ 'shi-latn', 'shi-tfng' ],
 			'shi-tfng' => 'shi',
 			'shi-latn' => 'shi',
 		];
 	}
 
-	protected function loadDefaultTables() {
-		$this->mTables = [
+	protected function loadDefaultTables(): array {
+		return [
 			'lowercase' => new ReplacementArray( $this->mUpperToLowerCaseLatin ),
 			'shi-tfng' => new ReplacementArray( $this->mToTifinagh ),
 			'shi-latn' => new ReplacementArray( $this->mToLatin ),
@@ -194,20 +175,12 @@ class ShiConverter extends LanguageConverterSpecific {
 		];
 	}
 
-	/**
-	 * It translates text into variant
-	 *
-	 * @param string $text
-	 * @param string $toVariant
-	 *
-	 * @return string
-	 */
 	public function translate( $text, $toVariant ) {
 		// If $text is empty or only includes spaces, do nothing
 		// Otherwise translate it
 		if ( trim( $text ) ) {
 			$this->loadTables();
-			// To Tifinagh, first translate uppercase to lowercase Latin
+			// For Tifinagh, first translate uppercase to lowercase Latin
 			if ( $toVariant == 'shi-tfng' ) {
 				$text = $this->mTables['lowercase']->replace( $text );
 			}

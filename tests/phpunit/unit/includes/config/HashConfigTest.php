@@ -1,18 +1,17 @@
 <?php
 
+use MediaWiki\Config\ConfigException;
+
+/**
+ * @covers \MediaWiki\Config\HashConfig
+ */
 class HashConfigTest extends \MediaWikiUnitTestCase {
 
-	/**
-	 * @covers HashConfig::newInstance
-	 */
 	public function testNewInstance() {
 		$conf = HashConfig::newInstance();
 		$this->assertInstanceOf( HashConfig::class, $conf );
 	}
 
-	/**
-	 * @covers HashConfig::__construct
-	 */
 	public function testConstructor() {
 		$conf = new HashConfig();
 		$this->assertInstanceOf( HashConfig::class, $conf );
@@ -24,9 +23,6 @@ class HashConfigTest extends \MediaWikiUnitTestCase {
 		$this->assertSame( '1', $conf2->get( 'one' ) );
 	}
 
-	/**
-	 * @covers HashConfig::get
-	 */
 	public function testGet() {
 		$conf = new HashConfig( [
 			'one' => '1',
@@ -37,9 +33,6 @@ class HashConfigTest extends \MediaWikiUnitTestCase {
 		$conf->get( 'two' );
 	}
 
-	/**
-	 * @covers HashConfig::has
-	 */
 	public function testHas() {
 		$conf = new HashConfig( [
 			'one' => '1',
@@ -48,9 +41,16 @@ class HashConfigTest extends \MediaWikiUnitTestCase {
 		$this->assertFalse( $conf->has( 'two' ) );
 	}
 
-	/**
-	 * @covers HashConfig::set
-	 */
+	public function testClear() {
+		$conf = new HashConfig( [
+			'one' => '1',
+		] );
+		$this->assertTrue( $conf->has( 'one' ) );
+
+		$conf->clear();
+		$this->assertFalse( $conf->has( 'one' ) );
+	}
+
 	public function testSet() {
 		$conf = new HashConfig( [
 			'one' => '1',
@@ -62,9 +62,6 @@ class HashConfigTest extends \MediaWikiUnitTestCase {
 		$this->assertSame( '3', $conf->get( 'one' ) );
 	}
 
-	/**
-	 * @covers HashConfig::getNames
-	 */
 	public function testGetNames() {
 		$conf = new HashConfig( [
 			'one' => '1',
@@ -74,9 +71,6 @@ class HashConfigTest extends \MediaWikiUnitTestCase {
 		$this->assertSame( [ 'one', 'two' ], $conf->getNames() );
 	}
 
-	/**
-	 * @covers HashConfig::getIterator
-	 */
 	public function testTraversable() {
 		$conf = new HashConfig( [
 			'one' => '1',

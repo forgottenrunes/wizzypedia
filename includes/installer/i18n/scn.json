@@ -12,6 +12,7 @@
 	"config-wiki-language": "Lingua dû wiki:",
 	"config-page-language": "Lingua",
 	"config-page-welcome": "Bommegna n MediaWik!",
+	"config-page-dbsettings": "Mpustazzioni dû databbasi",
 	"config-page-name": "Nomu",
 	"config-page-options": "Opzioni",
 	"config-page-install": "Nstalla",
@@ -21,9 +22,11 @@
 	"config-apcu": "[https://www.php.net/apcu APCu] è nstallatu",
 	"config-wincache": "[https://www.iis.net/downloads/microsoft/wincache-extension WinCache] è nstallatu",
 	"config-db-type": "Tipu di databbasi:",
+	"config-db-host": "Host dû databbasi:",
 	"config-db-install-account": "Cuntu utentu pâ nstallazzioni",
 	"config-db-username": "Nomu utenti dû databbasi:",
 	"config-db-password": "Password dû databbasi:",
+	"config-db-port": "Porta dû databbasi:",
 	"config-header-mysql": "Mpustazzioni MariaDB/MySQL",
 	"config-header-postgres": "Mpustazzioni PostgreSQL",
 	"config-header-sqlite": "Mpustazzioni SQLite",
@@ -47,6 +50,6 @@
 	"config-install-logo-blank": "Nzirisci n'URL di logu vàlidu.",
 	"config-help": "aiutu",
 	"config-screenshot": "screenshot",
-	"mainpagetext": "<strong>MediaWiki è statu nstallatu.</strong>",
+	"mainpagetext": "<strong>MediaWiki havi statu nstallatu.</strong>",
 	"mainpagedocfooter": "Pi favuri cunsulta [https://meta.wikimedia.org/wiki/Help:Contents uida utenti] pi aiutu supra l'usu e la cunfigurazzioni di stu software wiki.\n\n== P'accuminzari ==\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:Configuration_settings Alencu di mpustazzioni di cunfigurazzioni]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:FAQ MediaWiki FAQ]\n* [https://lists.wikimedia.org/postorius/lists/mediawiki-announce.lists.wikimedia.org Mailing list dî rilassi di MediaWiki]"
 }

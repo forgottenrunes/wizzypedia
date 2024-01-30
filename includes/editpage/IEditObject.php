@@ -46,13 +46,16 @@ interface IEditObject {
 	/** Status: Content too big (> $wgMaxArticleSize) */
 	public const AS_CONTENT_TOO_BIG = 216;
 
+	/** Status: revision x was deleted while editing (?action=edit&oldid=x) */
+	public const AS_REVISION_WAS_DELETED = 217;
+
 	/** Status: this anonymous user is not allowed to edit this page */
 	public const AS_READ_ONLY_PAGE_ANON = 218;
 
 	/** Status: this logged in user is not allowed to edit this page */
 	public const AS_READ_ONLY_PAGE_LOGGED = 219;
 
-	/** Status: wiki is in readonly mode (wfReadOnly() == true) */
+	/** Status: wiki is in readonly mode (ReadOnlyMode::isReadOnly() == true) */
 	public const AS_READ_ONLY_PAGE = 220;
 
 	/** Status: rate limiter for action 'edit' was tripped */

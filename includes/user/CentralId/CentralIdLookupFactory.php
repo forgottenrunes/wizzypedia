@@ -20,10 +20,9 @@
 
 namespace MediaWiki\User\CentralId;
 
-use CentralIdLookup;
 use InvalidArgumentException;
-use LocalIdLookup;
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\MainConfigNames;
 use MediaWiki\User\UserIdentityLookup;
 use Wikimedia\ObjectFactory\ObjectFactory;
 
@@ -38,8 +37,8 @@ class CentralIdLookupFactory {
 	 * @var string[]
 	 */
 	public const CONSTRUCTOR_OPTIONS = [
-		'CentralIdLookupProviders',
-		'CentralIdLookupProvider',
+		MainConfigNames::CentralIdLookupProviders,
+		MainConfigNames::CentralIdLookupProvider,
 	];
 
 	/** @var array ObjectFactory specs indexed by provider name */
@@ -68,8 +67,8 @@ class CentralIdLookupFactory {
 		UserIdentityLookup $userIdentityLookup
 	) {
 		$options->assertRequiredOptions( self::CONSTRUCTOR_OPTIONS );
-		$this->providers = $options->get( 'CentralIdLookupProviders' );
-		$this->defaultProvider = $options->get( 'CentralIdLookupProvider' );
+		$this->providers = $options->get( MainConfigNames::CentralIdLookupProviders );
+		$this->defaultProvider = $options->get( MainConfigNames::CentralIdLookupProvider );
 		$this->objectFactory = $objectFactory;
 		$this->userIdentityLookup = $userIdentityLookup;
 	}
@@ -101,7 +100,7 @@ class CentralIdLookupFactory {
 	 * @throws InvalidArgumentException if $providerId is not properly configured
 	 */
 	public function getLookup( string $providerId = null ): CentralIdLookup {
-		$providerId = $providerId ?? $this->defaultProvider;
+		$providerId ??= $this->defaultProvider;
 
 		if ( !array_key_exists( $providerId, $this->instanceCache ) ) {
 			$providerSpec = $this->providers[$providerId] ?? null;

@@ -2,6 +2,9 @@
 
 namespace MediaWiki\Session;
 
+use MediaWiki\Config\HashConfig;
+use MediaWiki\MainConfigNames;
+use MediaWiki\User\User;
 use MediaWiki\User\UserNameUtils;
 use MediaWikiIntegrationTestCase;
 use TestLogger;
@@ -23,7 +26,7 @@ class SessionProviderTest extends MediaWikiIntegrationTestCase {
 
 		$manager = new SessionManager();
 		$logger = new TestLogger();
-		$config = new \HashConfig();
+		$config = new HashConfig();
 		$hookContainer = $this->createHookContainer();
 		$userNameUtils = $this->createNoOpMock( UserNameUtils::class );
 
@@ -47,11 +50,11 @@ class SessionProviderTest extends MediaWikiIntegrationTestCase {
 		$provider->setHookContainer( $hookContainer );
 		$this->assertSame( $hookContainer, $priv->getHookContainer() );
 
-		$provider->invalidateSessionsForUser( new \User );
+		$provider->invalidateSessionsForUser( new User );
 
 		$this->assertSame( [], $provider->getVaryHeaders() );
 		$this->assertSame( [], $provider->getVaryCookies() );
-		$this->assertSame( null, $provider->suggestLoginUsername( new \FauxRequest ) );
+		$this->assertSame( null, $provider->suggestLoginUsername( new \MediaWiki\Request\FauxRequest ) );
 
 		$this->assertSame( get_class( $provider ), (string)$provider );
 
@@ -65,7 +68,7 @@ class SessionProviderTest extends MediaWikiIntegrationTestCase {
 			'provider' => $provider,
 		] );
 		$metadata = [ 'foo' ];
-		$this->assertTrue( $provider->refreshSessionInfo( $info, new \FauxRequest, $metadata ) );
+		$this->assertTrue( $provider->refreshSessionInfo( $info, new \MediaWiki\Request\FauxRequest, $metadata ) );
 		$this->assertSame( [ 'foo' ], $metadata );
 	}
 
@@ -162,8 +165,8 @@ class SessionProviderTest extends MediaWikiIntegrationTestCase {
 	}
 
 	public function testHashToSessionId() {
-		$config = new \HashConfig( [
-			'SecretKey' => 'Shhh!',
+		$config = new HashConfig( [
+			MainConfigNames::SecretKey => 'Shhh!',
 		] );
 
 		$provider = $this->getMockForAbstractClass( SessionProvider::class,

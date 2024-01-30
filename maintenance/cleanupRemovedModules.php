@@ -22,7 +22,6 @@
  * @author Roan Kattouw
  */
 
-use MediaWiki\MediaWikiServices;
 use Wikimedia\Rdbms\IDatabase;
 
 require_once __DIR__ . '/Maintenance.php';
@@ -46,13 +45,14 @@ class CleanupRemovedModules extends Maintenance {
 		$this->output( "Cleaning up module_deps table...\n" );
 
 		$dbw = $this->getDB( DB_PRIMARY );
-		$rl = MediaWikiServices::getInstance()->getResourceLoader();
+		$rl = $this->getServiceContainer()->getResourceLoader();
 		$moduleNames = $rl->getModuleNames();
-		$res = $dbw->select( 'module_deps',
-			[ 'md_module', 'md_skin' ],
-			$moduleNames ? 'md_module NOT IN (' . $dbw->makeList( $moduleNames ) . ')' : '1=1',
-			__METHOD__
-		);
+		$res = $dbw->newSelectQueryBuilder()
+			->select( [ 'md_module', 'md_skin' ] )
+			->from( 'module_deps' )
+			->where( $moduleNames ? 'md_module NOT IN (' . $dbw->makeList( $moduleNames ) . ')' : '1=1' )
+			->caller( __METHOD__ )
+			->fetchResultSet();
 		$rows = iterator_to_array( $res, false );
 
 		$modDeps = $dbw->tableName( 'module_deps' );

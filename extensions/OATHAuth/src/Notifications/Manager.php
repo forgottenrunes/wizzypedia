@@ -59,21 +59,18 @@ class Manager {
 	}
 
 	/**
-	 * Hook: BeforeCreateEchoEvent
+	 * Send a notification that 2FA has been enabled
 	 *
-	 * Configure our notification types. We don't register a category since
-	 * these are all "system" messages that cannot be disabled.
-	 *
-	 * @param array &$notifications
+	 * @param OATHUser $oUser
 	 */
-	public static function onBeforeCreateEchoEvent( &$notifications ) {
-		$notifications['oathauth-disable'] = [
-			'category' => 'system',
-			'group' => 'negative',
-			'section' => 'alert',
-			'presentation-model' => DisablePresentationModel::class,
-			'canNotifyAgent' => true,
-			'user-locators' => [ 'EchoUserLocator::locateEventAgent' ],
-		];
+	public static function notifyEnabled( OATHUser $oUser ) {
+		if ( !self::isEnabled() ) {
+			return;
+		}
+		EchoEvent::create( [
+			'type' => 'oathauth-enable',
+			'title' => SpecialPage::getTitleFor( 'Preferences' ),
+			'agent' => $oUser->getUser()
+		] );
 	}
 }

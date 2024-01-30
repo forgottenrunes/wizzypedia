@@ -21,7 +21,6 @@
  * @ingroup LockManager
  */
 use MediaWiki\Logger\LoggerFactory;
-use Wikimedia\Rdbms\LBFactory;
 
 /**
  * Class to handle file lock manager registration
@@ -33,9 +32,6 @@ class LockManagerGroup {
 	/** @var string domain (usually wiki ID) */
 	protected $domain;
 
-	/** @var LBFactory */
-	protected $lbFactory;
-
 	/** @var array Array of (name => ('class' => ..., 'config' => ..., 'instance' => ...)) */
 	protected $managers = [];
 
@@ -44,11 +40,9 @@ class LockManagerGroup {
 	 *
 	 * @param string $domain Domain (usually wiki ID)
 	 * @param array[] $lockManagerConfigs In format of $wgLockManagers
-	 * @param LBFactory $lbFactory
 	 */
-	public function __construct( $domain, array $lockManagerConfigs, LBFactory $lbFactory ) {
+	public function __construct( $domain, array $lockManagerConfigs ) {
 		$this->domain = $domain;
-		$this->lbFactory = $lbFactory;
 
 		foreach ( $lockManagerConfigs as $config ) {
 			$config['domain'] = $this->domain;
@@ -107,39 +101,5 @@ class LockManagerGroup {
 		$class = $this->managers[$name]['class'];
 
 		return [ 'class' => $class ] + $this->managers[$name]['config'];
-	}
-
-	/**
-	 * Get the default lock manager configured for the site.
-	 * Returns NullLockManager if no lock manager could be found.
-	 *
-	 * @codeCoverageIgnore
-	 * @deprecated since 1.35, seemingly unused, just call get() and catch any exception instead
-	 * @return LockManager
-	 */
-	public function getDefault() {
-		wfDeprecated( __METHOD__, '1.35' );
-
-		return isset( $this->managers['default'] )
-			? $this->get( 'default' )
-			: new NullLockManager( [] );
-	}
-
-	/**
-	 * Get the default lock manager configured for the site
-	 * or at least some other effective configured lock manager.
-	 * Throws an exception if no lock manager could be found.
-	 *
-	 * @codeCoverageIgnore
-	 * @deprecated since 1.35, seemingly unused, just call get() and catch any exception instead
-	 * @return LockManager
-	 * @throws Exception
-	 */
-	public function getAny() {
-		wfDeprecated( __METHOD__, '1.35' );
-
-		return isset( $this->managers['default'] )
-			? $this->get( 'default' )
-			: $this->get( 'fsLockManager' );
 	}
 }

@@ -1,7 +1,5 @@
 <?php
 /**
- * File repository with no files.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -22,7 +20,9 @@
  */
 
 /**
- * File repository with no files, for performance testing
+ * File repository with no files, for testing purposes.
+ *
+ * @internal
  * @ingroup FileRepo
  */
 class NullRepo extends FileRepo {
@@ -33,6 +33,7 @@ class NullRepo extends FileRepo {
 	}
 
 	protected function assertWritableRepo() {
+		// @phan-suppress-previous-line PhanPluginNeverReturnMethod
 		throw new MWException( static::class . ': write operations are not supported.' );
 	}
 }

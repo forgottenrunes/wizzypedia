@@ -1,10 +1,8 @@
 <?php
 /** Nhẽẽgatú (Nheengatu)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Amir E. Aharoni
  */

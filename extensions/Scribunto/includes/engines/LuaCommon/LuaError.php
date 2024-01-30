@@ -1,6 +1,12 @@
 <?php
 
-class Scribunto_LuaError extends ScribuntoException {
+namespace MediaWiki\Extension\Scribunto\Engines\LuaCommon;
+
+use Html;
+use MediaWiki\Extension\Scribunto\ScribuntoException;
+use MediaWiki\Title\Title;
+
+class LuaError extends ScribuntoException {
 	/** @var string */
 	public $luaMessage;
 
@@ -36,15 +42,11 @@ class Scribunto_LuaError extends ScribuntoException {
 		if ( !isset( $this->params['trace'] ) ) {
 			return false;
 		}
-		if ( isset( $options['msgOptions'] ) ) {
-			$msgOptions = $options['msgOptions'];
-		} else {
-			$msgOptions = [];
-		}
+		$msgOptions = $options['msgOptions'] ?? [];
 
 		$s = '<ol class="scribunto-trace">';
 		foreach ( $this->params['trace'] as $info ) {
-			$short_src = $srcdefined = $info['short_src'];
+			$short_src = $info['short_src'];
 			$currentline = $info['currentline'];
 
 			$src = htmlspecialchars( $short_src );
@@ -79,9 +81,9 @@ class Scribunto_LuaError extends ScribuntoException {
 			$backtraceLineMsg = wfMessage( 'scribunto-lua-backtrace-line' )
 				->rawParams( "<strong>$src</strong>" )
 				->params( $function );
-			in_array( 'content', $msgOptions ) ?
-				$backtraceLine = $backtraceLineMsg->inContentLanguage()->parse() :
-				$backtraceLine = $backtraceLineMsg->parse();
+			$backtraceLine = in_array( 'content', $msgOptions ) ?
+				$backtraceLineMsg->inContentLanguage()->parse() :
+				$backtraceLineMsg->parse();
 
 			$s .= "<li>$backtraceLine</li>";
 		}
@@ -89,3 +91,5 @@ class Scribunto_LuaError extends ScribuntoException {
 		return $s;
 	}
 }
+
+class_alias( LuaError::class, 'Scribunto_LuaError' );

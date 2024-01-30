@@ -35,6 +35,9 @@ ve.init.mw.MobileArticleTarget = function VeInitMwMobileArticleTarget( overlay, 
 	// Parent constructor
 	ve.init.mw.MobileArticleTarget.super.call( this, config );
 
+	// eslint-disable-next-line no-jquery/no-global-selector
+	this.$editableContent = $( '#mw-content-text' );
+
 	if ( config.section !== undefined ) {
 		this.section = config.section;
 	}
@@ -343,23 +346,6 @@ ve.init.mw.MobileArticleTarget.prototype.adjustContentPadding = function () {
 /**
  * @inheritdoc
  */
-ve.init.mw.MobileArticleTarget.prototype.getSaveButtonLabel = function ( startProcess ) {
-	var suffix = startProcess ? '-start' : '';
-	// The following messages can be used here:
-	// * visualeditor-savedialog-label-publish-short
-	// * visualeditor-savedialog-label-publish-short-start
-	// * visualeditor-savedialog-label-save-short
-	// * visualeditor-savedialog-label-save-short-start
-	if ( mw.config.get( 'wgEditSubmitButtonLabelPublish' ) ) {
-		return OO.ui.deferMsg( 'visualeditor-savedialog-label-publish-short' + suffix );
-	}
-
-	return OO.ui.deferMsg( 'visualeditor-savedialog-label-save-short' + suffix );
-};
-
-/**
- * @inheritdoc
- */
 ve.init.mw.MobileArticleTarget.prototype.switchToFallbackWikitextEditor = function ( modified ) {
 	var dataPromise;
 	if ( modified ) {
@@ -369,6 +355,7 @@ ve.init.mw.MobileArticleTarget.prototype.switchToFallbackWikitextEditor = functi
 		} );
 	}
 	this.overlay.switchToSourceEditor( dataPromise );
+	return dataPromise;
 };
 
 /**
@@ -400,30 +387,41 @@ ve.init.mw.MobileArticleTarget.prototype.showSaveDialog = function () {
 /**
  * @inheritdoc
  */
-ve.init.mw.MobileArticleTarget.prototype.replacePageContent = function () {};
-
-/**
- * @inheritdoc
- */
-ve.init.mw.MobileArticleTarget.prototype.saveComplete = function ( data ) {
-	// Avoid tryTeardown showing the abandonedit dialog in parent saveComplete:
-	this.overlay.saved = true;
-
-	// TODO: parsing this is expensive just for the section details. We should
-	// change MobileFrontend+this to behave like desktop does and just rerender
-	// the page with the provided HTML (T219420).
-	var fragment = this.getSectionFragmentFromPage( $.parseHTML( data.content ) );
+ve.init.mw.MobileArticleTarget.prototype.replacePageContent = function (
+	html, categoriesHtml, displayTitle, lastModified /* , contentSub, sections */
+) {
 	// Parent method
-	ve.init.mw.MobileArticleTarget.super.prototype.saveComplete.apply( this, arguments );
+	ve.init.mw.MobileArticleTarget.super.prototype.replacePageContent.apply( this, arguments );
 
-	this.overlay.sectionId = fragment;
-	this.overlay.onSaveComplete( data.newrevid );
+	if ( lastModified ) {
+		// TODO: Update the last-modified-bar with the correct info
+		// eslint-disable-next-line no-jquery/no-global-selector
+		$( '.last-modified-bar' ).remove();
+	}
 };
 
 /**
  * @inheritdoc
  */
-ve.init.mw.MobileArticleTarget.prototype.saveFail = function ( doc, saveData, wasRetry, code, data ) {
+ve.init.mw.MobileArticleTarget.prototype.saveComplete = function ( data ) {
+	// Set 'saved' flag before teardown (which is called in parent method) to avoid prompts
+	// This is set in this.overlay.onSaveComplete, but we can't call that until we have
+	// computed the fragment.
+	this.overlay.saved = true;
+
+	// Parent method
+	ve.init.mw.MobileArticleTarget.super.prototype.saveComplete.apply( this, arguments );
+
+	var fragment = this.getSectionHashFromPage().slice( 1 );
+
+	this.overlay.sectionId = fragment;
+	this.overlay.onSaveComplete( data.newrevid, data.tempusercreatedredirect, data.tempusercreated );
+};
+
+/**
+ * @inheritdoc
+ */
+ve.init.mw.MobileArticleTarget.prototype.saveFail = function ( doc, saveData, code, data ) {
 	// parent method
 	ve.init.mw.MobileArticleTarget.super.prototype.saveFail.apply( this, arguments );
 
@@ -461,15 +459,15 @@ ve.init.mw.MobileArticleTarget.prototype.setupToolbar = function ( surface ) {
 				name: 'editMode',
 				type: 'list',
 				icon: 'edit',
-				title: OO.ui.deferMsg( 'visualeditor-mweditmode-tooltip' ),
-				label: OO.ui.deferMsg( 'visualeditor-mweditmode-tooltip' ),
+				title: ve.msg( 'visualeditor-mweditmode-tooltip' ),
+				label: ve.msg( 'visualeditor-mweditmode-tooltip' ),
 				invisibleLabel: true,
-				include: [ 'editModeVisual', 'editModeSource' ]
+				include: [ { group: 'editMode' } ]
 			},
 			{
 				name: 'save',
 				type: 'bar',
-				include: [ 'showMobileSave' ]
+				include: [ 'showSave' ]
 			}
 		]
 	);
@@ -479,8 +477,8 @@ ve.init.mw.MobileArticleTarget.prototype.setupToolbar = function ( surface ) {
 
 	this.toolbarGroups = originalToolbarGroups;
 
-	this.toolbar.$group.addClass( 've-init-mw-mobileArticleTarget-editTools' );
 	this.toolbar.$element.addClass( 've-init-mw-mobileArticleTarget-toolbar' );
+	this.toolbar.$popups.addClass( 've-init-mw-mobileArticleTarget-toolbar-popups' );
 };
 
 /**
@@ -517,17 +515,3 @@ ve.init.mw.MobileArticleTarget.prototype.done = function () {
 /* Registration */
 
 ve.init.mw.targetFactory.register( ve.init.mw.MobileArticleTarget );
-
-/**
- * Mobile save tool
- */
-ve.ui.MWMobileSaveTool = function VeUiMWMobileSaveTool() {
-	// Parent Constructor
-	ve.ui.MWMobileSaveTool.super.apply( this, arguments );
-};
-OO.inheritClass( ve.ui.MWMobileSaveTool, ve.ui.MWSaveTool );
-ve.ui.MWMobileSaveTool.static.name = 'showMobileSave';
-ve.ui.MWMobileSaveTool.static.icon = 'next';
-ve.ui.MWMobileSaveTool.static.displayBothIconAndLabel = false;
-
-ve.ui.toolFactory.register( ve.ui.MWMobileSaveTool );

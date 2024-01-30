@@ -23,6 +23,13 @@ $namespaceNames['an'] = [
 	NS_GADGET_DEFINITION_TALK => 'Descusión_definición_accesorio',
 ];
 
+$namespaceNames['anp'] = [
+	NS_GADGET => 'गैजेट',
+	NS_GADGET_TALK => 'गैजेट_वार्ता',
+	NS_GADGET_DEFINITION => 'गैजेट_परिभाषा',
+	NS_GADGET_DEFINITION_TALK => 'गैजेट_परिभाषा_वार्ता',
+];
+
 $namespaceNames['ar'] = [
 	NS_GADGET => 'إضافة',
 	NS_GADGET_TALK => 'نقاش_الإضافة',
@@ -82,6 +89,13 @@ $namespaceNames['bn'] = [
 	NS_GADGET_TALK => 'গ্যাজেট_আলোচনা',
 	NS_GADGET_DEFINITION => 'গ্যাজেট_সংজ্ঞা',
 	NS_GADGET_DEFINITION_TALK => 'গ্যাজেট_সংজ্ঞার_আলোচনা',
+];
+
+$namespaceNames['ce'] = [
+	NS_GADGET => 'Гаджет',
+	NS_GADGET_TALK => 'Гаджет_йийцар',
+	NS_GADGET_DEFINITION => 'Гаджет_къастор',
+	NS_GADGET_DEFINITION_TALK => 'Гаджет_къастор_дийцар',
 ];
 
 $namespaceNames['ckb'] = [
@@ -217,6 +231,20 @@ $namespaceNames['ko'] = [
 	NS_GADGET_DEFINITION_TALK => '소도구정의토론',
 ];
 
+$namespaceNames['ks-arab'] = [
+	NS_GADGET => 'آلہٕ',
+	NS_GADGET_TALK => 'آلہٕ_کَتھ',
+	NS_GADGET_DEFINITION => 'آلہٕ_تَعارُف',
+	NS_GADGET_DEFINITION_TALK => 'آلہٕ_تَعارُف_کَتھ',
+];
+
+$namespaceNames['ky'] = [
+	NS_GADGET => 'Гаджет',
+	NS_GADGET_TALK => 'Гаджетти_талкуулоо',
+	NS_GADGET_DEFINITION => 'Гаджеттин_түшүндүрмөсү',
+	NS_GADGET_DEFINITION_TALK => 'Гаджеттин_түшүндүрмөсүн_талкуулоо',
+];
+
 $namespaceNames['lfn'] = [
 	NS_GADGET => 'Macineta',
 	NS_GADGET_TALK => 'Macineta_Discute',
@@ -243,6 +271,13 @@ $namespaceNames['ms-arab'] = [
 	NS_GADGET_TALK => 'ڤربينچڠن_الت',
 	NS_GADGET_DEFINITION => 'ڤنرڠن_الت',
 	NS_GADGET_DEFINITION_TALK => 'ڤربينچڠن_ڤنرڠن_الت',
+];
+
+$namespaceNames['mnw'] = [
+	NS_GADGET => 'ကိရိယာ',
+	NS_GADGET_TALK => 'ကိရိယာ_ဓရီုကျာ',
+	NS_GADGET_DEFINITION => 'ကိရိယာ_ပွံက်အဓိပ္ပါယ်',
+	NS_GADGET_DEFINITION_TALK => 'ကိရိယာ_ပွံက်အဓိပ္ပါယ်_ဓရီုကျာ',
 ];
 
 $namespaceNames['mwl'] = [
@@ -294,6 +329,13 @@ $namespaceNames['pa'] = [
 	NS_GADGET_DEFINITION_TALK => 'ਗੈਜਟ_ਪਰਿਭਾਸ਼ਾ_ਗੱਲ-ਬਾਤ',
 ];
 
+$namespaceNames['pcm'] = [
+	NS_GADGET => 'Gajet',
+	NS_GADGET_TALK => 'Gajet_tok_abaut_am',
+	NS_GADGET_DEFINITION => 'Gajet_definishon',
+	NS_GADGET_DEFINITION_TALK => 'Gajet_definishon_tok_abaut_am',
+];
+
 $namespaceNames['pl'] = [
 	NS_GADGET => 'Gadżet',
 	NS_GADGET_TALK => 'Dyskusja_gadżetu',
@@ -329,6 +371,13 @@ $namespaceNames['sat'] = [
 	NS_GADGET_DEFINITION_TALK => 'ᱥᱟᱢᱟᱱᱚᱢ_ᱢᱮᱱᱮᱛᱮᱫ_ᱜᱟᱞᱢᱟᱨᱟᱣ',
 ];
 
+$namespaceNames['scn'] = [
+	NS_GADGET => 'Accissoriu',
+	NS_GADGET_TALK => 'Discussioni_accissoriu',
+	NS_GADGET_DEFINITION => 'Difinizzioni_accissoriu',
+	NS_GADGET_DEFINITION_TALK => 'Discussioni_difinizzioni_accissoriu',
+];
+
 $namespaceNames['sd'] = [
 	NS_GADGET => 'گيجيٽ',
 	NS_GADGET_TALK => 'گيجيٽ_بحث',
@@ -341,6 +390,13 @@ $namespaceNames['shn'] = [
 	NS_GADGET_TALK => 'ဢုပ်ႇၵုမ်_ၶိူင်ႈပိတ်းပွတ်း',
 	NS_GADGET_DEFINITION => 'ပိုတ်ႇတီႈပွင်ႇ_ၶိူင်ႈပိတ်းပွတ်း',
 	NS_GADGET_DEFINITION_TALK => 'ဢုပ်ႇၵုမ်_ပိုတ်ႇတီႈပွင်ႇ_ၶိူင်ႈပိတ်းပွတ်း',
+];
+
+$namespaceNames['sl'] = [
+	NS_GADGET => 'Pripomoček',
+	NS_GADGET_TALK => 'Pogovor_o_pripomočku',
+	NS_GADGET_DEFINITION => 'Opredelitev_pripomočka',
+	NS_GADGET_DEFINITION_TALK => 'Pogovor_o_opredelitvi_pripomočka',
 ];
 
 $namespaceNames['sr-ec'] = [
@@ -369,6 +425,13 @@ $namespaceNames['ur'] = [
 	NS_GADGET_TALK => 'تبادلۂ_خیال_آلہ',
 	NS_GADGET_DEFINITION => 'تعریف_آلہ',
 	NS_GADGET_DEFINITION_TALK => 'تبادلۂ_خیال_تعریف_آلہ',
+];
+
+$namespaceNames['uz'] = [
+	NS_GADGET => 'Gadjet',
+	NS_GADGET_TALK => 'Gadjet_munozarasi',
+	NS_GADGET_DEFINITION => 'Gadjet_taʼrifi',
+	NS_GADGET_DEFINITION_TALK => 'Gadjet_taʼrifi_munozarasi',
 ];
 
 $namespaceNames['vi'] = [

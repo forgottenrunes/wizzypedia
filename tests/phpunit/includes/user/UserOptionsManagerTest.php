@@ -1,13 +1,19 @@
 <?php
 
+use MediaWiki\Config\HashConfig;
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\MainConfigNames;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
 use MediaWiki\User\UserOptionsLookup;
 use MediaWiki\User\UserOptionsManager;
 use Psr\Log\NullLogger;
 use Wikimedia\Rdbms\DBConnRef;
-use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\DeleteQueryBuilder;
+use Wikimedia\Rdbms\FakeResultWrapper;
+use Wikimedia\Rdbms\IConnectionProvider;
+use Wikimedia\Rdbms\InsertQueryBuilder;
+use Wikimedia\Rdbms\SelectQueryBuilder;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
 
 /**
@@ -26,7 +32,7 @@ class UserOptionsManagerTest extends UserOptionsLookupTest {
 	 * @param array $overrides supported keys:
 	 *  - 'language' - string language code
 	 *  - 'defaults' - array default preferences
-	 *  - 'lb' - ILoadBalancer
+	 *  - 'dbp' - IConnectionProvider
 	 *  - 'hookContainer' - HookContainer
 	 * @return UserOptionsManager
 	 */
@@ -36,8 +42,8 @@ class UserOptionsManagerTest extends UserOptionsLookupTest {
 			new ServiceOptions(
 				UserOptionsManager::CONSTRUCTOR_OPTIONS,
 				new HashConfig( [
-					'HiddenPrefs' => [ 'hidden_user_option' ],
-					'LocalTZoffset' => 0,
+					MainConfigNames::HiddenPrefs => [ 'hidden_user_option' ],
+					MainConfigNames::LocalTZoffset => 0,
 				] )
 			),
 			$this->getDefaultManager(
@@ -45,10 +51,11 @@ class UserOptionsManagerTest extends UserOptionsLookupTest {
 				$overrides['defaults'] ?? []
 			),
 			$services->getLanguageConverterFactory(),
-			$overrides['lb'] ?? $services->getDBLoadBalancer(),
+			$overrides['dbp'] ?? $services->getDBLoadBalancerFactory(),
 			new NullLogger(),
 			$overrides['hookContainer'] ?? $services->getHookContainer(),
-			$services->getUserFactory()
+			$services->getUserFactory(),
+			$services->getUserNameUtils()
 		);
 	}
 
@@ -287,13 +294,15 @@ class UserOptionsManagerTest extends UserOptionsLookupTest {
 					'up_property' => 'test_option',
 				]
 			] ) );
-		$mockLoadBalancer = $this->createMock( ILoadBalancer::class );
-		$mockLoadBalancer
-			->method( 'getConnectionRef' )
+		$mockDb->method( 'newSelectQueryBuilder' )->willReturnCallback( static fn () => new SelectQueryBuilder( $mockDb ) );
+		$mockDb->method( 'newInsertQueryBuilder' )->willReturnCallback( static fn () => new InsertQueryBuilder( $mockDb ) );
+		$mockDbProvider = $this->createMock( IConnectionProvider::class );
+		$mockDbProvider
+			->method( 'getPrimaryDatabase' )
 			->willReturn( $mockDb );
 		$user = $this->getTestUser()->getUser();
 		$manager = $this->getManager( [
-			'lb' => $mockLoadBalancer,
+			'dbp' => $mockDbProvider,
 		] );
 		$manager->getOption(
 			$user,
@@ -305,6 +314,98 @@ class UserOptionsManagerTest extends UserOptionsLookupTest {
 		$manager->getOption( $user, 'test_option2' );
 		$manager->setOption( $user, 'test_option', 'test_value' );
 		$manager->setOption( $user, 'test_option2', 'test_value2' );
+		$manager->saveOptions( $user );
+	}
+
+	public function testOptionsNoDeleteSetDefaultValue() {
+		$mockDb = $this->createMock( DBConnRef::class );
+		$mockDb->expects( $this->once() )
+			->method( 'select' )
+			->willReturn( new FakeResultWrapper( [
+				[
+					'up_value' => 'unchanged',
+					'up_property' => 'unchanged_option',
+				]
+			] ) );
+		$mockDb->expects( $this->never() ) // This is critical what we are testing
+			->method( 'delete' );
+		$mockDb->method( 'newSelectQueryBuilder' )->willReturnCallback( static fn () => new SelectQueryBuilder( $mockDb ) );
+		$mockDbProvider = $this->createMock( IConnectionProvider::class );
+		$mockDbProvider
+			->method( 'getPrimaryDatabase' )
+			->willReturn( $mockDb );
+		$mockDbProvider
+			->method( 'getReplicaDatabase' )
+			->willReturn( $mockDb );
+		$user = $this->getTestUser()->getUser();
+		$manager = $this->getManager( [
+			'dbp' => $mockDbProvider,
+			'defaults' => [
+				'set_default' => 'default',
+				'set_default_null' => null,
+			]
+		] );
+		// Resetting an option with default value to the default value does not trigger delete
+		$manager->setOption( $user, 'set_default', 'default' );
+		$manager->setOption( $user, 'set_default_null', null );
+		$manager->saveOptions( $user );
+	}
+
+	public function testOptionsDeleteSetDefaultValue() {
+		$user = $this->getTestUser()->getUser();
+		$mockDb = $this->createMock( DBConnRef::class );
+		$mockDb
+			->method( 'newDeleteQueryBuilder' )
+			->willReturnCallback( static fn () => new DeleteQueryBuilder( $mockDb ) );
+		$mockDb->expects( $this->once() )
+			->method( 'select' )
+			->willReturn( new FakeResultWrapper( [
+				[
+					'up_property' => 'unchanged',
+					'up_value' => 'unchanged_option',
+				],
+				[
+					'up_property' => 'set_default',
+					'up_value' => 'non_default',
+				],
+				[
+					'up_property' => 'set_default_null',
+					'up_value' => 'not_null',
+				],
+				[
+					'up_property' => 'set_default_not_null',
+					'up_value' => null,
+				]
+			] ) );
+		$mockDb->expects( $this->once() ) // This is critical what we are testing
+			->method( 'delete' )
+			->with(
+				'user_properties',
+				[
+					'up_user' => $user->getId(),
+					'up_property' => [ 'set_default', 'set_default_null', 'set_default_not_null' ]
+				]
+			);
+		$mockDb->method( 'newSelectQueryBuilder' )->willReturnCallback( static fn () => new SelectQueryBuilder( $mockDb ) );
+		$mockDbProvider = $this->createMock( IConnectionProvider::class );
+		$mockDbProvider
+			->method( 'getPrimaryDatabase' )
+			->willReturn( $mockDb );
+		$mockDbProvider
+			->method( 'getReplicaDatabase' )
+			->willReturn( $mockDb );
+		$manager = $this->getManager( [
+			'dbp' => $mockDbProvider,
+			'defaults' => [
+				'set_default' => 'default',
+				'set_default_null' => null,
+				'set_default_not_null' => 'not_null',
+			]
+		] );
+		// Set every of the options to its default value must trigger a delete for each option
+		$manager->setOption( $user, 'set_default', 'default' );
+		$manager->setOption( $user, 'set_default_null', null );
+		$manager->setOption( $user, 'set_default_not_null', 'not_null' );
 		$manager->saveOptions( $user );
 	}
 

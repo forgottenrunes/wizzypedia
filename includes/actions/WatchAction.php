@@ -20,6 +20,9 @@
  * @ingroup Actions
  */
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\Status\Status;
+use MediaWiki\User\User;
 use MediaWiki\Watchlist\WatchlistManager;
 use Wikimedia\ParamValidator\TypeDef\ExpiryDef;
 
@@ -39,25 +42,24 @@ class WatchAction extends FormAction {
 	/** @var false|WatchedItem */
 	protected $watchedItem = false;
 
-	/** @var WatchlistManager */
-	private $watchlistManager;
+	private WatchlistManager $watchlistManager;
 
 	/**
 	 * Only public since 1.21
 	 *
-	 * @param Page $page
+	 * @param Article $article
 	 * @param IContextSource $context
 	 * @param WatchlistManager $watchlistManager
 	 * @param WatchedItemStore $watchedItemStore
 	 */
 	public function __construct(
-		Page $page,
+		Article $article,
 		IContextSource $context,
 		WatchlistManager $watchlistManager,
 		WatchedItemStore $watchedItemStore
 	) {
-		parent::__construct( $page, $context );
-		$this->watchlistExpiry = $this->getContext()->getConfig()->get( 'WatchlistExpiry' );
+		parent::__construct( $article, $context );
+		$this->watchlistExpiry = $this->getContext()->getConfig()->get( MainConfigNames::WatchlistExpiry );
 		if ( $this->watchlistExpiry ) {
 			// The watchedItem is only used in this action's form if $wgWatchlistExpiry is enabled.
 			$this->watchedItem = $watchedItemStore->getWatchedItem(
@@ -85,7 +87,7 @@ class WatchAction extends FormAction {
 		// because it also checks for changed expiry.
 		$result = $this->watchlistManager->setWatch(
 			true,
-			$this->getContext()->getAuthority(),
+			$this->getAuthority(),
 			$this->getTitle(),
 			$this->getRequest()->getVal( 'wp' . $this->expiryFormFieldName )
 		);
@@ -94,12 +96,17 @@ class WatchAction extends FormAction {
 	}
 
 	protected function checkCanExecute( User $user ) {
-		// Must be logged in
-		if ( $user->isAnon() ) {
+		if ( !$user->isRegistered()
+			|| ( $user->isTemp() && !$user->isAllowed( 'editmywatchlist' ) )
+		) {
 			throw new UserNotLoggedIn( 'watchlistanontext', 'watchnologin' );
 		}
 
 		parent::checkCanExecute( $user );
+	}
+
+	public function getRestriction() {
+		return 'editmywatchlist';
 	}
 
 	protected function usesOOUI() {
@@ -138,7 +145,7 @@ class WatchAction extends FormAction {
 	 * @todo Move this somewhere better when it's being used in more than just this action.
 	 *
 	 * @param MessageLocalizer $msgLocalizer
-	 * @param WatchedItem|bool $watchedItem
+	 * @param WatchedItem|false $watchedItem
 	 *
 	 * @return mixed[] With keys `options` (string[]) and `default` (string).
 	 */

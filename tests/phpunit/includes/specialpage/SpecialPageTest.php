@@ -1,5 +1,10 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
+
 /**
  * @covers SpecialPage
  *
@@ -12,9 +17,9 @@ class SpecialPageTest extends MediaWikiIntegrationTestCase {
 	protected function setUp(): void {
 		parent::setUp();
 
-		$this->setContentLang( 'en' );
-		$this->setMwGlobals( [
-			'wgScript' => '/index.php',
+		$this->overrideConfigValues( [
+			MainConfigNames::Script => '/index.php',
+			MainConfigNames::LanguageCode => 'en',
 		] );
 	}
 
@@ -27,7 +32,7 @@ class SpecialPageTest extends MediaWikiIntegrationTestCase {
 		$this->assertEquals( $expected, $title );
 	}
 
-	public function getTitleForProvider() {
+	public static function getTitleForProvider() {
 		return [
 			[ 'UserLogin', 'Userlogin' ]
 		];
@@ -49,7 +54,7 @@ class SpecialPageTest extends MediaWikiIntegrationTestCase {
 		$this->assertEquals( $expected, $title );
 	}
 
-	public function getTitleForWithWarningProvider() {
+	public static function getTitleForWithWarningProvider() {
 		return [
 			[ Title::makeTitle( NS_SPECIAL, 'UserLogin' ), 'UserLogin' ]
 		];
@@ -73,7 +78,7 @@ class SpecialPageTest extends MediaWikiIntegrationTestCase {
 		$specialPage->requireLogin( ...array_filter( [ $reason, $title ] ) );
 	}
 
-	public function requireLoginAnonProvider() {
+	public static function requireLoginAnonProvider() {
 		$lang = 'en';
 
 		$expected1 = wfMessage( 'exception-nologin-text' )->inLanguage( $lang )->text();
@@ -89,7 +94,7 @@ class SpecialPageTest extends MediaWikiIntegrationTestCase {
 	public function testRequireLoginNotAnon() {
 		$specialPage = new SpecialPage( 'Watchlist', 'viewmywatchlist' );
 
-		$user = User::newFromName( "UTSysop" );
+		$user = $this->getTestSysop()->getUser();
 		$specialPage->getContext()->setUser( $user );
 
 		$specialPage->requireLogin();

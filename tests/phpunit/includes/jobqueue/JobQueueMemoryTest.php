@@ -1,6 +1,8 @@
 <?php
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
+use MediaWiki\WikiMap\WikiMap;
 
 /**
  * @covers JobQueueMemory
@@ -33,7 +35,7 @@ class JobQueueMemoryTest extends PHPUnit\Framework\TestCase {
 			'null',
 			[ 'customParameter' => null ],
 			[],
-			Title::newFromText( 'Custom title' )
+			Title::makeTitle( NS_MAIN, 'Custom title' )
 		);
 	}
 

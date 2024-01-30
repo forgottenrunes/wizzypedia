@@ -22,6 +22,7 @@ namespace MediaWiki\SyntaxHighlight;
 
 use MediaWiki\MediaWikiServices;
 use Shellbox\Command\BoxedCommand;
+use Shellbox\ShellboxError;
 
 /**
  * Wrapper around the `pygmentize` command
@@ -47,15 +48,11 @@ class Pygmentize {
 		global $wgPygmentizePath;
 
 		// If $wgPygmentizePath is unset, use the bundled copy.
-		if ( $wgPygmentizePath === false ) {
-			return __DIR__ . '/../pygments/pygmentize';
-		}
-
-		return $wgPygmentizePath;
+		return $wgPygmentizePath ?: __DIR__ . '/../pygments/pygmentize';
 	}
 
 	/**
-	 * Get the version of pygments
+	 * Get the version of pygments (cached)
 	 *
 	 * @return string
 	 */
@@ -69,29 +66,30 @@ class Pygmentize {
 			return $version;
 		}
 
-		$cache = MediaWikiServices::getInstance()->getLocalServerObjectCache();
-		$version = $cache->getWithSetCallback(
-			$cache->makeGlobalKey( 'pygmentize-version' ),
-			$cache::TTL_HOUR,
-			function () {
-				$result = self::boxedCommand()
-					->params( self::getPath(), '-V' )
-					->includeStderr()
-					->execute();
-				self::recordShellout( 'version' );
+		// This is called a lot, during both page views, edits, and load.php startup request.
+		// It also gets called multiple times during the same request. As such, prefer
+		// low latency via php-apcu.
+		//
+		// This value also controls cache invalidation and propagation through embedding
+		// in other keys from this class, and thus has a low expiry. Avoid latency from
+		// frequent cache misses by by sharing the values with other servers via Memcached
+		// as well.
 
-				$output = $result->getStdout();
-				if ( $result->getExitCode() != 0 ||
-					!preg_match( '/^Pygments version (\S+),/', $output, $matches )
-				) {
-					throw new PygmentsException( $output );
-				}
-
-				return $matches[1];
+		$srvCache = MediaWikiServices::getInstance()->getLocalServerObjectCache();
+		return $srvCache->getWithSetCallback(
+			$srvCache->makeGlobalKey( 'pygmentize-version' ),
+			// Spread between 55 min and 1 hour
+			mt_rand( 55 * $srvCache::TTL_MINUTE, 60 * $srvCache::TTL_MINUTE ),
+			static function () {
+				$wanCache = MediaWikiServices::getInstance()->getMainWANObjectCache();
+				return $wanCache->getWithSetCallback(
+					$wanCache->makeGlobalKey( 'pygmentize-version' ),
+					// Must be under 55 min to avoid renewing stale data in upper layer
+					30 * $wanCache::TTL_MINUTE,
+					[ __CLASS__, 'fetchVersion' ]
+				);
 			}
 		);
-
-		return $version;
 	}
 
 	/**
@@ -104,6 +102,29 @@ class Pygmentize {
 	}
 
 	/**
+	 * Shell out to get installed pygments version
+	 *
+	 * @internal For use by WANObjectCache/BagOStuff only
+	 * @return string
+	 */
+	public static function fetchVersion(): string {
+		$result = self::boxedCommand()
+			->params( self::getPath(), '-V' )
+			->includeStderr()
+			->execute();
+		self::recordShellout( 'version' );
+
+		$output = $result->getStdout();
+		if ( $result->getExitCode() != 0 ||
+			!preg_match( '/^Pygments version (\S+),/', $output, $matches )
+		) {
+			throw new PygmentsException( $output );
+		}
+
+		return $matches[1];
+	}
+
+	/**
 	 * Get the pygments generated CSS (cached)
 	 *
 	 * Note: if using bundled, the CSS is already available
@@ -112,6 +133,10 @@ class Pygmentize {
 	 * @return string
 	 */
 	public static function getGeneratedCSS(): string {
+		// This is rarely called as the result gets HTTP-cached via long-expiry load.php.
+		// When it gets called once, after a deployment, during that brief spike of
+		// dedicated requests from each wiki. Leverage Memcached to share this.
+		// Its likely not needed again on the same server for a while after that.
 		$cache = MediaWikiServices::getInstance()->getMainWANObjectCache();
 		return $cache->getWithSetCallback(
 			$cache->makeGlobalKey( 'pygmentize-css', self::getVersion() ),
@@ -151,12 +176,27 @@ class Pygmentize {
 			return require __DIR__ . '/../SyntaxHighlight.lexers.php';
 		}
 
+		// This is called during page views and edits, and may be called
+		// repeatedly. Trade low latency for higher shell rate by caching
+		// on each server separately. This is made up for with a high TTL,
+		// which is fine because we vary by version, thus ensuring quick
+		// propagation separate from the TTL.
 		$cache = MediaWikiServices::getInstance()->getLocalServerObjectCache();
 		return $cache->getWithSetCallback(
 			$cache->makeGlobalKey( 'pygmentize-lexers', self::getVersion() ),
-			$cache::TTL_DAY,
+			$cache::TTL_WEEK,
 			[ __CLASS__, 'fetchLexers' ]
 		);
+	}
+
+	/**
+	 * Determine if the pygments command line supports the --json option
+	 *
+	 * @return bool
+	 */
+	private static function pygmentsSupportsJsonOutput(): bool {
+		$version = self::getVersion();
+		return ( version_compare( $version, '2.11.0' ) !== -1 );
 	}
 
 	/**
@@ -166,8 +206,13 @@ class Pygmentize {
 	 * @return array
 	 */
 	public static function fetchLexers(): array {
+		$cliParams = [ self::getPath(), '-L', 'lexer' ];
+		if ( self::pygmentsSupportsJsonOutput() ) {
+			$cliParams[] = '--json';
+		}
+
 		$result = self::boxedCommand()
-			->params( self::getPath(), '-L', 'lexer' )
+			->params( $cliParams )
 			->includeStderr()
 			->execute();
 		self::recordShellout( 'fetch_lexers' );
@@ -176,20 +221,12 @@ class Pygmentize {
 			throw new PygmentsException( $output );
 		}
 
-		// Post-process the output, ideally pygments would output this in a
-		// machine-readable format (https://github.com/pygments/pygments/issues/1437)
-		$output = $result->getStdout();
-		$lexers = [];
-		foreach ( explode( "\n", $output ) as $line ) {
-			if ( substr( $line, 0, 1 ) === '*' ) {
-				$newLexers = explode( ', ', trim( $line, "* :\n" ) );
-
-				// Skip internal, unnamed lexers
-				if ( $newLexers[0] !== '' ) {
-					$lexers = array_merge( $lexers, $newLexers );
-				}
-			}
+		if ( self::pygmentsSupportsJsonOutput() ) {
+			$lexers = self::parseLexersFromJson( $output );
+		} else {
+			$lexers = self::parseLexersFromText( $output );
 		}
+
 		$lexers = array_unique( $lexers );
 		sort( $lexers );
 		$data = [];
@@ -198,6 +235,48 @@ class Pygmentize {
 		}
 
 		return $data;
+	}
+
+	/**
+	 * Parse json output of the pygments lexers list and return as php array
+	 *
+	 * @param string $output JSON formatted output of pygments lexers list
+	 * @return array
+	 */
+	private static function parseLexersFromJson( $output ): array {
+		$data = json_decode( $output, true );
+		if ( $data === null ) {
+			throw new PygmentsException(
+				'Got invalid JSON from Pygments: ' . $output );
+		}
+		$lexers = [];
+		foreach ( array_values( $data['lexers'] ) as $lexer ) {
+			$lexers = array_merge( $lexers, $lexer['aliases'] );
+		}
+		return $lexers;
+	}
+
+	/**
+	 * Parse original stdout of the pygments lexers list
+	 * This was the only format available before pygments 2.11.0
+	 * NOTE: Should be removed when pygments 2.11 is the minimum version expected to be installed
+	 *
+	 * @param string $output Textual list of pygments lexers
+	 * @return array
+	 */
+	private static function parseLexersFromText( $output ): array {
+		$lexers = [];
+		foreach ( explode( "\n", $output ) as $line ) {
+			if ( substr( $line, 0, 1 ) === '*' ) {
+				$newLexers = explode( ', ', trim( $line, "* :\r\n" ) );
+
+				// Skip internal, unnamed lexers
+				if ( $newLexers[0] !== '' ) {
+					$lexers = array_merge( $lexers, $newLexers );
+				}
+			}
+		}
+		return $lexers;
 	}
 
 	/**
@@ -213,31 +292,51 @@ class Pygmentize {
 		foreach ( $options as $k => $v ) {
 			$optionPairs[] = "{$k}={$v}";
 		}
-		$result = self::boxedCommand()
-			->params(
-				self::getPath(),
-				'-l', $lexer,
-				'-f', 'html',
-				'-O', implode( ',', $optionPairs ),
-				'file'
-			)
-			->inputFileFromString( 'file', $code )
-			->execute();
 		self::recordShellout( 'highlight' );
+
+		try {
+			$result = self::boxedCommand()
+				->params(
+					self::getPath(),
+					'-l', $lexer,
+					'-f', 'html',
+					'-O', implode( ',', $optionPairs ),
+					'file'
+				)
+				->inputFileFromString( 'file', $code )
+				->execute();
+		} catch ( ShellboxError $exception ) {
+			// If we have trouble sending or receiving over the network to
+			// Shellbox, we technically don't know if the command succeed or failed,
+			// but, treat the highlight() command as recoverable by wrapping this in
+			// PygmentsException. This permits the Parser tag to fallback to
+			// plainCodeWrap(), thus avoiding a fatal on pageviews (T292663).
+			throw new PygmentsException( 'ShellboxError', 0, $exception );
+		}
 
 		$output = $result->getStdout();
 		if ( $result->getExitCode() != 0 ) {
 			throw new PygmentsException( $output );
 		}
+
 		return $output;
 	}
 
 	private static function boxedCommand(): BoxedCommand {
-		return MediaWikiServices::getInstance()->getShellCommandFactory()
+		$command = MediaWikiServices::getInstance()->getShellCommandFactory()
 			->createBoxed( 'syntaxhighlight' )
 			->disableNetwork()
 			->firejailDefaultSeccomp()
 			->routeName( 'syntaxhighlight-pygments' );
+
+		if ( wfIsWindows() ) {
+			// Python requires the SystemRoot environment variable to initialize (T300223)
+			$command->environment( [
+				'SystemRoot' => getenv( 'SystemRoot' ),
+			] );
+		}
+
+		return $command;
 	}
 
 	/**

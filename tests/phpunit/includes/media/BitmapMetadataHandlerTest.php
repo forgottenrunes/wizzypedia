@@ -1,14 +1,19 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+
 /**
  * @group Media
  */
 class BitmapMetadataHandlerTest extends MediaWikiIntegrationTestCase {
 
+	/** @var string */
+	private $filePath;
+
 	protected function setUp(): void {
 		parent::setUp();
 
-		$this->setMwGlobals( 'wgShowEXIF', false );
+		$this->overrideConfigValue( MainConfigNames::ShowEXIF, false );
 
 		$this->filePath = __DIR__ . '/../../data/media/';
 	}
@@ -21,12 +26,10 @@ class BitmapMetadataHandlerTest extends MediaWikiIntegrationTestCase {
 	 * IPTC should override the XMP, except for the multilingual
 	 * translation (to en) where XMP should win.
 	 * @covers BitmapMetadataHandler::Jpeg
+	 * @requires extension exif
 	 */
 	public function testMultilingualCascade() {
-		$this->checkPHPExtension( 'exif' );
-		$this->checkPHPExtension( 'xml' );
-
-		$this->setMwGlobals( 'wgShowEXIF', true );
+		$this->overrideConfigValue( MainConfigNames::ShowEXIF, true );
 
 		$meta = BitmapMetadataHandler::Jpeg( $this->filePath .
 			'/Xmp-exif-multilingual_test.jpg' );
@@ -124,8 +127,6 @@ class BitmapMetadataHandlerTest extends MediaWikiIntegrationTestCase {
 	 * @covers BitmapMetadataHandler::png
 	 */
 	public function testPNGXMP() {
-		$this->checkPHPExtension( 'xml' );
-
 		$result = BitmapMetadataHandler::PNG( $this->filePath . 'xmp.png' );
 		$expected = [
 			'width' => 50,

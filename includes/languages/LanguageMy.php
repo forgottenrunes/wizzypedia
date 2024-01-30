@@ -1,7 +1,5 @@
 <?php
 /**
- * Burmese (Myanmasa) specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -19,22 +17,20 @@
  *
  * @file
  * @author Niklas Laxström, 2008
- * @ingroup Language
  */
 
 /**
  * Burmese (Myanmasa)
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class LanguageMy extends Language {
 
 	/**
-	 * @param string $number
-	 * @param bool|null $noSeparators
+	 * @param string|int|float $number
 	 * @return string
 	 */
-	public function formatNum( $number, $noSeparators = null ) {
+	public function formatNum( $number ) {
 		/* NO-op. Cannot use
 		 * $separatorTransformTable = [ ',' => '' ]
 		 * That would break when parsing and doing strstr '' => 'foo';

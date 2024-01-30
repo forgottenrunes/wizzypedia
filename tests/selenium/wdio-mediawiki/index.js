@@ -36,17 +36,19 @@ function filePath( title, extension ) {
  * @param {string} title Description (will be sanitised and used as file name)
  * @return {string} File path
  */
-function saveScreenshot( title ) {
+async function saveScreenshot( title ) {
 	// Create sensible file name for current test title
 	const path = filePath( title, 'png' );
 	// Ensure directory exists, based on WebDriverIO#saveScreenshotSync()
 	try {
+		// eslint-disable-next-line security/detect-non-literal-fs-filename
 		fs.statSync( browser.config.screenshotPath );
 	} catch ( err ) {
+		// eslint-disable-next-line security/detect-non-literal-fs-filename
 		fs.mkdirSync( browser.config.screenshotPath );
 	}
 	// Create and save screenshot
-	browser.saveScreenshot( path );
+	await browser.saveScreenshot( path );
 	return path;
 }
 

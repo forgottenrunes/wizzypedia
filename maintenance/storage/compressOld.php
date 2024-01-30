@@ -40,8 +40,8 @@
  * @file
  * @ingroup Maintenance ExternalStorage
  */
-use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Title\Title;
 
 require_once __DIR__ . '/../Maintenance.php';
 
@@ -143,13 +143,14 @@ class CompressOld extends Maintenance {
 		$this->output( "Starting from old_id $start...\n" );
 		$dbw = $this->getDB( DB_PRIMARY );
 		do {
-			$res = $dbw->select(
-				'text',
-				[ 'old_id', 'old_flags', 'old_text' ],
-				"old_id>=$start",
-				__METHOD__,
-				[ 'ORDER BY' => 'old_id', 'LIMIT' => $chunksize, 'FOR UPDATE' ]
-			);
+			$res = $dbw->newSelectQueryBuilder()
+				->select( [ 'old_id', 'old_flags', 'old_text' ] )
+				->forUpdate()
+				->from( 'text' )
+				->where( "old_id>=$start" )
+				->orderBy( 'old_id' )
+				->limit( $chunksize )
+				->caller( __METHOD__ )->fetchResultSet();
 
 			if ( $res->numRows() == 0 ) {
 				break;
@@ -188,7 +189,7 @@ class CompressOld extends Maintenance {
 
 		# Store in external storage if required
 		if ( $extdb !== '' ) {
-			$esFactory = MediaWikiServices::getInstance()->getExternalStoreFactory();
+			$esFactory = $this->getServiceContainer()->getExternalStoreFactory();
 			/** @var ExternalStoreDB $storeObj */
 			$storeObj = $esFactory->getStore( 'DB' );
 			$compress = $storeObj->store( $extdb, $compress );
@@ -232,18 +233,21 @@ class CompressOld extends Maintenance {
 
 		# Set up external storage
 		if ( $extdb != '' ) {
-			$esFactory = MediaWikiServices::getInstance()->getExternalStoreFactory();
+			$esFactory = $this->getServiceContainer()->getExternalStoreFactory();
 			/** @var ExternalStoreDB $storeObj */
 			$storeObj = $esFactory->getStore( 'DB' );
 		}
 
-		$blobStore = MediaWikiServices::getInstance()
+		$blobStore = $this->getServiceContainer()
 			->getBlobStoreFactory()
 			->newSqlBlobStore();
 
 		# Get all articles by page_id
 		if ( !$maxPageId ) {
-			$maxPageId = $dbr->selectField( 'page', 'max(page_id)', '', __METHOD__ );
+			$maxPageId = $dbr->newSelectQueryBuilder()
+				->select( 'max(page_id)' )
+				->from( 'page' )
+				->caller( __METHOD__ )->fetchField();
 		}
 		$this->output( "Starting from $startId of $maxPageId\n" );
 		$pageConds = [];
@@ -287,7 +291,7 @@ class CompressOld extends Maintenance {
 			$conds[] = "rev_timestamp<'" . $endDate . "'";
 		}
 
-		$slotRoleStore = MediaWikiServices::getInstance()->getSlotRoleStore();
+		$slotRoleStore = $this->getServiceContainer()->getSlotRoleStore();
 		$tables = [ 'revision', 'slots', 'content', 'text' ];
 		$conds = array_merge( [
 			'rev_id=slot_revision_id',
@@ -305,22 +309,23 @@ class CompressOld extends Maintenance {
 		# $tables[] = 'page';
 		# $conds[] = 'page_id=rev_page AND rev_id != page_latest';
 
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
-
 		for ( $pageId = $startId; $pageId <= $maxPageId; $pageId++ ) {
-			$lbFactory->waitForReplication();
+			$this->waitForReplication();
 
 			# Wake up
 			$dbr->ping();
 
 			# Get the page row
-			$pageRes = $dbr->select( 'page',
-				[ 'page_id', 'page_namespace', 'page_title', 'page_latest' ],
-				$pageConds + [ 'page_id' => $pageId ], __METHOD__ );
-			if ( $pageRes->numRows() == 0 ) {
+			$pageRow = $dbr->newSelectQueryBuilder()
+				->select( [ 'page_id', 'page_namespace', 'page_title', 'rev_timestamp' ] )
+				->from( 'page' )
+				->straightJoin( 'revision', null, 'page_latest = rev_id' )
+				->where( $pageConds )
+				->andWhere( [ 'page_id' => $pageId ] )
+				->caller( __METHOD__ )->fetchRow();
+			if ( $pageRow === false ) {
 				continue;
 			}
-			$pageRow = $pageRes->fetchObject();
 
 			# Display progress
 			$titleObj = Title::makeTitle( $pageRow->page_namespace, $pageRow->page_title );
@@ -333,7 +338,7 @@ class CompressOld extends Maintenance {
 					# Don't operate on the current revision
 					# Use < instead of <> in case the current revision has changed
 					# since the page select, which wasn't locking
-					'rev_id < ' . (int)$pageRow->page_latest
+					'rev_timestamp < ' . (int)$pageRow->rev_timestamp
 				], $conds ),
 				__METHOD__,
 				$revLoadOptions
@@ -405,6 +410,7 @@ class CompressOld extends Maintenance {
 				if ( $usedChunk ) {
 					if ( $extdb != "" ) {
 						# Move blob objects to External Storage
+						// @phan-suppress-next-line PhanPossiblyUndeclaredVariable storeObj is set when used
 						$stored = $storeObj->store( $extdb, serialize( $chunk ) );
 						if ( $stored === false ) {
 							$this->error( "Unable to store object" );

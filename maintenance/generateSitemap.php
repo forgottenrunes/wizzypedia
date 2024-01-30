@@ -26,7 +26,9 @@
  * @see http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Title\Title;
+use MediaWiki\WikiMap\WikiMap;
 use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Rdbms\IResultWrapper;
 
@@ -192,7 +194,7 @@ class GenerateSitemap extends Maintenance {
 		$dbDomain = WikiMap::getCurrentWikiDbDomain()->getId();
 		$this->fspath = realpath( $fspath ) . DIRECTORY_SEPARATOR;
 		$this->urlpath = $this->getOption( 'urlpath', "" );
-		if ( $this->urlpath !== "" && substr( $this->urlpath, -1 ) !== '/' ) {
+		if ( $this->urlpath !== "" && $this->urlpath[-1] !== '/' ) {
 			$this->urlpath .= '/';
 		}
 		$this->identifier = $this->getOption( 'identifier', $dbDomain );
@@ -207,7 +209,7 @@ class GenerateSitemap extends Maintenance {
 	}
 
 	private function setNamespacePriorities() {
-		global $wgSitemapNamespacesPriorities;
+		$sitemapNamespacesPriorities = $this->getConfig()->get( MainConfigNames::SitemapNamespacesPriorities );
 
 		// Custom main namespaces
 		$this->priorities[self::GS_MAIN] = '0.5';
@@ -232,11 +234,11 @@ class GenerateSitemap extends Maintenance {
 		$this->priorities[NS_CATEGORY_TALK] = '0.1';
 
 		// Custom priorities
-		if ( $wgSitemapNamespacesPriorities !== false ) {
+		if ( $sitemapNamespacesPriorities !== false ) {
 			/**
-			 * @var array $wgSitemapNamespacesPriorities
+			 * @var array $sitemapNamespacesPriorities
 			 */
-			foreach ( $wgSitemapNamespacesPriorities as $namespace => $priority ) {
+			foreach ( $sitemapNamespacesPriorities as $namespace => $priority ) {
 				$float = floatval( $priority );
 				if ( $float > 1.0 ) {
 					$priority = '1.0';
@@ -253,22 +255,19 @@ class GenerateSitemap extends Maintenance {
 	 */
 	private function generateNamespaces() {
 		// Only generate for specific namespaces if $wgSitemapNamespaces is an array.
-		global $wgSitemapNamespaces;
-		if ( is_array( $wgSitemapNamespaces ) ) {
-			$this->namespaces = $wgSitemapNamespaces;
+		$sitemapNamespaces = $this->getConfig()->get( MainConfigNames::SitemapNamespaces );
+		if ( is_array( $sitemapNamespaces ) ) {
+			$this->namespaces = $sitemapNamespaces;
 
 			return;
 		}
 
-		$res = $this->dbr->select( 'page',
-			[ 'page_namespace' ],
-			[],
-			__METHOD__,
-			[
-				'GROUP BY' => 'page_namespace',
-				'ORDER BY' => 'page_namespace',
-			]
-		);
+		$res = $this->dbr->newSelectQueryBuilder()
+			->select( [ 'page_namespace' ] )
+			->from( 'page' )
+			->groupBy( 'page_namespace' )
+			->orderBy( 'page_namespace' )
+			->caller( __METHOD__ )->fetchResultSet();
 
 		foreach ( $res as $row ) {
 			$this->namespaces[] = $row->page_namespace;
@@ -294,7 +293,7 @@ class GenerateSitemap extends Maintenance {
 	 * @return string
 	 */
 	private function guessPriority( $namespace ) {
-		return MediaWikiServices::getInstance()->getNamespaceInfo()->isSubject( $namespace )
+		return $this->getServiceContainer()->getNamespaceInfo()->isSubject( $namespace )
 			? $this->priorities[self::GS_MAIN]
 			: $this->priorities[self::GS_TALK];
 	}
@@ -306,35 +305,19 @@ class GenerateSitemap extends Maintenance {
 	 * @return IResultWrapper
 	 */
 	private function getPageRes( $namespace ) {
-		return $this->dbr->select(
-			[ 'page', 'page_props' ],
-			[
-				'page_namespace',
-				'page_title',
-				'page_touched',
-				'page_is_redirect',
-				'pp_propname',
-			],
-			[ 'page_namespace' => $namespace ],
-			__METHOD__,
-			[],
-			[
-				'page_props' => [
-					'LEFT JOIN',
-					[
-						'page_id = pp_page',
-						'pp_propname' => 'noindex'
-					]
-				]
-			]
-		);
+		return $this->dbr->newSelectQueryBuilder()
+			->select( [ 'page_namespace', 'page_title', 'page_touched', 'page_is_redirect', 'pp_propname' ] )
+			->from( 'page' )
+			->leftJoin( 'page_props', null, [ 'page_id = pp_page', 'pp_propname' => 'noindex' ] )
+			->where( [ 'page_namespace' => $namespace ] )
+			->caller( __METHOD__ )->fetchResultSet();
 	}
 
 	/**
 	 * Main loop
 	 */
 	public function main() {
-		$services = MediaWikiServices::getInstance();
+		$services = $this->getServiceContainer();
 		$contLang = $services->getContentLanguage();
 		$langConverter = $services->getLanguageConverterFactory()->getLanguageConverter( $contLang );
 
@@ -391,7 +374,7 @@ class GenerateSitemap extends Maintenance {
 							continue; // we don't want default variant
 						}
 						$entry = $this->fileEntry(
-							$title->getCanonicalURL( '', $vCode ),
+							$title->getCanonicalURL( [ 'variant' => $vCode ] ),
 							$date,
 							$this->priority( $namespace )
 						);
@@ -428,7 +411,7 @@ class GenerateSitemap extends Maintenance {
 	private function open( $file, $flags ) {
 		$resource = $this->compress ? gzopen( $file, $flags ) : fopen( $file, $flags );
 		if ( $resource === false ) {
-			throw new MWException( __METHOD__
+			throw new RuntimeException( __METHOD__
 				. " error opening file $file with flags $flags. Check permissions?" );
 		}
 
@@ -443,7 +426,7 @@ class GenerateSitemap extends Maintenance {
 	 */
 	private function write( &$handle, $str ) {
 		if ( $handle === true || $handle === false ) {
-			throw new MWException( __METHOD__ . " was passed a boolean as a file handle.\n" );
+			throw new InvalidArgumentException( __METHOD__ . " was passed a boolean as a file handle.\n" );
 		}
 		if ( $this->compress ) {
 			gzwrite( $handle, $str );
@@ -514,7 +497,7 @@ class GenerateSitemap extends Maintenance {
 	private function indexEntry( $filename ) {
 		return "\t<sitemap>\n" .
 			"\t\t<loc>" . wfGetServerUrl( PROTO_CANONICAL ) .
-				( substr( $this->urlpath, 0, 1 ) === "/" ? "" : "/" ) .
+				( $this->urlpath[0] === "/" ? "" : "/" ) .
 				"{$this->urlpath}$filename</loc>\n" .
 			"\t\t<lastmod>{$this->timestamp}</lastmod>\n" .
 			"\t</sitemap>\n";

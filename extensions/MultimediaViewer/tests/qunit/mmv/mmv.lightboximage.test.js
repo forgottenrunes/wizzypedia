@@ -1,10 +1,9 @@
-( function () {
-	QUnit.module( 'mmv.lightboximage', QUnit.newMwEnvironment() );
+const { LightboxImage } = require( 'mmv' );
 
-	QUnit.test( 'Sense test, object creation', function ( assert ) {
-		var lightboxImage = new mw.mmv.LightboxImage( 'foo.png' );
+QUnit.module( 'mmv.lightboximage', QUnit.newMwEnvironment() );
 
-		assert.ok( lightboxImage, 'Object created !' );
-	} );
+QUnit.test( 'Sense test', function ( assert ) {
+	var lightboxImage = new LightboxImage( 'foo.png' );
 
-}() );
+	assert.true( lightboxImage instanceof LightboxImage, 'Object created' );
+} );

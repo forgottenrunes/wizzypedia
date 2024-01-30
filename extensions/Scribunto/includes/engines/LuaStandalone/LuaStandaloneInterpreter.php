@@ -1,15 +1,24 @@
 <?php
 
+namespace MediaWiki\Extension\Scribunto\Engines\LuaStandalone;
+
+use InvalidArgumentException;
+use MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaError;
+use MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaInterpreter;
+use MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaInterpreterNotExecutableError;
+use MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaInterpreterNotFoundError;
+use MediaWiki\Extension\Scribunto\ScribuntoException;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use RuntimeException;
 use UtfNormal\Validator;
 
-class Scribunto_LuaStandaloneInterpreter extends Scribunto_LuaInterpreter {
+class LuaStandaloneInterpreter extends LuaInterpreter {
 	/** @var int */
 	protected static $nextInterpreterId = 0;
 
 	/**
-	 * @var Scribunto_LuaStandaloneEngine
+	 * @var LuaStandaloneEngine
 	 */
 	public $engine;
 
@@ -54,10 +63,9 @@ class Scribunto_LuaStandaloneInterpreter extends Scribunto_LuaInterpreter {
 	protected $callbacks;
 
 	/**
-	 * @param Scribunto_LuaStandaloneEngine $engine
+	 * @param LuaStandaloneEngine $engine
 	 * @param array $options
-	 * @throws MWException
-	 * @throws Scribunto_LuaInterpreterNotFoundError
+	 * @throws LuaInterpreterNotFoundError
 	 * @throws ScribuntoException
 	 */
 	public function __construct( $engine, array $options ) {
@@ -87,14 +95,14 @@ class Scribunto_LuaStandaloneInterpreter extends Scribunto_LuaInterpreter {
 				$path = 'lua5_1_5_mac_lion_fat_generic/lua';
 			}
 			if ( $path === false ) {
-				throw new Scribunto_LuaInterpreterNotFoundError(
+				throw new LuaInterpreterNotFoundError(
 					'No Lua interpreter was given in the configuration, ' .
 					'and no bundled binary exists for this platform.' );
 			}
 			$options['luaPath'] = __DIR__ . "/binaries/$path";
 
 			if ( !is_executable( $options['luaPath'] ) ) {
-				throw new MWException(
+				throw new LuaInterpreterNotExecutableError(
 					sprintf( 'The lua binary (%s) is not executable.', $options['luaPath'] )
 				);
 			}
@@ -115,11 +123,14 @@ class Scribunto_LuaStandaloneInterpreter extends Scribunto_LuaInterpreter {
 		if ( php_uname( 's' ) == 'Linux' ) {
 			// Limit memory and CPU
 			$cmd = wfEscapeShellArg(
-				'exec', # proc_open() passes $cmd to 'sh -c' on Linux, so add an 'exec' to bypass it
+				# proc_open() passes $cmd to 'sh -c' on Linux, so add an 'exec' to bypass it
+				'exec',
 				'/bin/sh',
 				__DIR__ . '/lua_ulimit.sh',
-				(string)$options['cpuLimit'], # soft limit (SIGXCPU)
-				(string)( $options['cpuLimit'] + 1 ), # hard limit
+				# soft limit (SIGXCPU)
+				(string)$options['cpuLimit'],
+				# hard limit
+				(string)( $options['cpuLimit'] + 1 ),
 				(string)intval( $options['memoryLimit'] / 1024 ),
 				$cmd );
 		}
@@ -233,7 +244,7 @@ class Scribunto_LuaStandaloneInterpreter extends Scribunto_LuaInterpreter {
 	/**
 	 * @param string $text
 	 * @param string $chunkName
-	 * @return Scribunto_LuaStandaloneInterpreterFunction
+	 * @return LuaStandaloneInterpreterFunction
 	 */
 	public function loadString( $text, $chunkName ) {
 		$this->cleanupLuaChunks();
@@ -243,16 +254,16 @@ class Scribunto_LuaStandaloneInterpreter extends Scribunto_LuaInterpreter {
 			'text' => $text,
 			'chunkName' => $chunkName
 		] );
-		return new Scribunto_LuaStandaloneInterpreterFunction( $this->id, $result[1] );
+		return new LuaStandaloneInterpreterFunction( $this->id, $result[1] );
 	}
 
 	/** @inheritDoc */
 	public function callFunction( $func, ...$args ) {
-		if ( !( $func instanceof Scribunto_LuaStandaloneInterpreterFunction ) ) {
-			throw new MWException( __METHOD__ . ': invalid function type' );
+		if ( !( $func instanceof LuaStandaloneInterpreterFunction ) ) {
+			throw new InvalidArgumentException( __METHOD__ . ': invalid function type' );
 		}
 		if ( $func->interpreterId !== $this->id ) {
-			throw new MWException( __METHOD__ . ': function belongs to a different interpreter' );
+			throw new InvalidArgumentException( __METHOD__ . ': function belongs to a different interpreter' );
 		}
 		$args = func_get_args();
 		unset( $args[0] );
@@ -283,18 +294,18 @@ class Scribunto_LuaStandaloneInterpreter extends Scribunto_LuaInterpreter {
 	}
 
 	public function cleanupLuaChunks() {
-		if ( isset( Scribunto_LuaStandaloneInterpreterFunction::$anyChunksDestroyed[$this->id] ) ) {
-			unset( Scribunto_LuaStandaloneInterpreterFunction::$anyChunksDestroyed[$this->id] );
+		if ( isset( LuaStandaloneInterpreterFunction::$anyChunksDestroyed[$this->id] ) ) {
+			unset( LuaStandaloneInterpreterFunction::$anyChunksDestroyed[$this->id] );
 			$this->dispatch( [
 				'op' => 'cleanupChunks',
-				'ids' => Scribunto_LuaStandaloneInterpreterFunction::$activeChunkIds[$this->id]
+				'ids' => LuaStandaloneInterpreterFunction::$activeChunkIds[$this->id]
 			] );
 		}
 	}
 
 	/** @inheritDoc */
 	public function isLuaFunction( $object ) {
-		return $object instanceof Scribunto_LuaStandaloneInterpreterFunction;
+		return $object instanceof LuaStandaloneInterpreterFunction;
 	}
 
 	/** @inheritDoc */
@@ -358,7 +369,7 @@ class Scribunto_LuaStandaloneInterpreter extends Scribunto_LuaInterpreter {
 		$message['args'] = self::fixNulls( $message['args'], $message['nargs'] );
 		try {
 			$result = $this->callback( $message['id'], $message['args'] );
-		} catch ( Scribunto_LuaError $e ) {
+		} catch ( LuaError $e ) {
 			return [
 				'op' => 'error',
 				'value' => $e->getLuaMessage(),
@@ -406,6 +417,14 @@ class Scribunto_LuaStandaloneInterpreter extends Scribunto_LuaInterpreter {
 			$message['value'] = $m[3];
 		}
 		if ( isset( $message['trace'] ) ) {
+			foreach ( $message['trace'] as &$val ) {
+				$val = array_map( static function ( $val ) {
+					if ( is_string( $val ) ) {
+						$val = Validator::cleanUp( $val );
+					}
+					return $val;
+				}, $val );
+			}
 			$opts['trace'] = array_values( $message['trace'] );
 		}
 		throw $this->engine->newLuaError( $message['value'], $opts );
@@ -509,11 +528,10 @@ class Scribunto_LuaStandaloneInterpreter extends Scribunto_LuaInterpreter {
 	 * @param int $level
 	 *
 	 * @return string
-	 * @throws MWException
 	 */
 	protected function encodeLuaVar( $var, $level = 0 ) {
 		if ( $level > 100 ) {
-			throw new MWException( __METHOD__ . ': recursion depth limit exceeded' );
+			throw new RuntimeException( __METHOD__ . ': recursion depth limit exceeded' );
 		}
 		$type = gettype( $var );
 		switch ( $type ) {
@@ -532,7 +550,7 @@ class Scribunto_LuaStandaloneInterpreter extends Scribunto_LuaInterpreter {
 					if ( $var === -INF ) {
 						return '(-1/0)';
 					}
-					throw new MWException( __METHOD__ . ': cannot convert non-finite number' );
+					throw new InvalidArgumentException( __METHOD__ . ': cannot convert non-finite number' );
 				}
 				return sprintf( '%.17g', $var );
 			case 'string':
@@ -563,22 +581,22 @@ class Scribunto_LuaStandaloneInterpreter extends Scribunto_LuaInterpreter {
 				$s .= '}';
 				return $s;
 			case 'object':
-				if ( !( $var instanceof Scribunto_LuaStandaloneInterpreterFunction ) ) {
-					throw new MWException( __METHOD__ . ': unable to convert object of type ' .
+				if ( !( $var instanceof LuaStandaloneInterpreterFunction ) ) {
+					throw new InvalidArgumentException( __METHOD__ . ': unable to convert object of type ' .
 						get_class( $var ) );
 				} elseif ( $var->interpreterId !== $this->id ) {
-					throw new MWException(
+					throw new InvalidArgumentException(
 						__METHOD__ . ': unable to convert function belonging to a different interpreter'
 					);
 				} else {
 					return 'chunks[' . intval( $var->id ) . ']';
 				}
 			case 'resource':
-				throw new MWException( __METHOD__ . ': unable to convert resource' );
+				throw new InvalidArgumentException( __METHOD__ . ': unable to convert resource' );
 			case 'NULL':
 				return 'nil';
 			default:
-				throw new MWException( __METHOD__ . ': unable to convert variable of unknown type' );
+				throw new InvalidArgumentException( __METHOD__ . ': unable to convert variable of unknown type' );
 		}
 	}
 
@@ -629,6 +647,7 @@ class Scribunto_LuaStandaloneInterpreter extends Scribunto_LuaInterpreter {
 			$status = proc_get_status( $this->proc );
 			// XXX: Should proc_get_status docs be changed so that
 			// its documented as possibly returning false?
+			'@phan-var array|false $status';
 			if ( $status === false ) {
 				// WTF? Let the caller throw an appropriate error.
 				return;
@@ -636,7 +655,8 @@ class Scribunto_LuaStandaloneInterpreter extends Scribunto_LuaInterpreter {
 			if ( !$status['running'] ) {
 				break;
 			}
-			usleep( 10000 ); // Give the killed process a chance to be scheduled
+			// Give the killed process a chance to be scheduled
+			usleep( 10000 );
 		}
 		proc_close( $this->proc );
 		$this->proc = false;

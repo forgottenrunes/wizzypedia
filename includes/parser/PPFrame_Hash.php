@@ -19,6 +19,8 @@
  * @ingroup Parser
  */
 
+use MediaWiki\Title\Title;
+
 /**
  * An expansion frame, used as a context to expand the result of preprocessToObj()
  * @ingroup Parser
@@ -49,7 +51,7 @@ class PPFrame_Hash implements PPFrame {
 	/**
 	 * Hashtable listing templates which are disallowed for expansion in this frame,
 	 * having been encountered previously in parent frames.
-	 * @var string[]
+	 * @var true[]
 	 */
 	public $loopCheckHash;
 
@@ -97,10 +99,9 @@ class PPFrame_Hash implements PPFrame {
 	 * Create a new child frame
 	 * $args is optionally a multi-root PPNode or array containing the template arguments
 	 *
-	 * @param array|false|PPNode_Hash_Array $args
+	 * @param PPNode[]|false|PPNode_Hash_Array $args
 	 * @param Title|false $title
 	 * @param int $indexOffset
-	 * @throws MWException
 	 * @return PPTemplateFrame_Hash
 	 */
 	public function newChild( $args = false, $title = false, $indexOffset = 0 ) {
@@ -113,7 +114,7 @@ class PPFrame_Hash implements PPFrame {
 			if ( $args instanceof PPNode_Hash_Array ) {
 				$args = $args->value;
 			} elseif ( !is_array( $args ) ) {
-				throw new MWException( __METHOD__ . ': $args must be array or PPNode_Hash_Array' );
+				throw new InvalidArgumentException( __METHOD__ . ': $args must be array or PPNode_Hash_Array' );
 			}
 			foreach ( $args as $arg ) {
 				$bits = $arg->splitArg();
@@ -148,12 +149,10 @@ class PPFrame_Hash implements PPFrame {
 				}
 			}
 		}
-		// @phan-suppress-next-line SecurityCheck-XSS taint track for keys in named args, false positive
 		return new PPTemplateFrame_Hash( $this->preprocessor, $this, $numberedArgs, $namedArgs, $title );
 	}
 
 	/**
-	 * @throws MWException
 	 * @param string|int $key
 	 * @param string|PPNode $root
 	 * @param int $flags
@@ -165,7 +164,6 @@ class PPFrame_Hash implements PPFrame {
 	}
 
 	/**
-	 * @throws MWException
 	 * @param string|PPNode $root
 	 * @param int $flags
 	 * @return string
@@ -250,12 +248,12 @@ class PPFrame_Hash implements PPFrame {
 			} elseif ( is_array( $contextNode ) ) {
 				// Node descriptor array
 				if ( count( $contextNode ) !== 2 ) {
-					throw new MWException( __METHOD__ .
+					throw new RuntimeException( __METHOD__ .
 						': found an array where a node descriptor should be' );
 				}
-				list( $contextName, $contextChildren ) = $contextNode;
+				[ $contextName, $contextChildren ] = $contextNode;
 			} else {
-				throw new MWException( __METHOD__ . ': Invalid parameter type' );
+				throw new RuntimeException( __METHOD__ . ': Invalid parameter type' );
 			}
 
 			// Handle node descriptor array or tree object
@@ -350,7 +348,8 @@ class PPFrame_Hash implements PPFrame {
 					}
 					$out .= $s;
 				} else {
-					$out .= $this->parser->extensionSubstitution( $bits, $this );
+					$out .= $this->parser->extensionSubstitution( $bits, $this,
+						(bool)( $flags & PPFrame::PROCESS_NOWIKI ) );
 				}
 			} elseif ( $contextName === 'h' ) {
 				# Heading
@@ -521,7 +520,7 @@ class PPFrame_Hash implements PPFrame {
 
 	/**
 	 * @param string|false $level
-	 * @return array|false|string
+	 * @return false|string
 	 */
 	public function getPDBK( $level = false ) {
 		if ( $level === false ) {

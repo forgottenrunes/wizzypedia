@@ -9,15 +9,14 @@
 namespace MediaWiki\Extension\InputBox;
 
 use Article;
-use Config;
 use MediaWiki;
 use MediaWiki\Hook\MediaWikiPerformActionHook;
 use MediaWiki\Hook\ParserFirstCallInitHook;
 use MediaWiki\SpecialPage\Hook\SpecialPageBeforeExecuteHook;
+use MediaWiki\Title\Title;
 use OutputPage;
 use Parser;
 use SpecialPage;
-use Title;
 use User;
 use WebRequest;
 
@@ -29,18 +28,6 @@ class InputBoxHooks implements
 	SpecialPageBeforeExecuteHook,
 	MediaWikiPerformActionHook
 {
-
-	/** @var Config */
-	private $config;
-
-	/**
-	 * @param Config $config
-	 */
-	public function __construct(
-		Config $config
-	) {
-		$this->config = $config;
-	}
 
 	/**
 	 * Initialization
@@ -109,21 +96,24 @@ class InputBoxHooks implements
 		$request,
 		$wiki
 	) {
-		if ( $wiki->getAction() !== 'edit' && $request->getText( 'veaction' ) !== 'edit' ) {
+		// In order to check for 'action=edit' in URL parameters, even if another extension overrides
+		// the action, we must not use getActionName() here. (T337436)
+		if ( $request->getRawVal( 'action' ) !== 'edit' && $request->getRawVal( 'veaction' ) !== 'edit' ) {
 			// not our problem
 			return true;
 		}
-		if ( $request->getText( 'prefix', '' ) === '' ) {
+		$prefix = $request->getText( 'prefix', '' );
+		if ( $prefix === '' ) {
 			// Fine
 			return true;
 		}
 
-		$title = $request->getText( 'prefix', '' ) . $request->getText( 'title', '' );
+		$title = $prefix . $request->getText( 'title', '' );
 		$params = $request->getValues();
 		unset( $params['prefix'] );
 		$params['title'] = $title;
 
-		$output->redirect( wfAppendQuery( $this->config->get( 'Script' ), $params ), '301' );
+		$output->redirect( wfAppendQuery( $output->getConfig()->get( 'Script' ), $params ), '301' );
 		return false;
 	}
 }

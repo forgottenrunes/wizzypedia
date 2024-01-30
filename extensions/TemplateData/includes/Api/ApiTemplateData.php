@@ -1,10 +1,4 @@
 <?php
-/**
- * Implement the 'templatedata' query module in the API.
- * Format JSON only.
- *
- * @file
- */
 
 namespace MediaWiki\Extension\TemplateData\Api;
 
@@ -18,18 +12,19 @@ use MediaWiki\Extension\EventLogging\EventLogging;
 use MediaWiki\Extension\TemplateData\TemplateDataBlob;
 use MediaWiki\MediaWikiServices;
 use TextContent;
+use Wikimedia\ParamValidator\ParamValidator;
 
 /**
+ * Implement the 'templatedata' query module in the API.
+ * Format JSON only.
+ * @license GPL-2.0-or-later
  * @ingroup API
  * @emits error.code templatedata-corrupt
  * @todo Support continuation (see I1a6e51cd)
  */
 class ApiTemplateData extends ApiBase {
 
-	/**
-	 * @var ApiPageSet|null
-	 */
-	private $mPageSet = null;
+	private ?ApiPageSet $mPageSet = null;
 
 	/**
 	 * For backwards compatibility, this module needs to output format=json when
@@ -46,13 +41,8 @@ class ApiTemplateData extends ApiBase {
 		return null;
 	}
 
-	/**
-	 * @return ApiPageSet
-	 */
 	private function getPageSet(): ApiPageSet {
-		if ( $this->mPageSet === null ) {
-			$this->mPageSet = new ApiPageSet( $this );
-		}
+		$this->mPageSet ??= new ApiPageSet( $this );
 		return $this->mPageSet;
 	}
 
@@ -77,14 +67,11 @@ class ApiTemplateData extends ApiBase {
 
 		$pageSet = $this->getPageSet();
 		$pageSet->execute();
-		$titles = $pageSet->getGoodTitles(); // page_id => Title object
-		$missingTitles = $pageSet->getMissingTitles(); // page_id => Title object
+		$titles = $pageSet->getGoodPages();
+		$missingTitles = $pageSet->getMissingPages();
 
-		$includeMissingTitles = $this->getParameter( 'includeMissingTitles' );
-		$doNotIgnoreMissingTitles = $this->getParameter( 'doNotIgnoreMissingTitles' );
-		if ( $doNotIgnoreMissingTitles ) {
-			$includeMissingTitles = $doNotIgnoreMissingTitles;
-		}
+		$includeMissingTitles = $this->getParameter( 'doNotIgnoreMissingTitles' ) ?:
+			$this->getParameter( 'includeMissingTitles' );
 
 		if ( !$titles && ( !$includeMissingTitles || !$missingTitles ) ) {
 			$result->addValue( null, 'pages', (object)[] );
@@ -107,14 +94,16 @@ class ApiTemplateData extends ApiBase {
 
 		if ( $titles ) {
 			$db = $this->getDB();
-			$res = $db->select( 'page_props',
-				[ 'pp_page', 'pp_value' ], [
+			$res = $db->newSelectQueryBuilder()
+				->from( 'page_props' )
+				->fields( [ 'pp_page', 'pp_value' ] )
+				->where( [
 					'pp_page' => array_keys( $titles ),
 					'pp_propname' => 'templatedata'
-				],
-				__METHOD__,
-				[ 'ORDER BY' => 'pp_page' ]
-			);
+				] )
+				->orderBy( 'pp_page' )
+				->caller( __METHOD__ )
+				->fetchResultSet();
 
 			foreach ( $res as $row ) {
 				$rawData = $row->pp_value;
@@ -178,13 +167,15 @@ class ApiTemplateData extends ApiBase {
 		// template usage for the Technical Wishes topic area see T258917
 		if ( ExtensionRegistry::getInstance()->isLoaded( 'EventLogging' ) ) {
 			foreach ( $resp as $pageInfo ) {
-				EventLogging::logEvent(
-					'TemplateDataApi',
-					-1,
+				EventLogging::submit(
+					'eventlogging_TemplateDataApi',
 					[
-						'template_name' => $wikiPageFactory->newFromTitle( $pageInfo['title'] )
-							->getTitle()->getDBkey(),
-						'has_template_data' => !isset( $pageInfo['notemplatedata'] ),
+						'$schema' => '/analytics/legacy/templatedataapi/1.0.0',
+						'event' => [
+							'template_name' => $wikiPageFactory->newFromTitle( $pageInfo['title'] )
+								->getTitle()->getDBkey(),
+							'has_template_data' => !isset( $pageInfo['notemplatedata'] ),
+						],
 					]
 				);
 			}
@@ -247,14 +238,14 @@ class ApiTemplateData extends ApiBase {
 	public function getAllowedParams( $flags = 0 ) {
 		$result = [
 			'includeMissingTitles' => [
-				ApiBase::PARAM_TYPE => 'boolean',
+				ParamValidator::PARAM_TYPE => 'boolean',
 			],
 			'doNotIgnoreMissingTitles' => [
-				ApiBase::PARAM_TYPE => 'boolean',
-				ApiBase::PARAM_DEPRECATED => true,
+				ParamValidator::PARAM_TYPE => 'boolean',
+				ParamValidator::PARAM_DEPRECATED => true,
 			],
 			'lang' => [
-				ApiBase::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_TYPE => 'string',
 			],
 		];
 		if ( $flags ) {
@@ -268,9 +259,9 @@ class ApiTemplateData extends ApiBase {
 	 */
 	protected function getExamplesMessages() {
 		return [
-			'action=templatedata&titles=Template:Stub|Template:Example&includeMissingTitles=1'
+			'action=templatedata&titles=Template:Foobar&includeMissingTitles=1'
 				=> 'apihelp-templatedata-example-1',
-			'action=templatedata&titles=Template:Stub|Template:Example'
+			'action=templatedata&titles=Template:Phabricator'
 				=> 'apihelp-templatedata-example-2',
 		];
 	}
@@ -281,4 +272,5 @@ class ApiTemplateData extends ApiBase {
 	public function getHelpUrls() {
 		return 'https://www.mediawiki.org/wiki/Special:MyLanguage/Extension:TemplateData';
 	}
+
 }

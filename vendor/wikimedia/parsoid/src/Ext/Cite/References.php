@@ -3,6 +3,7 @@ declare( strict_types = 1 );
 
 namespace Wikimedia\Parsoid\Ext\Cite;
 
+use Closure;
 use stdClass;
 use Wikimedia\Parsoid\Core\DomSourceRange;
 use Wikimedia\Parsoid\DOM\DocumentFragment;
@@ -14,6 +15,7 @@ use Wikimedia\Parsoid\Ext\ExtensionTagHandler;
 use Wikimedia\Parsoid\Ext\ParsoidExtensionAPI;
 use Wikimedia\Parsoid\Ext\PHPUtils;
 use Wikimedia\Parsoid\Ext\WTUtils;
+use Wikimedia\Parsoid\NodeData\DataMw;
 use Wikimedia\Parsoid\NodeData\DataParsoid;
 use Wikimedia\Parsoid\Utils\DOMCompat;
 
@@ -39,19 +41,6 @@ class References extends ExtensionTagHandler {
 	}
 
 	/**
-	 * It should be sufficient to only include styles when we're rendering
-	 * a references tag.
-	 *
-	 * @return array
-	 */
-	private static function getModuleStyles(): array {
-		return [
-			'ext.cite.style',
-			'ext.cite.styles'
-		];
-	}
-
-	/**
 	 * @param ParsoidExtensionAPI $extApi
 	 * @param DocumentFragment $domFragment
 	 * @param array $refsOpts
@@ -72,10 +61,10 @@ class References extends ExtensionTagHandler {
 		DOMUtils::migrateChildren( $domFragment, $ol );
 
 		// Support the `responsive` parameter
-		$rrOpts = $extApi->getSiteConfig()->responsiveReferences();
-		$responsiveWrap = !empty( $rrOpts['enabled'] );
 		if ( $refsOpts['responsive'] !== null ) {
 			$responsiveWrap = $refsOpts['responsive'] !== '0';
+		} else {
+			$responsiveWrap = (bool)$extApi->getSiteConfig()->getMWConfigValue( 'CiteResponsiveReferences' );
 		}
 
 		if ( $responsiveWrap ) {
@@ -93,10 +82,10 @@ class References extends ExtensionTagHandler {
 				'typeof' => 'mw:Extension/references',
 				'about' => $extApi->newAboutId()
 			] );
-			$dataMw = (object)[
+			$dataMw = new DataMw( [
 				'name' => 'references',
 				'attrs' => new stdClass
-			];
+			] );
 			// Dont emit empty keys
 			if ( $refsOpts['group'] ) {
 				$dataMw->attrs->group = $refsOpts['group'];
@@ -113,7 +102,11 @@ class References extends ExtensionTagHandler {
 			$modifyDp( $dp );
 		}
 
-		$extApi->addModuleStyles( self::getModuleStyles() );
+		// These module namess are copied from Cite extension.
+		// They are hardcoded there as well.
+		$metadata = $extApi->getMetadata();
+		$metadata->addModules( [ 'ext.cite.ux-enhancements' ] );
+		$metadata->addModuleStyles( [ 'ext.cite.parsoid.styles', 'ext.cite.styles' ] );
 
 		return $frag;
 	}
@@ -213,8 +206,9 @@ class References extends ExtensionTagHandler {
 						$refContent = $extApi->getContentDOM( $ref->contentId )->firstChild;
 						$ref->cachedHtml = $extApi->domToHtml( $refContent, true, false );
 					}
-					// FIXME: Strip the mw:Cite/Follow wrappers
 					// See the test, "Forward-referenced ref with magical follow edge case"
+					// Ideally, we should strip the mw:Cite/Follow wrappers before comparing
+					// But, we are going to ignore this edge case as not worth the complexity.
 					$html = $extApi->domToHtml( $c, true, false );
 					$contentDiffers = ( $html !== $ref->cachedHtml );
 				}
@@ -281,6 +275,11 @@ class References extends ExtensionTagHandler {
 				// This will be set below with `$ref->contentId = $contentId;`
 			}
 		} else {
+			// If we have !$ref, one might have been added in the call to
+			// processRefs, ie. a self-referential ref.  We could try to look
+			// it up again, but Parsoid is choosing not to support that.
+			// Even worse would be if it tried to redefine itself!
+
 			if ( !$ref ) {
 				$ref = $refsData->add( $extApi, $groupName, $refName );
 			}
@@ -413,7 +412,37 @@ class References extends ExtensionTagHandler {
 		$refLink->appendChild( $refLinkSpan );
 		$linkBack->appendChild( $refLink );
 
-		$node->parentNode->replaceChild( $linkBack, $node );
+		// Checking if the <ref> is nested in a link
+		$aParent = DOMUtils::findAncestorOfName( $node, 'a' );
+		if ( $aParent !== null ) {
+			// If we find a parent link, we hoist the reference up, just after the link
+			// But if there's multiple references in a single link, we want to insert in order -
+			// so we look for other misnested references before inserting
+			$insertionPoint = $aParent->nextSibling;
+			while ( $insertionPoint instanceof Element &&
+				DOMCompat::nodeName( $insertionPoint ) === 'sup' &&
+				!empty( DOMDataUtils::getDataParsoid( $insertionPoint )->misnested )
+			) {
+				$insertionPoint = $insertionPoint->nextSibling;
+			}
+			$aParent->parentNode->insertBefore( $linkBack, $insertionPoint );
+			// set misnested to true and DSR to zero-sized to avoid round-tripping issues
+			$dsrOffset = DOMDataUtils::getDataParsoid( $aParent )->dsr->end ?? null;
+			// we created that node hierarchy above, so we know that it only contains these nodes,
+			// hence there's no need for a visitor
+			self::setMisnested( $linkBack, $dsrOffset );
+			self::setMisnested( $refLink, $dsrOffset );
+			self::setMisnested( $refLinkSpan, $dsrOffset );
+			if ( $aParent->hasAttribute( 'about' ) ) {
+				DOMUtils::addAttributes( $linkBack,
+					[ 'about' => $aParent->getAttribute( 'about' ) ]
+				);
+			}
+			$node->parentNode->removeChild( $node );
+		} else {
+			// if not, we insert it where we planned in the first place
+			$node->parentNode->replaceChild( $linkBack, $node );
+		}
 
 		// Keep the first content to compare multiple <ref>s with the same name.
 		if ( $ref->contentId === null && !$missingContent ) {
@@ -423,6 +452,18 @@ class References extends ExtensionTagHandler {
 			DOMCompat::remove( $c );
 			$extApi->clearContentDOM( $contentId );
 		}
+	}
+
+	/**
+	 * Sets a node as misnested and its DSR as zero-width.
+	 * @param Element $node
+	 * @param int|null $offset
+	 * @return void
+	 */
+	private static function setMisnested( Element $node, ?int $offset ) {
+		$dataParsoid = DOMDataUtils::getDataParsoid( $node );
+		$dataParsoid->misnested = true;
+		$dataParsoid->dsr = new DomSourceRange( $offset, $offset, null, null );
 	}
 
 	/**
@@ -513,8 +554,11 @@ class References extends ExtensionTagHandler {
 
 		// Deal with responsive wrapper
 		if ( DOMCompat::getClassList( $refsNode )->contains( 'mw-references-wrap' ) ) {
-			$rrOpts = $extApi->getSiteConfig()->responsiveReferences();
-			if ( $refGroup && count( $refGroup->refs ) > $rrOpts['threshold'] ) {
+			// NOTE: The default Cite implementation hardcodes this threshold to 10.
+			// We use a configurable parameter here primarily for test coverage purposes.
+			// See citeParserTests.txt where we set a threshold of 1 or 2.
+			$rrThreshold = $extApi->getSiteConfig()->getMWConfigValue( 'CiteResponsiveReferencesThreshold' ) ?? 10;
+			if ( $refGroup && count( $refGroup->refs ) > $rrThreshold ) {
 				DOMCompat::getClassList( $refsNode )->add( 'mw-references-columns' );
 			}
 			$refsNode = $refsNode->firstChild;
@@ -627,7 +671,7 @@ class References extends ExtensionTagHandler {
 				} else {
 					$refsData->pushEmbeddedContentFlag();
 					// Look for <ref>s embedded in data attributes
-					$extApi->processHTMLHiddenInDataAttributes( $child,
+					$extApi->processAttributeEmbeddedHTML( $child,
 						function ( string $html ) use ( $extApi, $refsData ) {
 							return self::processEmbeddedRefs( $extApi, $refsData, $html );
 						}
@@ -668,7 +712,7 @@ class References extends ExtensionTagHandler {
 		};
 		$processBodyHtml = static function ( Element $n ) use ( $processEmbeddedErrors ) {
 			$dataMw = DOMDataUtils::getDataMw( $n );
-			if ( is_string( $dataMw->body->html ?? null ) ) {
+			if ( isset( $dataMw->body->html ) ) {
 				$dataMw->body->html = $processEmbeddedErrors(
 					$dataMw->body->html
 				);
@@ -688,7 +732,7 @@ class References extends ExtensionTagHandler {
 				} elseif ( DOMUtils::hasTypeOf( $child, 'mw:Extension/references' ) ) {
 					$processBodyHtml( $child );
 				} else {
-					$extApi->processHTMLHiddenInDataAttributes(
+					$extApi->processAttributeEmbeddedHTML(
 						$child, $processEmbeddedErrors
 					);
 				}
@@ -706,10 +750,8 @@ class References extends ExtensionTagHandler {
 	): DocumentFragment {
 		$domFragment = $extApi->extTagToDOM(
 			$extArgs,
-			'',
 			$txt,
 			[
-				'wrapperTag' => 'div',
 				'parseOpts' => [ 'extTag' => 'references' ],
 			]
 		);
@@ -746,19 +788,34 @@ class References extends ExtensionTagHandler {
 	}
 
 	/** @inheritDoc */
+	public function processAttributeEmbeddedHTML(
+		ParsoidExtensionAPI $extApi, Element $elt, Closure $proc
+	): void {
+		$dataMw = DOMDataUtils::getDataMw( $elt );
+		if ( isset( $dataMw->body->html ) ) {
+			$dataMw->body->html = $proc( $dataMw->body->html );
+		}
+	}
+
+	/** @inheritDoc */
 	public function domToWikitext(
 		ParsoidExtensionAPI $extApi, Element $node, bool $wrapperUnmodified
 	) {
 		$dataMw = DOMDataUtils::getDataMw( $node );
+		// Autogenerated references aren't considered erroneous (the extension to the legacy
+		// parser also generates them) and are not suppressed when serializing because apparently
+		// that's the behaviour Parsoid clients want.  However, autogenerated references *with
+		// group attributes* are errors (the legacy extension doesn't generate them at all) and
+		// are suppressed when serialized since we considered them an error while parsing and
+		// don't want them to persist in the content.
 		if ( !empty( $dataMw->autoGenerated ) && ( $dataMw->attrs->group ?? '' ) !== '' ) {
-			// Eliminate auto-inserted <references /> noise in rt-testing
 			return '';
 		} else {
 			$startTagSrc = $extApi->extStartTagToWikitext( $node );
 			if ( empty( $dataMw->body ) ) {
 				return $startTagSrc; // We self-closed this already.
 			} else {
-				if ( is_string( $dataMw->body->html ) ) {
+				if ( isset( $dataMw->body->html ) ) {
 					$src = $extApi->htmlToWikitext(
 						[ 'extName' => $dataMw->name ],
 						$dataMw->body->html
@@ -778,18 +835,11 @@ class References extends ExtensionTagHandler {
 	public function lintHandler(
 		ParsoidExtensionAPI $extApi, Element $refs, callable $defaultHandler
 	): ?Node {
-		// Nothing to do
-		//
-		// FIXME: Not entirely true for scenarios where the <ref> tags
-		// are defined in the references section that is itself templated.
-		//
-		// {{1x|<references>\n<ref name='x'><b>foo</ref>\n</references>}}
-		//
-		// In this example, the references tag has the right tplInfo and
-		// when the <ref> tag is processed in the body of the article where
-		// it is accessed, there is no relevant template or dsr info available.
-		//
-		// Ignoring for now.
+		$dataMw = DOMDataUtils::getDataMw( $refs );
+		if ( isset( $dataMw->body->html ) ) {
+			$fragment = $extApi->htmlToDom( $dataMw->body->html );
+			$defaultHandler( $fragment );
+		}
 		return $refs->nextSibling;
 	}
 
