@@ -88,10 +88,9 @@ class CargoGalleryFormat extends CargoDisplayFormat {
 	 * @return string HTML
 	 */
 	public function display( $valuesTable, $formattedValuesTable, $fieldDescriptions, $displayParams ) {
-		$this->mOutput->addModules( 'mediawiki.page.gallery' );
-		$this->mOutput->addModuleStyles( 'mediawiki.page.gallery.styles' );
+		$this->mOutput->addModules( [ 'mediawiki.page.gallery' ] );
+		$this->mOutput->addModuleStyles( [ 'mediawiki.page.gallery.styles' ] );
 
-		$valuesTable = CargoUtils::replaceRedirectWithTarget( $valuesTable, $fieldDescriptions );
 		if ( array_key_exists( 'caption field', $displayParams ) ) {
 			$captionField = str_replace( '_', ' ', $displayParams['caption field'] );
 			if ( $captionField[0] == ' ' ) {
@@ -100,7 +99,6 @@ class CargoGalleryFormat extends CargoDisplayFormat {
 			if ( count( $valuesTable ) > 0 && !array_key_exists( $captionField, $valuesTable[0] ) ) {
 				throw new MWException( wfMessage( "cargo-query-specifiedfieldmissing", $captionField, "caption field" )->parse() );
 			}
-			$this->undisplayedFields[] = $captionField;
 		} else {
 			$captionField = null;
 		}
@@ -112,7 +110,6 @@ class CargoGalleryFormat extends CargoDisplayFormat {
 			if ( count( $valuesTable ) > 0 && !array_key_exists( $altField, $valuesTable[0] ) ) {
 				throw new MWException( wfMessage( "cargo-query-specifiedfieldmissing", $altField, "alt field" )->parse() );
 			}
-			$this->undisplayedFields[] = $altField;
 		} else {
 			$altField = null;
 		}
@@ -124,7 +121,6 @@ class CargoGalleryFormat extends CargoDisplayFormat {
 			if ( count( $valuesTable ) > 0 && !array_key_exists( $linkField, $valuesTable[0] ) ) {
 				throw new MWException( wfMessage( "cargo-query-specifiedfieldmissing", $linkField, "link field" )->parse() );
 			}
-			$this->undisplayedFields[] = $linkField;
 		} else {
 			$linkField = null;
 		}

@@ -17,8 +17,6 @@ class CargoPageValues extends IncludableSpecialPage {
 	}
 
 	public function execute( $subpage = null ) {
-		global $wgCargoPageDataColumns, $wgCargoFileDataColumns;
-
 		if ( $subpage ) {
 			// Allow inclusion with e.g. {{Special:PageValues/Book}}
 			$this->mTitle = Title::newFromText( $subpage );
@@ -39,21 +37,18 @@ class CargoPageValues extends IncludableSpecialPage {
 
 		$text = '';
 
-		$dbw = wfGetDB( DB_MASTER );
+		$dbr = wfGetDB( DB_REPLICA );
 
 		$tableNames = [];
+		// There is an exception check later on when we query for rows, so it's safe not to
+		// check for existence yet
+		$tableNames[] = '_pageData';
+		$tableNames[] = '_fileData';
 
-		// Make _pageData and _fileData the first two tables, if
-		// either of them hold any real data.
-		if ( count( $wgCargoPageDataColumns ) > 0 ) {
-			$tableNames[] = '_pageData';
-		}
-		if ( count( $wgCargoFileDataColumns ) > 0 ) {
-			$tableNames[] = '_fileData';
-		}
-
-		$res = $dbw->select(
-			'cargo_pages', 'table_name', [ 'page_id' => $this->mTitle->getArticleID() ] );
+		$res = $dbr->select(
+			'cargo_pages', 'table_name',
+			[ 'page_id' => $this->mTitle->getArticleID() ]
+		);
 		foreach ( $res as $row ) {
 			$tableNames[] = $row->table_name;
 		}
@@ -81,7 +76,7 @@ class CargoPageValues extends IncludableSpecialPage {
 			$tableLink = $this->getTableLink( $tableName );
 
 			$tableSectionHeader = $this->msg( 'cargo-pagevalues-tablevalues', $tableLink )->text();
-			$tableSectionTocDisplay = $this->msg( 'cargo-pagevalues-tablevalues', $tableName )->text();
+			$tableSectionTocDisplay = $this->msg( 'cargo-pagevalues-tablevalues', $tableName )->escaped();
 			$tableSectionAnchor = $this->msg( 'cargo-pagevalues-tablevalues', $tableName )->escaped();
 			$tableSectionAnchor = Sanitizer::escapeIdForAttribute( $tableSectionAnchor );
 
@@ -100,15 +95,21 @@ class CargoPageValues extends IncludableSpecialPage {
 			foreach ( $queryResults as $rowValues ) {
 				$tableContents = '';
 				$fieldInfo = $this->getInfoForAllFields( $tableName );
+				$anyFieldHasAllowedValues = false;
+				foreach ( $fieldInfo as $info ) {
+					if ( $info['allowed values'] !== '' ) {
+						$anyFieldHasAllowedValues = true;
+					}
+				}
 				foreach ( $rowValues as $field => $value ) {
 					// @HACK - this check should ideally
 					// be done earlier.
 					if ( strpos( $field, '__precision' ) !== false ) {
 						continue;
 					}
-					$tableContents .= $this->printRow( $field, $value, $fieldInfo[ $field ] );
+					$tableContents .= $this->printRow( $field, $value, $fieldInfo[$field], $anyFieldHasAllowedValues );
 				}
-				$text .= $this->printTable( $tableContents );
+				$text .= $this->printTable( $tableContents, $anyFieldHasAllowedValues );
 			}
 		}
 
@@ -116,7 +117,6 @@ class CargoPageValues extends IncludableSpecialPage {
 		if ( count( $tableNames ) >= 3 ) {
 			$toc = Linker::tocList( $toc );
 			$out->addHTML( $toc );
-			$out->addModuleStyles( 'mediawiki.toc.styles' );
 		}
 
 		$out->addHTML( $text );
@@ -139,23 +139,23 @@ class CargoPageValues extends IncludableSpecialPage {
 
 	/**
 	 * Used to get the information about field type and the list
-	 * of allowed values(if any) of all fields of a table
+	 * of allowed values (if any) of all fields of a table.
 	 *
+	 * @param string $tableName
 	 */
 	private function getInfoForAllFields( $tableName ) {
 		$tableSchemas = CargoUtils::getTableSchemas( [ $tableName ] );
 		if ( $tableName == '_pageData' ) {
 			CargoUtils::addGlobalFieldsToSchema( $tableSchemas[$tableName] );
 		}
-		$fieldDescriptions = $tableSchemas[ $tableName ]->mFieldDescriptions;
+		$fieldDescriptions = $tableSchemas[$tableName]->mFieldDescriptions;
 		$fieldInfo = [];
 		foreach ( $fieldDescriptions as $fieldName => $fieldDescription ) {
-			$fieldInfo[ $fieldName ][ 'field type' ] = $fieldDescription->prettyPrintType();
-			$delimiter = strlen( $fieldDescription->getDelimiter() ) ? $fieldDescription->getDelimiter() : ',';
+			$fieldInfo[$fieldName]['field type'] = $fieldDescription->prettyPrintType();
 			if ( is_array( $fieldDescription->mAllowedValues ) ) {
-				$fieldInfo[ $fieldName ][ 'allowed values' ] = implode( $delimiter . " ", $fieldDescription->mAllowedValues );
+				$fieldInfo[$fieldName]['allowed values'] = implode( ' &middot; ', $fieldDescription->mAllowedValues );
 			} else {
-				$fieldInfo[ $fieldName ][ 'allowed values' ] = '';
+				$fieldInfo[$fieldName]['allowed values'] = '';
 			}
 		}
 		return $fieldInfo;
@@ -197,7 +197,8 @@ class CargoPageValues extends IncludableSpecialPage {
 		$sqlQuery->mOrigAliasedFieldNames = $aliasedFieldNames;
 		$sqlQuery->setDescriptionsAndTableNamesForFields();
 		$sqlQuery->handleDateFields();
-		$sqlQuery->mWhereStr = $cdb->addIdentifierQuotes( '_pageID' ) . " = " . $this->mTitle->getArticleID();
+		$sqlQuery->mWhereStr = $cdb->addIdentifierQuotes( '_pageID' ) . " = " .
+			$this->mTitle->getArticleID();
 
 		$queryResults = $sqlQuery->run();
 		$queryDisplayer = CargoQueryDisplayer::newFromSQLQuery( $sqlQuery );
@@ -208,27 +209,37 @@ class CargoPageValues extends IncludableSpecialPage {
 	/**
 	 * Based on MediaWiki's InfoAction::addRow()
 	 */
-	public function printRow( $name, $value, $fieldInfo ) {
+	public function printRow( $name, $value, $fieldInfo, $fieldHasAnyAllowedValues ) {
 		if ( $name == '_fullText' && strlen( $value ) > 300 ) {
 			$value = substr( $value, 0, 300 ) . ' ...';
 		}
-		return Html::rawElement( 'tr', [],
-			Html::rawElement( 'td',
-			[
-				'class' => 'cargo-pagevalues-fieldinfo',
-				'data-field-type' => $fieldInfo[ 'field type' ],
-				'data-allowed-values' => $fieldInfo[ 'allowed values' ]
-			], $name . "&nbsp;&nbsp;&nbsp;" ) .
-			Html::rawElement( 'td', [], $value )
-		);
+		$text = Html::element( 'td', [ 'class' => 'cargo-pagevalues-table-field' ], $name ) .
+			Html::rawElement( 'td', [ 'class' => 'cargo-pagevalues-table-type' ], $fieldInfo['field type'] );
+		if ( $fieldHasAnyAllowedValues ) {
+			$allowedValuesText = $fieldInfo['allowed values'];
+			// Count "middot" as only one character, not eight, when counting the string length.
+			$allowedValuesDisplayText = str_replace( '&middot;', '.', $allowedValuesText );
+			if ( strlen( $allowedValuesDisplayText ) > 25 ) {
+				$allowedValuesText = '<span class="cargoMinimizedText">' . $fieldInfo['allowed values'] . '</span>';
+			}
+			$text .= Html::rawElement( 'td', [ 'class' => 'cargo-pagevalues-table-allowedvalues' ], $allowedValuesText );
+		}
+		$text .= Html::rawElement( 'td', [ 'class' => 'cargo-pagevalues-table-value' ], $value );
+
+		return Html::rawElement( 'tr', [], $text );
 	}
 
 	/**
 	 * Based on MediaWiki's InfoAction::addTable()
 	 */
-	public function printTable( $tableContents ) {
+	public function printTable( $tableContents, $anyFieldHasAllowedValues ) {
+		$headerRow = '<tr><th>Field</th><th>' . $this->msg( 'cargo-field-type' )->text() . '</th>';
+		if ( $anyFieldHasAllowedValues ) {
+			$headerRow .= '<th>' . $this->msg( 'cargo-allowed-values' )->text() . '</th>';
+		}
+		$headerRow .= '<th>Value</th></tr>';
 		return Html::rawElement( 'table', [ 'class' => 'wikitable mw-page-info' ],
-			$tableContents ) . "\n";
+			$headerRow . $tableContents ) . "\n";
 	}
 
 	/**

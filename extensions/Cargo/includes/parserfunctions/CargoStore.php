@@ -6,6 +6,8 @@
  * @ingroup Cargo
  */
 
+use MediaWiki\MediaWikiServices;
+
 class CargoStore {
 
 	public static $settings = [];
@@ -22,10 +24,10 @@ class CargoStore {
 	 * Handles the #cargo_store parser function - saves data for one
 	 * template call.
 	 *
-	 * @param Parser &$parser
+	 * @param Parser $parser
 	 * @throws MWException
 	 */
-	public static function run( &$parser, $frame, $args ) {
+	public static function run( $parser, $frame, $args ) {
 		// Get page-related information early on, so we can exit
 		// quickly if there's a problem.
 		$title = $parser->getTitle();
@@ -77,34 +79,39 @@ class CargoStore {
 			return;
 		}
 
-		// Go through all the fields for this table, setting any that
-		// were not explicitly set in the #cargo_store call.
 		try {
 			$tableSchemas = CargoUtils::getTableSchemas( [ $tableName ] );
 		} catch ( MWException $e ) {
 			// Most likely, this table was never created - just exit.
 			return;
 		}
+
 		$fieldDescriptions = $tableSchemas[$tableName]->mFieldDescriptions;
 		$fieldNames = array_keys( $fieldDescriptions );
-		foreach ( $fieldNames as $fieldName ) {
-			// Skip it if it's already being handled.
-			if ( array_key_exists( $fieldName, $tableFieldValues ) ) {
-				continue;
-			}
-			// Look for a template parameter with the same name
-			// as this field, both with underscores and with spaces.
-			$curFieldValue = $frame->getArgument( $fieldName );
-			if ( $curFieldValue == null ) {
-				$unescapedFieldName = str_replace( '_', ' ', $fieldName );
-				$curFieldValue = $frame->getArgument( $unescapedFieldName );
-				// For some reason, getArgument() returns false,
-				// and not null, for missing values.
-				if ( $curFieldValue === false && !$GLOBALS["wgCargoLegacyStoreNullAsEmptyString"] ) {
-					$curFieldValue = null;
+
+		if ( $GLOBALS["wgCargoStoreUseTemplateArgsFallback"] ) {
+			// Go through all the fields for this table, setting any that
+			// were not explicitly set in the #cargo_store call.
+			foreach ( $fieldNames as $fieldName ) {
+				// Skip it if it's already being handled.
+				if ( array_key_exists( $fieldName, $tableFieldValues ) ) {
+					continue;
+				}
+				// Look for a template parameter with the same name
+				// as this field, both with underscores and with spaces.
+				$curFieldValue = $frame->getArgument( $fieldName );
+
+				if ( $curFieldValue === false ) {
+					$unescapedFieldName = str_replace( '_', ' ', $fieldName );
+					$curFieldValue = $frame->getArgument( $unescapedFieldName );
+				}
+
+				// We don't want to unintentionally add false values in wrongly typed-fields
+				// in case strict mode is being used
+				if ( $curFieldValue !== false ) {
+					$tableFieldValues[$fieldName] = $curFieldValue;
 				}
 			}
-			$tableFieldValues[$fieldName] = $curFieldValue;
 		}
 
 		$origTableName = $tableName;
@@ -313,7 +320,7 @@ class CargoStore {
 		$tableFieldValues['_pageID'] = $pageID;
 
 		// Allow other hooks to modify the values.
-		Hooks::run( 'CargoBeforeStoreData', [ $title, $tableName, &$tableSchema, &$tableFieldValues ] );
+		MediaWikiServices::getInstance()->getHookContainer()->run( 'CargoBeforeStoreData', [ $title, $tableName, &$tableSchema, &$tableFieldValues ] );
 
 		$cdb = CargoUtils::getDB();
 
@@ -346,7 +353,7 @@ class CargoStore {
 			if ( $fieldDescription->mIsList ) {
 				$listFieldTableName = $tableName . '__' . $fieldName;
 				try {
-					$res = $cdb->select( $listFieldTableName, 'COUNT(' .
+					$cdb->select( $listFieldTableName, 'COUNT(' .
 						$cdb->addIdentifierQuotes( '_position' ) . ')' );
 				} catch ( Exception $e ) {
 					$hasPositionField = false;
@@ -389,6 +396,11 @@ class CargoStore {
 					];
 					if ( $hasPositionField ) {
 						$fieldValues['_position'] = $valueNum++;
+					}
+					if ( $fieldDescription->isDateOrDatetime() ) {
+						list( $dateValue, $precision ) = self::getDateValueAndPrecision( $individualValue, $fieldType );
+						$fieldValues['_value'] = $dateValue;
+						$fieldValues['_value__precision'] = $precision;
 					}
 					// For coordinates, there are two more
 					// fields, for latitude and longitude.
@@ -442,7 +454,8 @@ class CargoStore {
 		$fileTableName = $tableName . '___files';
 		foreach ( $tableSchema->mFieldDescriptions as $fieldName => $fieldDescription ) {
 			$fieldType = $fieldDescription->mType;
-			if ( $fieldType != 'File' ) {
+			// Only handle this field if it's of type File, and if it exists in the table records.
+			if ( $fieldType != 'File' || !array_key_exists( $fieldName, $tableFieldValues ) ) {
 				continue;
 			}
 			if ( $fieldDescription->mIsList ) {
@@ -510,7 +523,9 @@ class CargoStore {
 				$fieldSize = $fieldDescription->getFieldSize();
 			}
 
-			if ( $fieldValue === '' ) {
+			if ( $fieldValue === null ) {
+				// Do nothing.
+			} elseif ( $fieldValue === '' ) {
 				// Needed for correct SQL handling of blank values, for some reason.
 				$fieldValue = null;
 			} elseif ( $fieldSize != null && strlen( $fieldValue ) > $fieldSize ) {

@@ -1,6 +1,16 @@
 <?php
 
+use Wikimedia\Rdbms\IDatabase;
+use Wikimedia\Rdbms\IResultWrapper;
+
 class CargoQueryPage extends QueryPage {
+	/** @var CargoSQLQuery */
+	private $sqlQuery;
+	/** @var array */
+	private $displayParams;
+	/** @var string */
+	private $format;
+
 	public function __construct( $name = 'CargoQuery' ) {
 		parent::__construct( $name );
 
@@ -74,9 +84,7 @@ class CargoQueryPage extends QueryPage {
 	// @todo - declare a getPageHeader() function, to show some
 	// information about the query?
 
-	/**
-	 * @return string
-	 */
+	/** @inheritDoc */
 	public function getRecacheDB() {
 		return CargoUtils::getDB();
 	}
@@ -97,14 +105,12 @@ class CargoQueryPage extends QueryPage {
 		$cdb = CargoUtils::getDB();
 		$aliasedFieldNames = [];
 		foreach ( $this->sqlQuery->mAliasedFieldNames as $alias => $fieldName ) {
-			foreach ( $this->sqlQuery->mAliasedFieldNames as $alias => $fieldName ) {
-				// If it's really a field name, add quotes around it.
-				if ( strpos( $fieldName, '(' ) === false && strpos( $fieldName, '.' ) === false &&
-					!$cdb->isQuotedIdentifier( $fieldName ) && !CargoUtils::isSQLStringLiteral( $fieldName ) ) {
-					$fieldName = $cdb->addIdentifierQuotes( $fieldName );
-				}
-				$aliasedFieldNames[$alias] = $fieldName;
+			// If it's really a field name, add quotes around it.
+			if ( strpos( $fieldName, '(' ) === false && strpos( $fieldName, '.' ) === false &&
+				!$cdb->isQuotedIdentifier( $fieldName ) && !CargoUtils::isSQLStringLiteral( $fieldName ) ) {
+				$fieldName = $cdb->addIdentifierQuotes( $fieldName );
 			}
+			$aliasedFieldNames[$alias] = $fieldName;
 		}
 
 		$queryInfo = [
@@ -135,6 +141,8 @@ class CargoQueryPage extends QueryPage {
 		foreach ( $possibleParams as $possibleParam ) {
 			if ( $req->getCheck( $possibleParam ) ) {
 				$linkParams[$possibleParam] = $req->getVal( $possibleParam );
+			} elseif ( $req->getArray( $possibleParam ) ) {
+				$linkParams[$possibleParam] = $req->getArray( $possibleParam );
 			}
 		}
 
@@ -163,8 +171,8 @@ class CargoQueryPage extends QueryPage {
 	 *
 	 * @param OutputPage $out OutputPage to print to
 	 * @param Skin $skin User skin to use
-	 * @param DatabaseBase $dbr Database (read) connection to use
-	 * @param int $res Result pointer
+	 * @param IDatabase $dbr Database (read) connection to use
+	 * @param IResultWrapper $res Result pointer
 	 * @param int $num Number of available result rows
 	 * @param int $offset Paging offset
 	 */
@@ -187,6 +195,10 @@ class CargoQueryPage extends QueryPage {
 		$this->displayParams['offset'] = $offset;
 		$queryDisplayer->mDisplayParams = $this->displayParams;
 		$html = $queryDisplayer->displayQueryResults( $formatter, $valuesTable );
-		$out->addHTML( $html );
+		if ( $this->format === 'template' ) {
+			$out->addWikiTextAsContent( $html );
+		} else {
+			$out->addHTML( $html );
+		}
 	}
 }

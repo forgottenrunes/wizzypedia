@@ -9,6 +9,7 @@
 			"Dgstranz",
 			"DiegoAmbrocio",
 			"Fitoschido",
+			"Francodiaz7",
 			"Irus",
 			"Jackiezelaya",
 			"KATRINE1992",
@@ -17,6 +18,7 @@
 			"Madamebiblio",
 			"MarcoAurelio",
 			"Nemo bis",
+			"OriginReboot",
 			"Ryo567"
 		]
 	},
@@ -58,6 +60,7 @@
 	"cargo-viewdata-hidelegendparam": "Ocultar leyenda:",
 	"cargo-viewdata-delimiterparam": "Delimitador:",
 	"cargo-viewdata-modifyquery": "Modifique consulta",
+	"cargo-viewdata-viewwikitext": "Ver wikitexto",
 	"cargo-query-missingformat": "Error: debe establecerse el formato.",
 	"cargo-query-badsqlfunction": "Error: no se permite la función de SQL «$1».",
 	"cargo-query-badalias": "Error: el alias de la tabla «$1» no es válido.",
@@ -141,5 +144,5 @@
 	"cargo-gantt-months": "Meses",
 	"cargo-gantt-years": "Años",
 	"cargo-field-type": "Tipo de campo:",
-	"cargo-allowed-values": "Valores permitidos:"
+	"cargo-allowed-values": "Valores permitidos"
 }

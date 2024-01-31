@@ -14,9 +14,6 @@ class CargoUtils {
 
 	private static $CargoDB = null;
 
-	/**
-	 * @return Database or DatabaseBase
-	 */
 	public static function getDB() {
 		if ( self::$CargoDB != null && self::$CargoDB->isOpen() ) {
 			return self::$CargoDB;
@@ -25,7 +22,8 @@ class CargoUtils {
 		global $wgDBuser, $wgDBpassword, $wgDBprefix, $wgDBservers;
 		global $wgCargoDBserver, $wgCargoDBname, $wgCargoDBuser, $wgCargoDBpassword, $wgCargoDBprefix, $wgCargoDBtype;
 
-		$lb = MediaWikiServices::getInstance()->getDBLoadBalancer();
+		$services = MediaWikiServices::getInstance();
+		$lb = $services->getDBLoadBalancer();
 		$dbr = $lb->getConnectionRef( DB_REPLICA );
 		$server = $dbr->getServer();
 		$name = $dbr->getDBname();
@@ -79,7 +77,12 @@ class CargoUtils {
 			$params['port'] = $wgDBport;
 		}
 
-		self::$CargoDB = Database::factory( $wgCargoDBtype, $params );
+		if ( method_exists( $services, 'getDatabaseFactory' ) ) {
+			// MW 1.39+
+			self::$CargoDB = $services->getDatabaseFactory()->create( $wgCargoDBtype, $params );
+		} else {
+			self::$CargoDB = Database::factory( $wgCargoDBtype, $params );
+		}
 		return self::$CargoDB;
 	}
 
@@ -196,7 +199,7 @@ class CargoUtils {
 		$allParentTablesInfo = self::getAllPageProps( 'CargoParentTables' );
 		foreach ( $allParentTablesInfo as $parentTablesInfoStr => $templateIDs ) {
 			$parentTablesInfo = unserialize( $parentTablesInfoStr );
-			foreach ( $parentTablesInfo as $alias => $parentTableInfo ) {
+			foreach ( $parentTablesInfo as $parentTableInfo ) {
 				$remoteTable = $parentTableInfo['Name'];
 				if ( $remoteTable !== $tableName ) {
 					continue;
@@ -396,8 +399,12 @@ class CargoUtils {
 	 * Deletes text within quotes and raises and exception if a quoted string
 	 * is not closed.
 	 */
-	public static function removeQuotedStrings( $string ) {
-		$noQuotesPattern = '/("|\')([^\\1\\\\]|\\\\.)*?\\1/';
+	public static function removeQuotedStrings( ?string $string ): string {
+		if ( $string === null ) {
+			return '';
+		}
+
+		$noQuotesPattern = '/("|\')([^\\1\\\\]|\\\\.)*?\\1/s';
 		$string = preg_replace( $noQuotesPattern, '', $string );
 		if ( strpos( $string, '"' ) !== false || strpos( $string, "'" ) !== false ) {
 			throw new MWException( "Error: unclosed string literal." );
@@ -480,7 +487,7 @@ class CargoUtils {
 	 * we're in a special or regular page.
 	 *
 	 * @param string $value
-	 * @param Parser $parser
+	 * @param Parser|null $parser
 	 * @return string
 	 */
 	public static function smartParse( $value, $parser ) {
@@ -501,22 +508,14 @@ class CargoUtils {
 			$value = "\n" . $value;
 		}
 
-		// Add __NOTOC__ and __NOEDITSECTION__ "behavior switches"
-		// to the beginning of this value, so that, on the off chance
-		// that it contains section headers, a table of contents and
-		// edit links will not appear in the parsed output.
-		// We avoid newlines and extra spaces here (we don't need
-		// them) to not mess up the formatting.
-		$value = "__NOTOC____NOEDITSECTION__$value";
-
 		// Parse it as if it's wikitext. The exact call
 		// depends on whether we're in a special page or not.
 		if ( $parser === null ) {
 			$parser = MediaWikiServices::getInstance()->getParser();
 		}
 
-		// Since MW 1.35, Parser::getTitle() throws a TypeError if it
-		// would have returned null, so just catch the error.
+		// Parser::getTitle() throws a TypeError if it would have
+		// returned null, so just catch the error.
 		// Why would the title be null? It's not clear, but it seems to
 		// happen in at least once case: in "action=pagevalues" for a
 		// page with non-ASCII characters in its name.
@@ -544,7 +543,8 @@ class CargoUtils {
 			// The 'pagevalues' action is also a Cargo special page.
 			$wgRequest->getVal( 'action' ) == 'pagevalues' ) {
 			$parserOptions = ParserOptions::newFromAnon();
-			$parserOutput = $parser->parse( $value, $title, $parserOptions, false );
+			$parserForInnerParse = MediaWikiServices::getInstance()->getParserFactory()->create();
+			$parserOutput = $parserForInnerParse->parse( $value, $title, $parserOptions );
 			$value = $parserOutput->getText( [ 'unwrap' => true ] );
 		} else {
 			$value = $parser->internalParse( $value );
@@ -605,15 +605,6 @@ class CargoUtils {
 			$tableSchema = CargoTableSchema::newFromDBString( $tableSchemaString );
 		} else {
 			$tableSchemaString = $tableSchema->toDBString();
-		}
-
-		if ( $parentTables == null ) {
-			$parentTablesStr = self::getPageProp( $templatePageID, 'CargoParentTables' );
-			if ( $parentTablesStr ) {
-				$parentTables = unserialize( $parentTablesStr );
-			} else {
-				$parentTables = [];
-			}
 		}
 
 		$dbw = wfGetDB( DB_MASTER );
@@ -792,7 +783,6 @@ class CargoUtils {
 
 	public static function createCargoTableOrTables( $cdb, $dbw, $tableName, $tableSchema, $tableSchemaString, $templatePageID ) {
 		$cdb->begin();
-		$cdbTableName = $cdb->addIdentifierQuotes( $cdb->tableName( $tableName, 'plain' ) );
 		$fieldsInMainTable = [
 			'_ID' => 'Integer',
 			'_pageName' => 'String',
@@ -803,7 +793,6 @@ class CargoUtils {
 
 		$containsFileType = false;
 		foreach ( $tableSchema->mFieldDescriptions as $fieldName => $fieldDescription ) {
-			$size = $fieldDescription->mSize;
 			$isList = $fieldDescription->mIsList;
 			$fieldType = $fieldDescription->mType;
 
@@ -852,6 +841,9 @@ class CargoUtils {
 					$fieldsInTable['_lon'] = 'Float';
 				} else {
 					$fieldsInTable['_value'] = $fieldType;
+				}
+				if ( $fieldDescription->isDateOrDateTime() ) {
+					$fieldsInTable['_value__precision'] = 'Integer';
 				}
 				$fieldsInTable['_position'] = 'Integer';
 
@@ -1091,7 +1083,8 @@ class CargoUtils {
 	 */
 	public static function parseCoordinatesString( $coordinatesString ) {
 		$coordinatesString = trim( $coordinatesString );
-		if ( $coordinatesString == null ) {
+		if ( $coordinatesString === '' ) {
+			// FIXME: No caller expects this!
 			return;
 		}
 
@@ -1218,7 +1211,7 @@ class CargoUtils {
 	 * @param array $attrs link attributes
 	 * @param array $params query parameters
 	 *
-	 * @return string HTML link
+	 * @return string|null HTML link
 	 */
 	public static function makeLink( $linkRenderer, $title, $msg = null, $attrs = [], $params = [] ) {
 		global $wgTitle;
@@ -1249,7 +1242,7 @@ class CargoUtils {
 	}
 
 	public static function logTableAction( $actionName, $tableName, User $user ) {
-		$log = new LogPage( 'cargo', false );
+		$log = new LogPage( 'cargo' );
 		$ctPage = self::getSpecialPage( 'CargoTables' );
 		$ctTitle = $ctPage->getPageTitle();
 		if ( $actionName == 'deletetable' ) {
@@ -1299,11 +1292,49 @@ class CargoUtils {
 		}
 	}
 
+	public static function validateFieldDescriptionString( $fieldDescriptionStr ) {
+		$hasParameterFormat = preg_match( '/^([^(]*)\s*\((.*)\)$/s', $fieldDescriptionStr, $matches );
+
+		if ( !$hasParameterFormat ) {
+			if ( self::stringContainsParentheses( $fieldDescriptionStr ) ) {
+				throw new MWException( 'Invalid field description - Parentheses do not match: "' . $fieldDescriptionStr . '"' );
+			}
+		} else {
+			if ( count( $matches ) == 3 ) {
+				$extraParamsString = $matches[2];
+				$extraParams = explode( ';', $extraParamsString );
+
+				foreach ( $extraParams as $extraParam ) {
+					$extraParamParts = explode( '=', $extraParam, 2 );
+					$paramKey = strtolower( trim( $extraParamParts[0] ) );
+					$paramValue = isset( $extraParamParts[1] ) ? trim( $extraParamParts[1] ) : '';
+
+					if ( self::stringContainsParentheses( $paramKey ) ) {
+						throw new MWException( 'Invalid field description - Parameter name "' . $paramKey . '" must not include parentheses: "' . $fieldDescriptionStr . '"' );
+					}
+
+					if ( $paramKey == 'allowed values' ) {
+						continue;
+					}
+
+					if ( self::stringContainsParentheses( $paramValue ) ) {
+						throw new MWException( 'Invalid field description - Parameter value "' . $paramValue . '" must not include parentheses: "' . $fieldDescriptionStr . '"' );
+					}
+				}
+			}
+		}
+	}
+
 	/**
 	 * A helper function, because Title::getTemplateLinksTo() is broken in
 	 * MW 1.37.
 	 */
 	public static function getTemplateLinksTo( $templateTitle, $options = [] ) {
+		if ( class_exists( 'MediaWiki\CommentFormatter\CommentBatch' ) ) {
+			// MW 1.38+ - just use the standard function again.
+			return $templateTitle->getTemplateLinksTo( $options );
+		}
+
 		$db = wfGetDB( DB_REPLICA );
 
 		$selectFields = LinkCache::getSelectFields();
@@ -1316,7 +1347,7 @@ class CargoUtils {
 			[
 				"tl_from=page_id",
 				"tl_namespace" => NS_TEMPLATE,
-				"tl_title" => $templateTitle->mDbkeyform
+				"tl_title" => $templateTitle->getDBkey()
 			],
 			__METHOD__,
 			$options
@@ -1345,31 +1376,6 @@ class CargoUtils {
 		}
 	}
 
-	/**
-	 * Replace file redirects with the appropriate targets
-	 * @param array $valuesArray
-	 * @param array $fieldDescriptions
-	 * @return array $valuesArray
-	 */
-	public static function replaceRedirectWithTarget( $valuesArray, $fieldDescriptions ) {
-		foreach ( $valuesArray as &$result ) {
-			foreach ( $result as $key => &$val ) {
-				if ( array_key_exists( $key, $fieldDescriptions ) &&
-				$fieldDescriptions[ $key ]->mType == "File" ) {
-					$title = Title::newFromText( $val );
-					if ( $title != null && $title->isRedirect() ) {
-						$page = WikiPage::factory( $title );
-						$target = $page->getRedirectTarget();
-						if ( $target != null ) {
-							$val = $target->getText();
-						}
-					}
-				}
-			}
-		}
-		return $valuesArray;
-	}
-
 	public static function globalFields() {
 		return [
 			'_pageID' => [ 'type' => 'Integer', 'isList' => false ],
@@ -1391,4 +1397,16 @@ class CargoUtils {
 		}
 	}
 
+	public static function stringContainsParentheses( $str ) {
+		return substr_count( $str, ')' ) > 0 || substr_count( $str, '(' ) > 0;
+	}
+
+	public static function makeWikiPage( $title ) {
+		if ( method_exists( MediaWikiServices::class, 'getWikiPageFactory' ) ) {
+			// MW 1.36+
+			return MediaWikiServices::getInstance()->getWikiPageFactory()->newFromTitle( $title );
+		} else {
+			return WikiPage::factory( $title );
+		}
+	}
 }

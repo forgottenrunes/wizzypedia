@@ -5,6 +5,8 @@
 		]
 	},
 	"cargo-viewdata-tables": "Tabelo/Tabeli:",
+	"cargo-viewdata-fields": "Skribo-loko/loki:",
+	"cargo-viewdata-limit": "Limito:",
 	"cargo-viewdata-defaultformat": "Predeterminita",
 	"cargo-cargotables-header-table": "Tabelo",
 	"cargo-cargotables-header-templates": "Shabloni",

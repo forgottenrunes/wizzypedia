@@ -37,7 +37,7 @@ class CargoSpecialDrilldown extends IncludableSpecialPage {
 		$out->addModules( 'ext.cargo.drilldown' );
 
 		$queryparts = explode( '/', $query, 1 );
-		$mainTable = isset( $queryparts[0] ) ? $queryparts[0] : '';
+		$mainTable = $queryparts[0] ?? '';
 
 		// If no table was specified, go with the first table,
 		// alphabetically.
@@ -45,11 +45,10 @@ class CargoSpecialDrilldown extends IncludableSpecialPage {
 			$tableNames = CargoUtils::getTables();
 			if ( count( $tableNames ) == 0 ) {
 				// There are no tables - just exit now.
-				return 0;
+				return;
 			}
 			$mainTable = $tableNames[0];
 		}
-		$parentTables = [];
 		$parentTables = CargoUtils::getParentTables( $mainTable );
 		$drilldownTabsParams = CargoUtils::getDrilldownTabsParams( $mainTable );
 		if ( $parentTables ) {
@@ -197,19 +196,14 @@ class CargoSpecialDrilldown extends IncludableSpecialPage {
 		} else {
 			$numResultsPerPage = 250;
 		}
-		if ( method_exists( $request, 'getLimitOffsetForUser' ) ) {
-			// MW 1.35+
-			list( $limit, $offset ) = $request->getLimitOffsetForUser(
-				$this->getUser(),
-				$numResultsPerPage,
-				'limit'
-			);
-		} else {
-			list( $limit, $offset ) = $request->getLimitOffset( $numResultsPerPage, 'limit' );
-		}
+		list( $limit, $offset ) = $request->getLimitOffsetForUser(
+			$this->getUser(),
+			$numResultsPerPage,
+			'limit'
+		);
 
 		$filter_used = [];
-		foreach ( $all_filters as $i => $filter ) {
+		foreach ( $all_filters as $filter ) {
 			$filter_used[] = false;
 		}
 		$applied_filters = [];
@@ -279,21 +273,19 @@ class CargoSpecialDrilldown extends IncludableSpecialPage {
 			$fullTextSearchTerm, $coordsFields, $dateFields, $calendarFields, $fileFields,
 			$searchablePages, $searchableFiles, $dependentFieldsArray, $offset, $limit, $format,
 			$formatBy, $formatByFieldIsList, $curTabName );
-		$num = $rep->execute( $query );
+		$rep->execute( $query );
 		$out->addHTML( "\n\t\t\t</div> <!-- drilldown-results -->\n" );
 
 		// This has to be set last, because otherwise the QueryPage
 		// code will overwrite it.
 		if ( !$mainTable ) {
-			$tableTitle = $this->msg( 'drilldown' )->text();
+			$tableTitle = $this->msg( 'drilldown' )->escaped();
 		} else {
-			$tableTitle = $this->msg( 'drilldown' )->text() .
-				html_entity_decode( $this->msg( 'colon-separator' )->text() ) .
+			$tableTitle = $this->msg( 'drilldown' )->escaped() .
+				html_entity_decode( $this->msg( 'colon-separator' )->escaped() ) .
 				$rep->displayTableName( $mainTable );
 		}
 		$out->setPageTitle( $tableTitle );
-
-		return $num;
 	}
 
 	protected function getGroupName() {

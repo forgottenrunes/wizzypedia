@@ -92,20 +92,23 @@ class CargoDeclare {
 	 * @return string|null
 	 */
 	public static function validateFieldOrTableName( $name, $type ) {
+		// We can just call text() on all of these wfMessage() calls,
+		// since the resulting text is passed to formatFieldError(),
+		// which HTML-encodes the text.
 		if ( preg_match( '/\s/', $name ) ) {
-			return wfMessage( "cargo-declare-validate-has-whitespace", $type, $name )->parse();
+			return wfMessage( "cargo-declare-validate-has-whitespace", $type, $name )->text();
 		} elseif ( strpos( $name, '_' ) === 0 ) {
-			return wfMessage( "cargo-declare-validate-starts-underscore", $type, $name )->parse();
+			return wfMessage( "cargo-declare-validate-starts-underscore", $type, $name )->text();
 		} elseif ( substr( $name, -1 ) === '_' ) {
-			return wfMessage( "cargo-declare-validate-ends-underscore", $type, $name )->parse();
+			return wfMessage( "cargo-declare-validate-ends-underscore", $type, $name )->text();
 		} elseif ( strpos( $name, '__' ) !== false ) {
-			return wfMessage( "cargo-declare-validate-gt1-underscore", $type, $name )->parse();
-		} elseif ( preg_match( '/[\.,\-<>(){}\[\]\\\\\/]/', $name ) ) {
-			return wfMessage( "cargo-declare-validate-bad-character", $type, $name, '.,-<>(){}[]\/' )->parse();
+			return wfMessage( "cargo-declare-validate-gt1-underscore", $type, $name )->text();
+		} elseif ( preg_match( '/[\.,\-\'"<>(){}\[\]\\\\\/]/', $name ) ) {
+			return wfMessage( "cargo-declare-validate-bad-character", $type, $name, '.,-\'"<>(){}[]\/' )->text();
 		} elseif ( in_array( strtolower( $name ), self::$sqlReservedWords ) ) {
-			return wfMessage( "cargo-declare-validate-name-sql-kw", $name, $type )->parse();
+			return wfMessage( "cargo-declare-validate-name-sql-kw", $name, $type )->text();
 		} elseif ( in_array( strtolower( $name ), self::$cargoReservedWords ) ) {
-			return wfMessage( "cargo-declare-validate-name-cargo-kw", $name, $type )->parse();
+			return wfMessage( "cargo-declare-validate-name-cargo-kw", $name, $type )->text();
 		}
 		return null;
 	}
@@ -311,7 +314,7 @@ class CargoDeclare {
 
 		$cdb = CargoUtils::getDB();
 
-		foreach ( $parentTables as $parentTableAlias => $extraParams ) {
+		foreach ( $parentTables as $extraParams ) {
 			$parentTableName = $extraParams['Name'];
 			$localField = $extraParams['_localField'];
 			$remoteField = $extraParams['_remoteField'];
@@ -386,14 +389,9 @@ class CargoDeclare {
 		// that declares it is created.
 		if ( array_key_exists( 'createData', self::$settings ) ) {
 			$userID = self::$settings['userID'];
-			if ( class_exists( 'MediaWiki\User\UserFactory' ) ) {
-				// MW 1.35+
-				$user = MediaWikiServices::getInstance()
-					->getUserFactory()
-					->newFromId( (int)$userID );
-			} else {
-				$user = User::newFromId( (int)$userID );
-			}
+			$user = MediaWikiServices::getInstance()
+				->getUserFactory()
+				->newFromId( (int)$userID );
 			$title = $parser->getTitle();
 			$templatePageID = $title->getArticleID();
 			CargoUtils::recreateDBTablesForTemplate(
@@ -404,6 +402,22 @@ class CargoDeclare {
 				$tableSchema,
 				$parentTables
 			);
+
+			// Populate (or re-populate) the table with any
+			// existing data from the wiki.
+			// @todo This should cycle through *all* the pages,
+			// 500 at a time, in case there are a lot.
+			$titlesToStore = CargoUtils::getTemplateLinksTo( $title, [ 'LIMIT' => 1000 ] );
+			$jobs = [];
+			foreach ( $titlesToStore as $titleToStore ) {
+				$jobs[] = new CargoPopulateTableJob( $titleToStore, [ 'dbTableName' => $tableName ] );
+			}
+			if ( method_exists( MediaWikiServices::class, 'getJobQueueGroup' ) ) {
+				// MW 1.37+
+				MediaWikiServices::getInstance()->getJobQueueGroup()->push( $jobs );
+			} else {
+				JobQueueGroup::singleton()->push( $jobs );
+			}
 
 			// Ensure that this code doesn't get called more than
 			// once per page save.

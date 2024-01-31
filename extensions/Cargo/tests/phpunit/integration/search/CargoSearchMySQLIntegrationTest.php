@@ -1,7 +1,5 @@
 <?php
 
-use MediaWiki\MediaWikiServices;
-
 class CargoSearchMySQLIntegrationTest extends MediaWikiIntegrationTestCase {
 	/** @var CargoSearchMySQL */
 	private $cargoSearchMysql;
@@ -10,9 +8,7 @@ class CargoSearchMySQLIntegrationTest extends MediaWikiIntegrationTestCase {
 		$this->setMwGlobals(
 			[ 'wgMainStash' => true ]
 		);
-		$this->cargoSearchMysql = new CargoSearchMySQL(
-			MediaWikiServices::getInstance()->getDBLoadBalancer()
-		);
+		$this->cargoSearchMysql = new CargoSearchMySQL();
 	}
 
 	/**
@@ -20,7 +16,7 @@ class CargoSearchMySQLIntegrationTest extends MediaWikiIntegrationTestCase {
 	 * @dataProvider provideRegexTermData
 	 */
 	public function testRegexTerm( $string, $wildcard, $expected ) {
-		$actual = $this->cargoSearchMysql->regexTerm( $string, $wildcard, $expected );
+		$actual = $this->cargoSearchMysql->regexTerm( $string, $wildcard );
 
 		$this->assertSame( $expected, $actual );
 	}
@@ -28,7 +24,7 @@ class CargoSearchMySQLIntegrationTest extends MediaWikiIntegrationTestCase {
 	/**
 	 * @return array
 	 */
-	public function provideRegexTermData() {
+	public static function provideRegexTermData() {
 		return [
 			# '' as wildcard is considered as false (implicitly)
 			[ 'Cargo example', '', '\bCargo example\b' ],
@@ -54,7 +50,7 @@ class CargoSearchMySQLIntegrationTest extends MediaWikiIntegrationTestCase {
 	/**
 	 * @return array
 	 */
-	public function provideGetIndexFieldData() {
+	public static function provideGetIndexFieldData() {
 		return [
 			[ true, 'si_text' ],
 			[ false, 'si_title' ]

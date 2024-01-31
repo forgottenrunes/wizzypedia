@@ -28,6 +28,7 @@ class CargoSQLQuery {
 	public $mGroupByStr;
 	public $mOrigHavingStr;
 	public $mHavingStr;
+	public $mOrigOrderBy;
 	public $mOrderBy;
 	public $mQueryLimit;
 	public $mOffset;
@@ -43,7 +44,7 @@ class CargoSQLQuery {
 	 * object can be created without any values.
 	 */
 	public static function newFromValues( $tablesStr, $fieldsStr, $whereStr, $joinOnStr, $groupByStr,
-		$havingStr, $orderByStr, $limitStr, $offsetStr ) {
+		$havingStr, $orderByStr, $limitStr, $offsetStr, $allowFieldEscaping = false ) {
 		global $wgCargoDefaultQueryLimit, $wgCargoMaxQueryLimit;
 
 		// "table(s)" is the only mandatory value.
@@ -51,8 +52,13 @@ class CargoSQLQuery {
 			throw new MWException( "At least one table must be specified." );
 		}
 
+		// Needed to avoid various warnings.
+		if ( $whereStr === null ) {
+			$whereStr = '';
+		}
+
 		self::validateValues( $tablesStr, $fieldsStr, $whereStr, $joinOnStr, $groupByStr,
-			$havingStr, $orderByStr, $limitStr, $offsetStr );
+			$havingStr, $orderByStr, $limitStr, $offsetStr, $allowFieldEscaping );
 
 		$sqlQuery = new CargoSQLQuery();
 		$sqlQuery->mCargoDB = CargoUtils::getDB();
@@ -68,6 +74,7 @@ class CargoSQLQuery {
 		$sqlQuery->setCargoJoinConds( $joinOnStr );
 		$sqlQuery->setAliasedFieldNames();
 		$sqlQuery->mTableSchemas = CargoUtils::getTableSchemas( $sqlQuery->mAliasedTableNames );
+		$sqlQuery->mOrigOrderBy = $orderByStr;
 		$sqlQuery->setOrderBy( $orderByStr );
 		$sqlQuery->setGroupBy( $groupByStr );
 		$sqlQuery->mOrigHavingStr = $havingStr;
@@ -104,7 +111,7 @@ class CargoSQLQuery {
 	 * "fields=" parameter.
 	 */
 	public static function validateValues( $tablesStr, $fieldsStr, $whereStr, $joinOnStr, $groupByStr,
-		$havingStr, $orderByStr, $limitStr, $offsetStr ) {
+		$havingStr, $orderByStr, $limitStr, $offsetStr, $allowFieldEscaping ) {
 		// Remove quoted strings from "where" parameter, to avoid
 		// unnecessary false positives from words like "from"
 		// being included in string comparisons.
@@ -145,6 +152,12 @@ class CargoSQLQuery {
 			'/\/\*/' => '/*',
 			'/#/' => '#',
 		];
+		// Bypass this particular check, for Special:Drilldown and possibly
+		// other query locations.
+		if ( !$allowFieldEscaping ) {
+			// Temporarily removed.
+			// $regexps['/`/'] = '`';
+		}
 		foreach ( $regexps as $regexp => $displayString ) {
 			if ( preg_match( $regexp, $tablesStr ) ||
 				preg_match( $regexp, $noQuotesFieldsStr ) ||
@@ -153,8 +166,8 @@ class CargoSQLQuery {
 				preg_match( $regexp, $noQuotesGroupByStr ) ||
 				preg_match( $regexp, $noQuotesHavingStr ) ||
 				preg_match( $regexp, $noQuotesOrderByStr ) ||
-				preg_match( $regexp, $limitStr ) ||
-				preg_match( $regexp, $offsetStr ) ) {
+				preg_match( $regexp, (string)$limitStr ) ||
+				preg_match( $regexp, (string)$offsetStr ) ) {
 				throw new MWException( "Error: the string \"$displayString\" cannot be used within #cargo_query." );
 			}
 		}
@@ -190,7 +203,7 @@ class CargoSQLQuery {
 
 		// Quick error-checking: for now, just disallow "DISTINCT",
 		// and require "GROUP BY" instead.
-		foreach ( $fieldStrings as $i => $fieldString ) {
+		foreach ( $fieldStrings as $fieldString ) {
 			if ( strtolower( substr( $fieldString, 0, 9 ) ) == 'distinct ' ) {
 				throw new MWException( "Error: The DISTINCT keyword is not allowed by Cargo; "
 				. "please use \"group by=\" instead." );
@@ -202,7 +215,7 @@ class CargoSQLQuery {
 		// "Blank value X" - it will get replaced back before being
 		// displayed.
 		$blankAliasCount = 0;
-		foreach ( $fieldStrings as $i => $fieldString ) {
+		foreach ( $fieldStrings as $fieldString ) {
 			$fieldStringParts = CargoUtils::smartSplit( '=', $fieldString, true );
 			if ( count( $fieldStringParts ) == 2 ) {
 				$fieldName = trim( $fieldStringParts[0] );
@@ -238,7 +251,7 @@ class CargoSQLQuery {
 		$this->mAliasedTableNames = [];
 		$tableStrings = CargoUtils::smartSplit( ',', $this->mTablesStr );
 
-		foreach ( $tableStrings as $i => $tableString ) {
+		foreach ( $tableStrings as $tableString ) {
 			$tableStringParts = CargoUtils::smartSplit( '=', $tableString );
 			if ( count( $tableStringParts ) == 2 ) {
 				$tableName = trim( $tableStringParts[0] );
@@ -270,7 +283,7 @@ class CargoSQLQuery {
 
 		$this->mCargoJoinConds = [];
 
-		if ( trim( $joinOnStr ) == '' ) {
+		if ( $joinOnStr === null || trim( $joinOnStr ) === '' ) {
 			if ( count( $this->mAliasedTableNames ) > 1 ) {
 				throw new MWException( "Error: join conditions must be set for tables." );
 			}
@@ -311,16 +324,6 @@ class CargoSQLQuery {
 			}
 			list( $table2, $field2 ) = $tableAndField2;
 
-			$tableAliases = array_keys( $this->mAliasedTableNames );
-			// Order the tables in the join condition by their relative positions in table names.
-			$position1 = array_search( $table1, $tableAliases );
-			$position2 = array_search( $table2, $tableAliases );
-			if ( $position2 < $position1 ) {
-				// Swap tables and fields if table2 comes before table1 in table names.
-				[ $table1, $table2 ] = [ $table2, $table1 ];
-				[ $field1, $field2 ] = [ $field2, $field1 ];
-			}
-
 			$joinCond = [
 				'joinType' => 'LEFT OUTER JOIN',
 				'table1' => $table1,
@@ -331,15 +334,6 @@ class CargoSQLQuery {
 			];
 			$this->mCargoJoinConds[] = $joinCond;
 		}
-
-		// Sort the join conditions by the table names.
-		usort( $this->mCargoJoinConds, static function ( $joinCond1, $joinCond2 ) use( $tableAliases ) {
-			$index1 = array_search( $joinCond1['table1'], $tableAliases );
-			$index2 = array_search( $joinCond2['table1'], $tableAliases );
-			if ( $index1 == $index2 ) { return 0;
-			}
-			return $index1 < $index2 ? -1 : 1;
-		} );
 
 		// Now validate, to make sure that all the tables
 		// are "joined" together. There's probably some more
@@ -451,13 +445,13 @@ class CargoSQLQuery {
 		if ( $orderByStr != '' ) {
 			$orderByElements = CargoUtils::smartSplit( ',', $orderByStr );
 			foreach ( $orderByElements as $elem ) {
-				// Get rid of 'ASC' - it's never needed.
-				if ( substr( $elem, -4 ) == ' ASC' ) {
+				// Get rid of "ASC" - it's never needed.
+				if ( strtolower( substr( $elem, -4 ) ) == ' asc' ) {
 					$elem = trim( substr( $elem, 0, strlen( $elem ) - 4 ) );
 				}
 				// If it has "DESC" at the end, remove it, then
 				// add it back in later.
-				$hasDesc = ( substr( $elem, -5 ) == ' DESC' );
+				$hasDesc = ( strtolower( substr( $elem, -5 ) ) == ' desc' );
 				if ( $hasDesc ) {
 					$elem = trim( substr( $elem, 0, strlen( $elem ) - 5 ) );
 				}
@@ -495,7 +489,7 @@ class CargoSQLQuery {
 		// done with $mOrderBy.
 		$this->mOrigGroupByStr = $groupByStr;
 		if ( $groupByStr == '' ) {
-			$this->mGroupByStr = null;
+			$this->mGroupByStr = '';
 		} elseif ( strpos( $groupByStr, '(' ) === false && strpos( $groupByStr, '.' ) === false && strpos( $groupByStr, ',' ) === false ) {
 			$this->mGroupByStr = $this->mCargoDB->addIdentifierQuotes( $groupByStr );
 		} else {
@@ -505,6 +499,10 @@ class CargoSQLQuery {
 
 	private static function getAndValidateSQLFunctions( $str ) {
 		global $wgCargoAllowedSQLFunctions;
+
+		if ( $str === null ) {
+			return [];
+		}
 
 		$sqlFunctionMatches = [];
 		$sqlFunctionRegex = '/(\b|\W)(\w*?)\s*\(/';
@@ -746,7 +744,19 @@ class CargoSQLQuery {
 				}
 			}
 			if ( !$foundMatch ) {
-				$this->mCargoJoinConds[] = $newCargoJoinCond;
+				// If this join references another table, insert
+				// this one before the join for that one.
+				$inserted = false;
+				foreach ( $this->mCargoJoinConds as $i => $curJoinCond ) {
+					if ( $newCargoJoinCond['table2'] == $curJoinCond['table1'] ) {
+						array_splice( $this->mCargoJoinConds, $i, 0, [ $newCargoJoinCond ] );
+						$inserted = true;
+						break;
+					}
+				}
+				if ( !$inserted ) {
+					array_unshift( $this->mCargoJoinConds, $newCargoJoinCond );
+				}
 			}
 		}
 	}
@@ -884,9 +894,7 @@ class CargoSQLQuery {
 			$isHierarchy = $virtualField['isHierarchy'];
 
 			$fieldTableName = $tableName . '__' . $fieldName;
-			$fieldTableAlias = $tableAlias . '__' . $fieldName;
 			$fieldReplaced = false;
-			$throwException = false;
 
 			$patternSimple = [
 				CargoUtils::getSQLTableAndFieldPattern( $tableAlias, $fieldName ),
@@ -1002,6 +1010,27 @@ class CargoSQLQuery {
 			}
 		}
 		$this->addToCargoJoinConds( $newCargoJoinConds );
+
+		// If there's more than one table, there must be one or more
+		// joins - match the order in $this->mAliasedTableNames to the
+		// order of the tables within the joins.
+		if ( count( $this->mAliasedTableNames ) > 1 ) {
+			$orderedTableAliases = [];
+			foreach ( $this->mCargoJoinConds as $joinCond ) {
+				$table1 = $joinCond['table1'];
+				$table2 = $joinCond['table2'];
+				if ( !in_array( $table1, $orderedTableAliases ) ) {
+					$orderedTableAliases[] = $table1;
+				}
+				if ( !in_array( $table2, $orderedTableAliases ) ) {
+					$orderedTableAliases[] = $table2;
+				}
+			}
+
+			uksort( $this->mAliasedTableNames, static function ( $key1, $key2 ) use ( $orderedTableAliases ) {
+				return ( array_search( $key1, $orderedTableAliases ) > array_search( $key2, $orderedTableAliases ) );
+			} );
+		}
 
 		// "group by" and "having"
 		// We handle these before "fields" and "order by" because,
@@ -1525,9 +1554,7 @@ class CargoSQLQuery {
 		foreach ( $this->mAliasedFieldNames as $alias => $fieldName ) {
 			$this->mAliasedFieldNames[$alias] = $this->addTablePrefixes( $fieldName );
 		}
-		if ( $this->mWhereStr !== null ) {
-			$this->mWhereStr = $this->addTablePrefixes( $this->mWhereStr );
-		}
+		$this->mWhereStr = $this->addTablePrefixes( $this->mWhereStr );
 		$this->mGroupByStr = $this->addTablePrefixes( $this->mGroupByStr );
 		$this->mHavingStr = $this->addTablePrefixes( $this->mHavingStr );
 		foreach ( $this->mOrderBy as &$orderByElem ) {
@@ -1594,6 +1621,7 @@ class CargoSQLQuery {
 			$resultsRow = [];
 			foreach ( $this->mAliasedFieldNames as $alias => $fieldName ) {
 				if ( !isset( $row->$alias ) ) {
+					$resultsRow[$alias] = null;
 					continue;
 				}
 
@@ -1615,6 +1643,10 @@ class CargoSQLQuery {
 	}
 
 	private function addTablePrefixes( $string ) {
+		if ( $string === null ) {
+			return null;
+		}
+
 		// Create arrays for doing replacements of table names within
 		// the SQL by their "real" equivalents.
 		$tableNamePatterns = [];
@@ -1658,15 +1690,11 @@ class CargoSQLQuery {
 	 */
 	public function determineDateFields() {
 		foreach ( $this->mFieldDescriptions as $alias => $description ) {
-			if ( isset( $this->mAliasedFieldNames[$alias] ) ) {
-				$realFieldName = $this->mAliasedFieldNames[$alias];
-			} else {
-				$realFieldName = $alias;
-			}
+			$realFieldName = $this->mAliasedFieldNames[$alias] ?? $alias;
 			$curNameAndAlias = [ $realFieldName, $alias ];
 			if ( $alias == 'start' || $description->mType == 'Start date' || $description->mType == 'Start datetime' ) {
 				$foundMatch = false;
-				foreach ( $this->mDateFieldPairs as $i => &$datePair ) {
+				foreach ( $this->mDateFieldPairs as &$datePair ) {
 					if ( array_key_exists( 'end', $datePair ) && !array_key_exists( 'start', $datePair ) ) {
 						$datePair['start'] = $curNameAndAlias;
 						$foundMatch = true;
@@ -1678,7 +1706,7 @@ class CargoSQLQuery {
 				}
 			} elseif ( $alias == 'end' || $description->mType == 'End date' || $description->mType == 'End datetime' ) {
 				$foundMatch = false;
-				foreach ( $this->mDateFieldPairs as $i => &$datePair ) {
+				foreach ( $this->mDateFieldPairs as &$datePair ) {
 					if ( array_key_exists( 'start', $datePair ) && !array_key_exists( 'end', $datePair ) ) {
 						$datePair['end'] = $curNameAndAlias;
 						$foundMatch = true;
@@ -1690,7 +1718,7 @@ class CargoSQLQuery {
 				}
 			} elseif ( $description->mType == 'Date' || $description->mType == 'Datetime' ) {
 				$foundMatch = false;
-				foreach ( $this->mDateFieldPairs as $i => &$datePair ) {
+				foreach ( $this->mDateFieldPairs as &$datePair ) {
 					if ( array_key_exists( 'end', $datePair ) && !array_key_exists( 'start', $datePair ) ) {
 						$datePair['start'] = $curNameAndAlias;
 						$foundMatch = true;

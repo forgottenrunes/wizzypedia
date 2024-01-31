@@ -54,7 +54,7 @@ class CargoZipFormat extends CargoDisplayFormat {
 	 * @return string HTML
 	 */
 	public function display( $valuesTable, $formattedValuesTable, $fieldDescriptions, $displayParams ) {
-		$this->mOutput->addModules( 'ext.cargo.zip' );
+		$this->mOutput->addModules( [ 'ext.cargo.zip' ] );
 
 		$files = self::getFiles( $valuesTable, $fieldDescriptions );
 
@@ -75,12 +75,7 @@ class CargoZipFormat extends CargoDisplayFormat {
 		foreach ( $files as $file ) {
 			$filename = explode( ':', $file['title'] );
 			$filename = array_pop( $filename );
-			if ( method_exists( MediaWikiServices::class, 'getRepoGroup' ) ) {
-				// MediaWiki 1.34+
-				$localRepo = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo();
-			} else {
-				$localRepo = RepoGroup::singleton()->getLocalRepo();
-			}
+			$localRepo = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo();
 			if ( $localRepo->findFile( $filename ) ) {
 				$url = $localRepo->findFile( $filename )->getFullUrl();
 				$text .= $url . ' ';

@@ -17,7 +17,7 @@ abstract class CargoDeferredFormat extends CargoDisplayFormat {
 	 * query string parameters.
 	 *
 	 * @param array $sqlQueries
-	 * @return array
+	 * @return array|null
 	 */
 	public function sqlQueriesToQueryParams( $sqlQueries ) {
 		$queryParams = [
@@ -46,18 +46,18 @@ abstract class CargoDeferredFormat extends CargoDisplayFormat {
 			if ( $sqlQuery->mHavingStr != '' ) {
 				$queryParams['having'] = $sqlQuery->mHavingStr;
 			}
-			$queryParams['order by'] = implode( ',', $sqlQuery->mOrderBy );
+			$queryParams['order by'] = $sqlQuery->mOrigOrderBy;
 			if ( $sqlQuery->mQueryLimit != '' ) {
 				$queryParams['limit'] = $sqlQuery->mQueryLimit;
 			}
 		} else {
-			foreach ( $sqlQueries as $i => $sqlQuery ) {
+			foreach ( $sqlQueries as $sqlQuery ) {
 				$queryParams['tables'][] = $sqlQuery->mTablesStr;
 				$queryParams['join on'][] = $sqlQuery->mJoinOnStr;
 				$queryParams['fields'][] = $sqlQuery->mFieldsStr;
 				$queryParams['where'][] = $sqlQuery->mOrigWhereStr;
 				$queryParams['group by'][] = $sqlQuery->mOrigGroupByStr;
-				$queryParams['order by'][] = implode( ',', $sqlQuery->mOrderBy );
+				$queryParams['order by'][] = $sqlQuery->mOrigOrderBy;
 				$queryParams['limit'][] = $sqlQuery->mQueryLimit;
 			}
 		}

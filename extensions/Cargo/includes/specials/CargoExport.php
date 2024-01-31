@@ -41,14 +41,14 @@ class CargoExport extends UnlistedSpecialPage {
 
 		$sqlQueries = [];
 		foreach ( $tableArray as $i => $table ) {
-			$fields = $fieldsArray[$i];
-			$where = $whereArray !== null ? $whereArray[$i] : null;
-			$joinOn = $joinOnArray !== null ? $joinOnArray[$i] : null;
-			$groupBy = $groupByArray !== null ? $groupByArray[$i] : null;
-			$having = $havingArray !== null ? $havingArray[$i] : null;
-			$orderBy = $orderByArray !== null ? $orderByArray[$i] : null;
-			$limit = $limitArray !== null ? $limitArray[$i] : null;
-			$offset = $offsetArray !== null ? $offsetArray[$i] : null;
+			$fields = $fieldsArray[$i] ?? null;
+			$where = $whereArray[$i] ?? null;
+			$joinOn = $joinOnArray[$i] ?? null;
+			$groupBy = $groupByArray[$i] ?? null;
+			$having = $havingArray[$i] ?? null;
+			$orderBy = $orderByArray[$i] ?? null;
+			$limit = $limitArray[$i] ?? null;
+			$offset = $offsetArray[$i] ?? null;
 			$sqlQueries[] = CargoSQLQuery::newFromValues( $table,
 				$fields, $where, $joinOn, $groupBy, $having,
 				$orderBy, $limit, $offset );
@@ -83,7 +83,7 @@ class CargoExport extends UnlistedSpecialPage {
 			} elseif ( $format == 'excel' ) {
 				$filename = $req->getVal( 'filename' );
 				if ( $filename == '' ) {
-					$filename = 'results.xls';
+					$filename = 'results.xlsx';
 				}
 				$parseValues = $req->getCheck( 'parse_values' );
 				$this->displayExcelData( $sqlQueries, $filename, $parseValues );
@@ -98,11 +98,13 @@ class CargoExport extends UnlistedSpecialPage {
 				$this->displayBibtexData( $sqlQueries, $defaultEntryType );
 			} elseif ( $format === 'icalendar' ) {
 				$this->displayIcalendarData( $sqlQueries );
+			} elseif ( $format === 'feed' ) {
+				$this->displayFeedData( $sqlQueries );
 			} else {
 				// Let other extensions display the data if they have defined their own "deferred"
 				// formats. This is an unusual hook in that functions that use it have to return false;
 				// otherwise the error message will be displayed.
-				$result = Hooks::run( 'CargoDisplayExportData', [ $format, $sqlQueries, $req ] );
+				$result = $this->getHookContainer()->run( 'CargoDisplayExportData', [ $format, $sqlQueries, $req ] );
 				if ( $result ) {
 					print $this->msg( "cargo-query-missingformat" )->parse();
 				}
@@ -156,6 +158,9 @@ class CargoExport extends UnlistedSpecialPage {
 				} else {
 					$eventTitle = reset( $queryResult );
 				}
+				// The FullCalendar JS library will HTML-encode
+				// titles, so avoid a double-encoding.
+				$eventTitle = html_entity_decode( $eventTitle );
 				if ( array_key_exists( 'color', $queryResult ) ) {
 					$eventColor = $queryResult['color'];
 				} elseif ( $colorArray != null && array_key_exists( $i, $colorArray ) ) {
@@ -220,16 +225,16 @@ class CargoExport extends UnlistedSpecialPage {
 	 * Used for gantt format
 	 */
 	private function displayGanttData( $sqlQueries ) {
-		$req = $this->getRequest();
+		print self::getGanttJSONData( $sqlQueries );
+	}
 
+	public static function getGanttJSONData( $sqlQueries ) {
 		$displayedArray['data'] = [];
 		$displayedArray['links'] = [];
-		foreach ( $sqlQueries as $i => $sqlQuery ) {
+		foreach ( $sqlQueries as $sqlQuery ) {
 			list( $startDateField, $endDateField ) = $sqlQuery->getMainStartAndEndDateFields();
 
 			$queryResults = $sqlQuery->run();
-			$tasks = [];
-			$links = [];
 			$n = 1;
 			foreach ( $queryResults as $queryResult ) {
 				if ( array_key_exists( 'name', $queryResult ) ) {
@@ -284,18 +289,17 @@ class CargoExport extends UnlistedSpecialPage {
 				}
 			}
 		}
-		print json_encode( $displayedArray );
+		return json_encode( $displayedArray );
 	}
 
 	/**
 	 * Used for bpmn format
 	 */
 	private function displayBPMNData( $sqlQueries ) {
-		$req = $this->getRequest();
 		$sequenceFlows = [];
 		$elements = [];
 		$t = 1;
-		foreach ( $sqlQueries as $i => $sqlQuery ) {
+		foreach ( $sqlQueries as $sqlQuery ) {
 			$queryResults = $sqlQuery->run();
 			foreach ( $queryResults as $queryResult ) {
 				if ( array_key_exists( 'name', $queryResult ) ) {
@@ -357,17 +361,17 @@ class CargoExport extends UnlistedSpecialPage {
 		header( 'Content-Type: text/xml' );
 		$XML = '<?xml version="1.0" encoding="UTF-8"?>';
 		// Needed to restore highlighting in vi - <?
-		$XML .= '<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" 
-		xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" 
-		xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" 
-		id="Definitions_18vnora" 
-		targetNamespace="http://bpmn.io/schema/bpmn" 
-		exporter="bpmn-js (https://demo.bpmn.io)" 
+		$XML .= '<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+		xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+		xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+		id="Definitions_18vnora"
+		targetNamespace="http://bpmn.io/schema/bpmn"
+		exporter="bpmn-js (https://demo.bpmn.io)"
 		exporterVersion="4.0.3">
 		<bpmn:process id="Process_1" isExecutable="false">';
 
 		// XML for BPMN Process
-		foreach ( $elements as $i => $task ) {
+		foreach ( $elements as $task ) {
 			if ( is_array( $task ) && $task['type'] != "" ) {
 				$XML .= '<bpmn:' . $task[ 'type' ] . ' id="' . $task['id'];
 				if ( $task['name'] != "" ) {
@@ -383,7 +387,7 @@ class CargoExport extends UnlistedSpecialPage {
 				$XML .= '"></bpmn:' . $task['type'] . '>';
 			}
 		}
-		foreach ( $elements as $elementNum => $element ) {
+		foreach ( $elements as $element ) {
 			if ( !array_key_exists( 'source', $element ) ) {
 				continue;
 			}
@@ -418,7 +422,7 @@ class CargoExport extends UnlistedSpecialPage {
 				}
 			}
 		}
-		foreach ( $sequenceFlows as $i => $task ) {
+		foreach ( $sequenceFlows as $task ) {
 			if ( is_array( $task ) && $task['type'] == "sequenceFlow" ) {
 				$XML .= '<bpmn:sequenceFlow id="' . $task['id'] . '" sourceRef="' . $task['source'] . '" targetRef="' . $task['target'] . '" name="' . $task['name'] . '"/>';
 			}
@@ -427,26 +431,15 @@ class CargoExport extends UnlistedSpecialPage {
 		print $XML;
 	}
 
-	/**
-	 * Used by displayTimelineData().
-	 */
-	private function timelineDatesCmp( $a, $b ) {
-		if ( $a['start'] == $b['start'] ) {
-			return 0;
-		}
-		return ( $a['start'] < $b['start'] ) ? -1 : 1;
-	}
-
 	private function displayTimelineData( $sqlQueries ) {
 		$displayedArray = [];
-		foreach ( $sqlQueries as $i => $sqlQuery ) {
+		foreach ( $sqlQueries as $sqlQuery ) {
 			list( $startDateField, $endDateField ) = $sqlQuery->getMainStartAndEndDateFields();
 
 			$queryResults = $sqlQuery->run();
 
 			foreach ( $queryResults as $queryResult ) {
 				$eventDescription = '';
-				$firstField = true;
 
 				if ( array_key_exists( 'name', $queryResult ) ) {
 					$eventTitle = $queryResult['name'];
@@ -486,15 +479,15 @@ class CargoExport extends UnlistedSpecialPage {
 			}
 		}
 		// Sort by date, ascending.
-		usort( $displayedArray, 'self::timelineDatesCmp' );
+		usort( $displayedArray, static function ( $a, $b ) {
+			return $a['start'] <=> $b['start'];
+		} );
 
 		$displayedArray = [ 'events' => $displayedArray ];
 		print json_encode( $displayedArray, JSON_HEX_TAG | JSON_HEX_QUOT );
 	}
 
 	private function displayNVD3ChartData( $sqlQueries ) {
-		$req = $this->getRequest();
-
 		// We'll only use the first query, if there's more than one.
 		$sqlQuery = $sqlQueries[0];
 		$queryResults = $sqlQuery->run();
@@ -523,12 +516,9 @@ class CargoExport extends UnlistedSpecialPage {
 		// Initialize everything, using the field names.
 		$firstRow = reset( $queryResults );
 		$displayedArray = [];
-		$labelNames = [];
 		$fieldNum = 0;
 		foreach ( $firstRow as $fieldName => $value ) {
-			if ( $fieldNum == 0 ) {
-				$labelNames[] = $value;
-			} else {
+			if ( $fieldNum > 0 ) {
 				$curSeries = [
 					'key' => $fieldName,
 					'color' => $colorsArray[$fieldNum - 1],
@@ -539,9 +529,9 @@ class CargoExport extends UnlistedSpecialPage {
 			$fieldNum++;
 		}
 
-		foreach ( $queryResults as $i => $queryResult ) {
+		foreach ( $queryResults as $queryResult ) {
 			$fieldNum = 0;
-			foreach ( $queryResult as $fieldName => $value ) {
+			foreach ( $queryResult as $value ) {
 				if ( $fieldNum == 0 ) {
 					$labelName = $value;
 					if ( trim( $value ) == '' ) {
@@ -626,7 +616,13 @@ class CargoExport extends UnlistedSpecialPage {
 			$queryResults = $this->parseWikitextInQueryResults( $queryResults );
 		}
 
-		$file = new PHPExcel();
+		if ( class_exists( 'PhpOffice\PhpSpreadsheet\Spreadsheet' ) ) {
+			$file = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+		} elseif ( class_exists( 'PHPExcel' ) ) {
+			$file = new PHPExcel();
+		} else {
+			die( "Error: Either the PHPExcel or the PhpSpreadsheet library must be installed for this format to work." );
+		}
 		$file->setActiveSheetIndex( 0 );
 
 		// Create array with header row and query results.
@@ -638,7 +634,11 @@ class CargoExport extends UnlistedSpecialPage {
 		header( "Content-Disposition: attachment;filename=$filename" );
 		header( "Cache-Control: max-age=0" );
 
-		$writer = PHPExcel_IOFactory::createWriter( $file, 'Excel5' );
+		if ( class_exists( 'PhpOffice\PhpSpreadsheet\Spreadsheet' ) ) {
+			$writer = \PhpOffice\PhpSpreadsheet\IOFactory::createWriter( $file, 'Xlsx' );
+		} elseif ( class_exists( 'PHPExcel' ) ) {
+			$writer = PHPExcel_IOFactory::createWriter( $file, 'Excel2007' );
+		}
 
 		$writer->save( 'php://output' );
 	}
@@ -699,6 +699,16 @@ class CargoExport extends UnlistedSpecialPage {
 
 		$filename = $req->getText( 'filename', 'export.ics' );
 		$this->outputFile( 'text/calendar', $filename, 'ics', $calendar );
+	}
+
+	/**
+	 * Output an RSS or Atom feed.
+	 *
+	 * @param CargoSQLQuery[] $sqlQueries
+	 */
+	private function displayFeedData( $sqlQueries ) {
+		$format = new CargoFeedFormat( $this->getOutput() );
+		$format->outputFeed( $this->getRequest(), $sqlQueries );
 	}
 
 	/**

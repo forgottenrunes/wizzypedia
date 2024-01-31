@@ -23,7 +23,7 @@ class CargoUtilsIntegrationTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/** @return array */
-	public function provideSmartSplitData() {
+	public static function provideSmartSplitData() {
 		return [
 			[ '', '', [] ],
 			[ '', 'one', [ 'one' ] ],
@@ -79,9 +79,8 @@ class CargoUtilsIntegrationTest extends MediaWikiIntegrationTestCase {
 	/**
 	 * @return array
 	 */
-	public function provideMakeLinkData() {
+	public static function provideMakeLinkData() {
 		$linkRenderer = MediaWikiServices::getInstance()->getLinkRenderer();
-		$title = Title::newFromText( 'Test' );
 		return [
 			[ $linkRenderer, null, null, [], [], null ],
 			[ $linkRenderer, null, '', [], [], null ],

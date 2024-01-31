@@ -5,6 +5,7 @@
  * @author Yaron Koren
  * @ingroup Cargo
  */
+use MediaWiki\MediaWikiServices;
 
 class CargoQuery {
 
@@ -12,10 +13,12 @@ class CargoQuery {
 	 * Handles the #cargo_query parser function - calls a query on the
 	 * Cargo data stored in the database.
 	 *
-	 * @param Parser &$parser
-	 * @return string
+	 * @param Parser $parser
+	 * @return string|array Error message string, or an array holding output text and format flags
 	 */
-	public static function run( &$parser ) {
+	public static function run( $parser ) {
+		global $wgCargoIgnoreBacklinks;
+
 		$params = func_get_args();
 		array_shift( $params ); // we already know the $parser...
 
@@ -85,8 +88,11 @@ class CargoQuery {
 			// cargo_backlinks table.
 			// Also remove the limit from this 2nd query so that it
 			// can include all results.
-			if ( $groupByStr == '' ) {
-				$allTables = array_unique( array_values( $sqlQuery->mFieldTables ) );
+			// Fetch results title only if "cargo_backlinks" table exists
+			$lb = MediaWikiServices::getInstance()->getDBLoadBalancer();
+			$dbr = $lb->getConnectionRef( DB_REPLICA );
+			if ( $groupByStr == '' && !$wgCargoIgnoreBacklinks && $dbr->tableExists( 'cargo_backlinks' ) ) {
+				$allTables = array_keys( $sqlQuery->mAliasedTableNames );
 				$allTables = array_filter( $allTables );
 				$newFieldsStr = $fieldsStr;
 				// $fieldsToCollectForPageIDs allows us to
@@ -106,14 +112,14 @@ class CargoQuery {
 					$tablesStr, $newFieldsStr, $whereStr, $joinOnStr,
 					$groupByStr, $havingStr, $orderByStr, '', $offsetStr
 				);
+				$queryResultsJustForResultsTitle = $sqlQueryJustForResultsTitle->run();
 			}
 		} catch ( Exception $e ) {
 			return CargoUtils::formatError( $e->getMessage() );
 		}
 
 		$pageIDsForBacklinks = [];
-		if ( isset( $sqlQueryJustForResultsTitle ) ) {
-			$queryResultsJustForResultsTitle = $sqlQueryJustForResultsTitle->run();
+		if ( isset( $queryResultsJustForResultsTitle ) ) {
 			// Collect all special _pageID entries.
 			foreach ( $fieldsToCollectForPageIDs as $fieldToCollectForPageIds ) {
 				$pageIDsForBacklinks = array_merge( $pageIDsForBacklinks, array_column( $queryResultsJustForResultsTitle, $fieldToCollectForPageIds ) );
@@ -147,7 +153,7 @@ class CargoQuery {
 			$sqlQuery = CargoSQLQuery::newFromValues( $tablesStr, $fieldsStr, $whereStr, $joinOnStr,
 				$groupByStr, $havingStr, $orderByStr, $limitStr, $offsetStr );
 			$text = $formatter->queryAndDisplay( [ $sqlQuery ], $displayParams );
-			CargoBackLinks::setBackLinks( $parser->getTitle(), $pageIDsForBacklinks );
+			self::setBackLinks( $parser, $pageIDsForBacklinks );
 			return [ $text, 'noparse' => true, 'isHTML' => true ];
 		}
 
@@ -173,7 +179,7 @@ class CargoQuery {
 			return $text;
 		}
 		// No errors? Let's save our reverse links.
-		CargoBackLinks::setBackLinks( $parser->getTitle(), $pageIDsForBacklinks );
+		self::setBackLinks( $parser, $pageIDsForBacklinks );
 
 		// The 'template' format gets special parsing, because
 		// it can be used to display a larger component, like a table,
@@ -192,6 +198,32 @@ class CargoQuery {
 			return [ $text, 'noparse' => true, 'isHTML' => true ];
 		} else {
 			return [ $text, 'noparse' => false ];
+		}
+	}
+
+	/**
+	 * Store the list of page IDs referenced by this query in the parser output.
+	 * @param Parser $parser
+	 * @param int[] $backlinkPageIds List of referenced page IDs to store.
+	 */
+	private static function setBacklinks( Parser $parser, array $backlinkPageIds ): void {
+		$parserOutput = $parser->getOutput();
+
+		// MW 1.38 compatibility
+		if ( method_exists( $parserOutput, 'appendExtensionData' ) ) {
+			foreach ( $backlinkPageIds as $pageId ) {
+				$parserOutput->appendExtensionData( CargoBackLinks::BACKLINKS_DATA_KEY, $pageId );
+			}
+		} else {
+			$backlinks = (array)$parserOutput->getExtensionData( CargoBackLinks::BACKLINKS_DATA_KEY );
+			foreach ( $backlinkPageIds as $pageId ) {
+				$backlinks[$pageId] = true;
+			}
+
+			$parserOutput->setExtensionData(
+				CargoBackLinks::BACKLINKS_DATA_KEY,
+				$backlinks
+			);
 		}
 	}
 

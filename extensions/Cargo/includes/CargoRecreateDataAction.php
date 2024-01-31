@@ -24,7 +24,7 @@ class CargoRecreateDataAction extends Action {
 	 * $this->getOutput(), etc.
 	 */
 	public function show() {
-		$title = $this->page->getTitle();
+		$title = $this->getTitle();
 
 		// These tabs should only exist for template pages, that
 		// either call (or called) #cargo_declare, or call
@@ -57,16 +57,9 @@ class CargoRecreateDataAction extends Action {
 		}
 
 		$user = $obj->getUser();
-		if ( method_exists( 'MediaWiki\Permissions\PermissionManager', 'userCan' ) ) {
-			// MW 1.33+
-			$permissionManager = MediaWikiServices::getInstance()->getPermissionManager();
-			if ( !$permissionManager->userCan( 'recreatecargodata', $user, $title ) ) {
-				return true;
-			}
-		} else {
-			if ( !$title->userCan( 'recreatecargodata', $user ) ) {
-				return true;
-			}
+		$permissionManager = MediaWikiServices::getInstance()->getPermissionManager();
+		if ( !$permissionManager->userCan( 'recreatecargodata', $user, $title ) ) {
+			return true;
 		}
 
 		$request = $obj->getRequest();

@@ -15,7 +15,7 @@ class CargoRecreateSpecialTableAPI extends ApiBase {
 	public function execute() {
 		$user = $this->getUser();
 
-		if ( !$user->isAllowed( 'recreatecargodata' ) || $user->isBlocked() ) {
+		if ( !$user->isAllowed( 'recreatecargodata' ) || $user->getBlock() !== null ) {
 			$this->dieWithError( [ 'badaccess-groups' ] );
 		}
 
@@ -41,7 +41,7 @@ class CargoRecreateSpecialTableAPI extends ApiBase {
 		$tableSchemaString = $tableSchema->toDBString();
 		$cdb = CargoUtils::getDB();
 		$dbw = wfGetDB( DB_MASTER );
-		$success = CargoUtils::createCargoTableOrTables(
+		CargoUtils::createCargoTableOrTables(
 			$cdb, $dbw, $tableName, $tableSchema, $tableSchemaString, -1
 		);
 

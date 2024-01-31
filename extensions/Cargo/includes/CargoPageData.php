@@ -89,10 +89,6 @@ class CargoPageData {
 	) {
 		global $wgCargoPageDataColumns;
 
-		if ( $title == null ) {
-			return;
-		}
-
 		$pageDataTable = $createReplacement ? '_pageData__NEXT' : '_pageData';
 
 		// If this table does not exist, getTableSchemas() will
@@ -103,16 +99,11 @@ class CargoPageData {
 			return;
 		}
 
-		$wikiPage = WikiPage::factory( $title );
+		$wikiPage = CargoUtils::makeWikiPage( $title );
 		$pageDataValues = [];
 
 		if ( in_array( 'creationDate', $wgCargoPageDataColumns ) ) {
-			if ( method_exists( 'MediaWiki\Revision\RevisionLookup', 'getFirstRevision' ) ) {
-				// MW >= 1.35
-				$firstRevision = MediaWikiServices::getInstance()->getRevisionLookup()->getFirstRevision( $title );
-			} else {
-				$firstRevision = $title->getFirstRevision();
-			}
+			$firstRevision = MediaWikiServices::getInstance()->getRevisionLookup()->getFirstRevision( $title );
 			if ( $firstRevision == null ) {
 				// This can sometimes happen.
 				$pageDataValues['_creationDate'] = null;
@@ -130,7 +121,7 @@ class CargoPageData {
 			if ( $setToBlank ) {
 				$pageDataValues['_fullText'] = '';
 			} else {
-				$page = WikiPage::factory( $title );
+				$page = CargoUtils::makeWikiPage( $title );
 				$pageDataValues['_fullText'] = ContentHandler::getContentText( $page->getContent() );
 			}
 		}
@@ -171,7 +162,7 @@ class CargoPageData {
 		if ( in_array( 'pageNameOrRedirect', $wgCargoPageDataColumns ) || in_array( 'pageIDOrRedirect', $wgCargoPageDataColumns ) ) {
 			// case when redirect
 			if ( $title->isRedirect() ) {
-				$page = WikiPage::factory( $title );
+				$page = CargoUtils::makeWikiPage( $title );
 				$redirTitle = $page->getRedirectTarget();
 				if ( $redirTitle !== null ) {
 					if ( in_array( 'pageNameOrRedirect', $wgCargoPageDataColumns ) ) {

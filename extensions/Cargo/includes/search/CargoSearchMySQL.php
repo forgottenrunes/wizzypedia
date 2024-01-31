@@ -14,12 +14,14 @@ use MediaWiki\MediaWikiServices;
 class CargoSearchMySQL extends SearchMySQL {
 
 	public function __construct() {
-		if ( property_exists( 'SearchMySQL', 'lb' ) ) {
-			// MW 1.34+
+		if ( property_exists( $this, 'dbProvider' ) ) {
+			// MW 1.41+
+			$dbProvider = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
+			parent::__construct( $dbProvider );
+		} else {
+			// MW < 1.41
 			$lb = MediaWikiServices::getInstance()->getDBLoadBalancer();
 			parent::__construct( $lb );
-		} else {
-			parent::__construct();
 		}
 	}
 
@@ -47,6 +49,9 @@ class CargoSearchMySQL extends SearchMySQL {
 		$m = [];
 		if ( preg_match_all( '/([-+<>~]?)(([' . $lc . ']+)(\*?)|"[^"]*")/',
 				$filteredText, $m, PREG_SET_ORDER ) ) {
+			$contLang = CargoUtils::getContentLang();
+			$langConverter = MediaWikiServices::getInstance()->getLanguageConverterFactory()
+				->getLanguageConverter( $contLang );
 			foreach ( $m as $bits ) {
 				Wikimedia\suppressWarnings();
 				list( /* all */, $modifier, $term, $nonQuoted, $wildcard ) = $bits;
@@ -68,10 +73,9 @@ class CargoSearchMySQL extends SearchMySQL {
 					$modifier = '+';
 				}
 
-				$contLang = CargoUtils::getContentLang();
 				// Some languages such as Serbian store the input form in the search index,
 				// so we may need to search for matches in multiple writing system variants.
-				$convertedVariants = $contLang->autoConvertToAllVariants( $term );
+				$convertedVariants = $langConverter->autoConvertToAllVariants( $term );
 				if ( is_array( $convertedVariants ) ) {
 					$variants = array_unique( array_values( $convertedVariants ) );
 				} else {
@@ -118,7 +122,15 @@ class CargoSearchMySQL extends SearchMySQL {
 			wfDebug( __METHOD__ . ": Can't understand search query '{$filteredText}'\n" );
 		}
 
-		$searchon = $this->db->addQuotes( $searchon );
+		if ( property_exists( $this, 'db' ) ) {
+			// MW < 1.41
+			// @phan-suppress-next-line PhanUndeclaredProperty
+			$searchon = $this->db->addQuotes( $searchon );
+		} else {
+			$cdb = CargoUtils::getDB();
+			$searchon = $cdb->addQuotes( $searchon );
+		}
+
 		$field = $this->getIndexField( $fulltext );
 		return [
 			" MATCH($field) AGAINST($searchon IN BOOLEAN MODE) ",

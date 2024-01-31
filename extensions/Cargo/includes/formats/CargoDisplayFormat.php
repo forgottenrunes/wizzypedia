@@ -6,6 +6,15 @@
 
 class CargoDisplayFormat {
 
+	/** @var OutputPage|ParserOutput */
+	protected $mOutput;
+	/** @var Parser|null */
+	protected $mParser;
+
+	/**
+	 * @param OutputPage|ParserOutput $output
+	 * @param Parser|null $parser
+	 */
 	public function __construct( $output, $parser = null ) {
 		$this->mOutput = $output;
 		$this->mParser = $parser;
@@ -31,10 +40,20 @@ class CargoDisplayFormat {
 	 * @return array [ string, 'noparse' => bool, 'isHTML' => bool ].
 	 */
 	public static function formatArray( Parser $parser, array $values, array $mappings, array $params ): array {
-		$format = isset( $params['format'] ) ? $params['format'] : 'list';
+		$format = $params['format'] ?? 'list';
 		$classes = CargoQueryDisplayer::getAllFormatClasses();
-		$class = isset( $classes[$format] ) ? $classes[$format] : 'CargoListFormat';
+		/** @var CargoDisplayFormat $class */
+		$class = $classes[ $format ] ?? CargoListFormat::class;
 		$formatter = new $class( $parser->getOutput(), $parser );
+
+		// This cannot yet be called for "deferred" formats, where the
+		// processing is done via JavaScript and not PHP - in theory,
+		// it could be done, but it would require being able to pass
+		// in a data set to the JavaScript, instead of query
+		// information.
+		if ( $formatter->isDeferred() ) {
+			throw new MWException( "formatArray() cannot be called for the $format format because it is a \"deferred format\"." );
+		}
 
 		$query_displayer = new CargoQueryDisplayer();
 		$field_descriptions = [];
@@ -52,7 +71,7 @@ class CargoDisplayFormat {
 			$query_displayer->mFieldDescriptions,
 			$params
 		);
-		$no_html = isset( $params['no html'] ) ? $params['no html'] : false;
+		$no_html = $params['no html'] ?? false;
 		return !$no_html && $format !== 'template'
 			? [ $html, 'noparse' => true, 'isHTML' => true ]
 			: [ $html, 'noparse' => false ];

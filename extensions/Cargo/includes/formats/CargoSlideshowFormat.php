@@ -84,7 +84,7 @@ class CargoSlideshowFormat extends CargoDisplayFormat {
 	 * @return string HTML
 	 */
 	public function display( $valuesTable, $formattedValuesTable, $fieldDescriptions, $displayParams ) {
-		$this->mOutput->addModules( 'ext.cargo.slick' );
+		$this->mOutput->addModules( [ 'ext.cargo.slick' ] );
 
 		if ( array_key_exists( 'caption field', $displayParams ) ) {
 			$captionField = str_replace( '_', ' ', $displayParams['caption field'] );
@@ -94,7 +94,6 @@ class CargoSlideshowFormat extends CargoDisplayFormat {
 			if ( count( $valuesTable ) > 0 && !array_key_exists( $captionField, $valuesTable[0] ) ) {
 				throw new MWException( wfMessage( "cargo-query-specifiedfieldmissing", $captionField, "caption field" )->parse() );
 			}
-			$this->undisplayedFields[] = $captionField;
 		} else {
 			$captionField = null;
 		}
@@ -106,17 +105,11 @@ class CargoSlideshowFormat extends CargoDisplayFormat {
 			if ( count( $valuesTable ) > 0 && !array_key_exists( $linkField, $valuesTable[0] ) ) {
 				throw new MWException( wfMessage( "cargo-query-specifiedfieldmissing", $linkField, "link field" )->parse() );
 			}
-			$this->undisplayedFields[] = $linkField;
 		} else {
 			$linkField = null;
 		}
 
-		if ( method_exists( MediaWikiServices::class, 'getRepoGroup' ) ) {
-			// MediaWiki 1.34+
-			$localRepo = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo();
-		} else {
-			$localRepo = RepoGroup::singleton()->getLocalRepo();
-		}
+		$localRepo = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo();
 		$bodyText = '';
 		$files = self::getFileTitles( $valuesTable, $fieldDescriptions, $captionField, $linkField );
 		foreach ( $files as $file ) {
@@ -133,8 +126,6 @@ class CargoSlideshowFormat extends CargoDisplayFormat {
 			}
 			$bodyText .= "<div>$slideText</div>\n";
 		}
-
-		$sliderAttrs = [ 'class' => 'cargoSlider' ];
 
 		$slickData = [];
 		if ( array_key_exists( 'slides per screen', $displayParams ) ) {

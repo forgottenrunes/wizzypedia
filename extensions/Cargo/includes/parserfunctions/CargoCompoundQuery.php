@@ -18,10 +18,10 @@ class CargoCompoundQuery {
 	 * parser function defined by the Semantic Compound Queries
 	 * extension.
 	 *
-	 * @param Parser &$parser
-	 * @return string
+	 * @param Parser $parser
+	 * @return string|array Error message string, or an array holding output text and format flags
 	 */
-	public static function run( &$parser ) {
+	public static function run( $parser ) {
 		$params = func_get_args();
 		array_shift( $params ); // we already know the $parser...
 
@@ -125,7 +125,7 @@ class CargoCompoundQuery {
 	 * @todo - this should probably be streamlined and renamed.
 	 */
 	public static function getOrDisplayQueryResultsFromStrings( $sqlQueries, $querySpecificParams,
-		$format = null, $displayParams = null, $parser = null ) {
+		$format, $displayParams, Parser $parser ) {
 		$queryDisplayer = new CargoQueryDisplayer();
 		$queryDisplayer->mParser = $parser;
 		$queryDisplayer->mFormat = $format;
