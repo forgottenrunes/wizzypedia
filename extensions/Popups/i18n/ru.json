@@ -17,12 +17,13 @@
 			"Nastua Buldakova",
 			"Okras",
 			"Ole Yves",
+			"Pacha Tchernof",
 			"Putnik",
 			"Redredsonia",
 			"Rubin16",
+			"Stjn",
 			"Vlad5250",
-			"Wileyfoxyx",
-			"Pacha Tchernof"
+			"Wileyfoxyx"
 		]
 	},
 	"popups-message": "Предпросмотр",
@@ -31,6 +32,7 @@
 	"popups-settings-option-page": "Предпросмотр страницы",
 	"popups-settings-option-page-description": "Показывать быстрый предпросмотр тем при наведении мыши.",
 	"popups-settings-option-reference": "Предпросмотры сносок",
+	"popups-settings-option-reference-description": "Получить быстрый предпросмотр примечаний во время чтения страницы.",
 	"popups-settings-save": "Сохранить",
 	"popups-settings-help-ok": "Готово",
 	"popups-settings-cancel": "Отмена",
@@ -39,7 +41,7 @@
 	"popups-settings-icon-gear-title": "Изменение настроек предварительного просмотра страницы",
 	"popups-preview-no-preview": "В ходе предпросмотра возникла проблема",
 	"popups-preview-footer-read": "Перейти на страницу",
-	"popups-preview-disambiguation": "Это название относится более чем к одной странице",
+	"popups-preview-disambiguation": "Это название относится к нескольким страницам",
 	"popups-preview-disambiguation-link": "Просмотр схожих страниц",
 	"prefs-reading": "Настройки чтения",
 	"popups-prefs-optin": "Включить предпросмотр страниц (быстрый предпросмотр тем при чтении страницы):",
