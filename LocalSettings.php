@@ -210,8 +210,6 @@ wfLoadExtensions( [
 $wgPopupsHideOptInOnPreferencesPage = true;
 
 $wgScribuntoDefaultEngine = 'luastandalone';
-$wgScribuntoEngineConf['luastandalone']['luaPath'] = '/app/.heroku/lua/bin/lua';
-$wgScribuntoEngineConf['luastandalone']['luaPath'] = '/app/extensions/Scribunto/includes/engines/LuaStandalone/binaries/lua5_1_5_linux_64_generic/lua';
 
 
 # End of automatically generated settings.
