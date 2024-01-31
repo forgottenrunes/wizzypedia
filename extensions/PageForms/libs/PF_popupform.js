@@ -33,7 +33,7 @@ if ( typeof( window.ext ) === "undefined" ) {
 	window.ext = {};
 }
 
-window.ext.popupform = ( function () {
+window.ext.popupform = ( function() {
 	var $wrapper;
 	var $background;
 	var container;
@@ -410,7 +410,7 @@ window.ext.popupform = ( function () {
 
 		// fade background in
 		if ( !brokenChrome ) {
-			$background.fadeTo( 400, 0.3 );
+			$background.fadeTo( 400, 0.6 );
 		}
 		fadeIn( $waitIndicator );
 
@@ -477,9 +477,9 @@ window.ext.popupform = ( function () {
 				var stop = url.indexOf("&", start);
 
 				if ( stop >= 0 ) {
-					url = url.substr( 0, start - 1 ) + url.substr(stop + 1);
+					url = url.slice( 0, Math.max(0, start - 1) ) + url.slice(stop + 1);
 				} else {
-					url = url.substr( 0, start - 1 );
+					url = url.slice( 0, Math.max(0, start - 1) );
 				}
 
 			}
@@ -523,7 +523,7 @@ window.ext.popupform = ( function () {
 		if(document.defaultView && document.defaultView.getComputedStyle){
 			strValue = document.defaultView.getComputedStyle(oElm, "").getPropertyValue(strCssRule);
 		} else if(oElm.currentStyle){
-			strCssRule = strCssRule.replace(/\-(\w)/g, function (strMatch, p1){
+			strCssRule = strCssRule.replace(/\-(\w)/g, function(strMatch, p1) {
 				return p1.toUpperCase();
 			});
 			strValue = oElm.currentStyle[strCssRule];
@@ -692,7 +692,7 @@ window.ext.popupform = ( function () {
 
 		if (innerJ) {
 			// FIXME: Why did I put this in?
-			innerwdw.jQuery( innerwdw[0] ).unload(function (event) {
+			innerwdw.jQuery( innerwdw[0] ).on('unload', function(event) {
 				return false;
 			});
 
@@ -735,7 +735,7 @@ window.ext.popupform = ( function () {
 		.not('a[href*="javascript:"]') // scripted links
 		.not('a[target]')              // targeted links
 		.not('a[href^="#"]')           // local links
-		.not('a.pfFancyBox')           // link to file upload
+		.not('a.pfUploadable')         // link to file upload
 		.click(function(event){
 			if ( event.result !== false ) { // if not already caught by somebody else
 				closeFrameAndFollowLink( event.target.getAttribute('href') );
@@ -745,7 +745,7 @@ window.ext.popupform = ( function () {
 
 		// finally show the frame, but only if it is not already visible
 		if ( ! containerAlreadyVisible ) {
-				fadeOut ( $waitIndicator, function () {
+				fadeOut ( $waitIndicator, function() {
 				fadeTo( container, 400, 1 );
 			} );
 		}
@@ -809,8 +809,8 @@ window.ext.popupform = ( function () {
 
 			// Do we have parameters?
 			if ( delim > 0 ) {
-				form.action = ptarget.substr( 0, delim );
-				var params = String( ptarget.substr( delim + 1 ) ).split("&");
+				form.action = ptarget.slice( 0, Math.max(0, delim) );
+				var params = String( ptarget.slice( delim + 1 ) ).split("&");
 				for ( var i = 0; i < params.length; ++i ) {
 
 					var input = document.createElement("input");

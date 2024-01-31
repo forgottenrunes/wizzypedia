@@ -26,6 +26,7 @@ class PFTemplate {
 	private $mFieldEnd;
 	private $mTemplateStart;
 	private $mTemplateEnd;
+	private $mFullWikiText;
 
 	public function __construct( $templateName, $templateFields ) {
 		$this->mTemplateName = $templateName;
@@ -46,6 +47,9 @@ class PFTemplate {
 	public function loadTemplateParams() {
 		$embeddedTemplate = null;
 		$templateTitle = Title::makeTitleSafe( NS_TEMPLATE, $this->mTemplateName );
+		if ( $templateTitle === null ) {
+			return;
+		}
 		$services = MediaWikiServices::getInstance();
 		if ( method_exists( $services, 'getPageProps' ) ) {
 			// MW 1.36+
@@ -79,7 +83,7 @@ class PFTemplate {
 			return;
 		}
 
-		$templateText = PFUtils::getPageText( $templateTitle );
+		$templateText = PFUtils::getPageText( $templateTitle ) ?? '';
 		// Ignore 'noinclude' sections and 'includeonly' tags.
 		$templateText = StringUtils::delimiterReplace( '<noinclude>', '</noinclude>', '', $templateText );
 		$this->mTemplateText = strtr( $templateText, [ '<includeonly>' => '', '</includeonly>' => '' ] );
@@ -201,6 +205,25 @@ class PFTemplate {
 				}
 			}
 		}
+
+		// If #template_params was declared for this template, go
+		// through the declared fields, and, for any that were not
+		// already found by parsing the template, populate
+		// $mTemplateFields with it.
+		// @todo - it would be good to combine the #template_params
+		// data with any SMW data found, instead of just getting one
+		// or the other. In practice, though, it doesn't really matter.
+		if ( $this->mTemplateParams !== null ) {
+			foreach ( $this->mTemplateParams as $fieldName => $fieldParams ) {
+				if ( in_array( $fieldName, $fieldNamesArray ) ) {
+					continue;
+				}
+				$templateField = PFTemplateField::newFromParams( $fieldName, $fieldParams );
+				$this->mTemplateFields[$fieldName] = $templateField;
+			}
+			return;
+		}
+
 		ksort( $this->mTemplateFields );
 	}
 
@@ -387,6 +410,10 @@ class PFTemplate {
 		$this->mCargoTable = str_replace( ' ', '_', $cargoTable );
 	}
 
+	public function setFullWikiTextStatus( $status ) {
+		$this->mFullWikiText = $status;
+	}
+
 	public function setAggregatingInfo( $aggregatingProperty, $aggregationLabel ) {
 		$this->mAggregatingProperty = $aggregatingProperty;
 		$this->mAggregationLabel = $aggregationLabel;
@@ -453,44 +480,81 @@ class PFTemplate {
 	public function createText() {
 		// Avoid PHP 7.1 warning from passing $this by reference
 		$template = $this;
-		Hooks::run( 'PageForms::CreateTemplateText', [ &$template ] );
-		$text = <<<END
+		MediaWikiServices::getInstance()->getHookContainer()->run( 'PageForms::CreateTemplateText', [ &$template ] );
+		// Check whether the user needs the full wikitext instead of #template_display
+		if ( $this->mFullWikiText ) {
+			$templateHeader = wfMessage( 'pf_template_docu', $this->mTemplateName )->inContentLanguage()->text();
+			$text = <<<END
+<noinclude>
+$templateHeader
+<pre>
+
+END;
+			$text .= '{{' . $this->mTemplateName;
+			if ( count( $this->mTemplateFields ) > 0 ) {
+				$text .= "\n";
+			}
+			foreach ( $this->mTemplateFields as $field ) {
+				if ( $field->getFieldName() == '' ) {
+					continue;
+				}
+				$text .= "|" . $field->getFieldName() . "=\n";
+			}
+			if ( defined( 'CARGO_VERSION' ) && !defined( 'SMW_VERSION' ) && $this->mCargoTable != '' ) {
+				$cargoInUse = true;
+				$cargoDeclareCall = $this->createCargoDeclareCall() . "\n";
+				$cargoStoreCall = $this->createCargoStoreCall();
+			} else {
+				$cargoInUse = false;
+				$cargoDeclareCall = '';
+				$cargoStoreCall = '';
+			}
+
+			$templateFooter = wfMessage( 'pf_template_docufooter' )->inContentLanguage()->text();
+			$text .= <<<END
+}}
+</pre>
+$templateFooter
+$cargoDeclareCall</noinclude><includeonly>$cargoStoreCall
+END;
+		} else {
+			$text = <<<END
 <noinclude>
 {{#template_params:
 END;
-		foreach ( $this->mTemplateFields as $i => $field ) {
-			if ( $field->getFieldName() == '' ) {
-				continue;
+			foreach ( $this->mTemplateFields as $i => $field ) {
+				if ( $field->getFieldName() == '' ) {
+					continue;
+				}
+				if ( $i > 0 ) {
+					$text .= "|";
+				}
+				$text .= $field->toWikitext();
 			}
-			if ( $i > 0 ) {
-				$text .= "|";
+			if ( defined( 'CARGO_VERSION' ) && !defined( 'SMW_VERSION' ) && $this->mCargoTable != '' ) {
+				$cargoInUse = true;
+				$cargoDeclareCall = $this->createCargoDeclareCall() . "\n";
+				$cargoStoreCall = $this->createCargoStoreCall();
+			} else {
+				$cargoInUse = false;
+				$cargoDeclareCall = '';
+				$cargoStoreCall = '';
 			}
-			$text .= $field->toWikitext();
-		}
-		if ( defined( 'CARGO_VERSION' ) && !defined( 'SMW_VERSION' ) && $this->mCargoTable != '' ) {
-			$cargoInUse = true;
-			$cargoDeclareCall = $this->createCargoDeclareCall() . "\n";
-			$cargoStoreCall = $this->createCargoStoreCall();
-		} else {
-			$cargoInUse = false;
-			$cargoDeclareCall = '';
-			$cargoStoreCall = '';
-		}
 
-		$text .= <<<END
+			$text .= <<<END
 }}
 $cargoDeclareCall</noinclude><includeonly>$cargoStoreCall
 END;
-
-		if ( !defined( 'SMW_VERSION' ) ) {
-			$text .= "\n{{#template_display:";
-			if ( $this->mTemplateFormat != null ) {
-				$text .= "_format=" . $this->mTemplateFormat;
+			if ( !defined( 'SMW_VERSION' ) ) {
+				$text .= "\n{{#template_display:";
+				if ( $this->mTemplateFormat != null ) {
+					$text .= "_format=" . $this->mTemplateFormat;
+				}
+				$text .= "}}";
+				$text .= $this->printCategoryTag();
+				$text .= "</includeonly>";
+				return $text;
 			}
-			$text .= "}}";
-			$text .= $this->printCategoryTag();
-			$text .= "</includeonly>";
-			return $text;
 		}
 
 		// Before text
@@ -700,7 +764,8 @@ END;
 	function createTextForField( $field ) {
 		$text = '';
 		$fieldStart = $this->mFieldStart;
-		Hooks::run( 'PageForms::TemplateFieldStart', [ $field, &$fieldStart ] );
+		$hookContainer = MediaWikiServices::getInstance()->getHookContainer();
+		$hookContainer->run( 'PageForms::TemplateFieldStart', [ $field, &$fieldStart ] );
 		if ( $fieldStart != '' ) {
 			$text .= "$fieldStart ";
 		}
@@ -709,7 +774,7 @@ END;
 		$text .= $field->createText( $cargoInUse );
 
 		$fieldEnd = $this->mFieldEnd;
-		Hooks::run( 'PageForms::TemplateFieldEnd', [ $field, &$fieldEnd ] );
+		$hookContainer->run( 'PageForms::TemplateFieldEnd', [ $field, &$fieldEnd ] );
 		if ( $fieldEnd != '' ) {
 			$text .= " $fieldEnd";
 		}

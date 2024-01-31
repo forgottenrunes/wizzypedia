@@ -20,14 +20,7 @@ class PFTokensInput extends PFFormInput {
 	}
 
 	public static function getOtherPropTypesHandled() {
-		$otherPropTypesHandled = [ '_wpg' ];
-		if ( defined( 'SMWDataItem::TYPE_STRING' ) ) {
-			// SMW < 1.9
-			$otherPropTypesHandled[] = '_str';
-		} else {
-			$otherPropTypesHandled[] = '_txt';
-		}
-		return $otherPropTypesHandled;
+		return [ '_txt', '_wpg' ];
 	}
 
 	public static function getDefaultPropTypeLists() {
@@ -37,12 +30,7 @@ class PFTokensInput extends PFFormInput {
 	}
 
 	public static function getOtherPropTypeListsHandled() {
-		if ( defined( 'SMWDataItem::TYPE_STRING' ) ) {
-			// SMW < 1.9
-			return [ '_str' ];
-		} else {
-			return [ '_txt' ];
-		}
+		return [ '_txt' ];
 	}
 
 	public static function getDefaultCargoTypes() {
@@ -81,12 +69,7 @@ class PFTokensInput extends PFFormInput {
 				$wgPageFormsEDSettings[$name]['title'] = $other_args['values from external data'];
 			}
 			if ( array_key_exists( 'image', $other_args ) ) {
-				if ( method_exists( MediaWikiServices::class, 'getRepoGroup' ) ) {
-					// MediaWiki 1.34+
-					$repoGroup = MediaWikiServices::getInstance()->getRepoGroup();
-				} else {
-					$repoGroup = RepoGroup::singleton();
-				}
+				$repoGroup = MediaWikiServices::getInstance()->getRepoGroup();
 				$image_param = $other_args['image'];
 				$wgPageFormsEDSettings[$name]['image'] = $image_param;
 				global $edgValues;
@@ -127,9 +110,12 @@ class PFTokensInput extends PFFormInput {
 		$input_id = 'input_' . $wgPageFormsFieldNum;
 
 		if ( array_key_exists( 'size', $other_args ) ) {
-			$size = $other_args['size'];
+			$size = intval( $other_args['size'] );
+			if ( $size == 0 ) {
+				$size = 100;
+			}
 		} else {
-			$size = '100';
+			$size = 100;
 		}
 
 		$inputAttrs = [
@@ -185,26 +171,9 @@ class PFTokensInput extends PFFormInput {
 			}
 		}
 
-		foreach ( $possible_values as $possible_value ) {
-			if (
-				array_key_exists( 'value_labels', $other_args ) &&
-				is_array( $other_args['value_labels'] ) &&
-				array_key_exists( $possible_value, $other_args['value_labels'] )
-			) {
-				$optionLabel = $other_args['value_labels'][$possible_value];
-			} else {
-				$optionLabel = $possible_value;
-			}
-			$optionAttrs = [ 'value' => $possible_value ];
-			if ( in_array( $possible_value, $cur_values ) ) {
-				$optionAttrs['selected'] = 'selected';
-			}
-			$optionsText .= Html::element( 'option', $optionAttrs, $optionLabel );
-		}
 		foreach ( $cur_values as $current_value ) {
-			if ( !in_array( $current_value, $possible_values ) && $current_value !== '' ) {
-				$optionAttrs = [ 'value' => $current_value ];
-				$optionAttrs['selected'] = 'selected';
+			if ( $current_value !== '' ) {
+				$optionAttrs = [ 'value' => $current_value, 'selected' => 'selected' ];
 				$optionLabel = $current_value;
 				$optionsText .= Html::element( 'option', $optionAttrs, $optionLabel );
 			}
@@ -223,11 +192,23 @@ class PFTokensInput extends PFFormInput {
 			$text .= PFTextInput::uploadableHTML( $input_id, $delimiter, $default_filename, $cur_value, $other_args );
 		}
 
+		$spanID = 'span_' . $wgPageFormsFieldNum;
 		$spanClass = 'inputSpan';
 		if ( $is_mandatory ) {
 			$spanClass .= ' mandatoryFieldSpan';
 		}
-		$text = "\n" . Html::rawElement( 'span', [ 'class' => $spanClass ], $text );
+
+		if ( array_key_exists( 'show on select', $other_args ) ) {
+			$spanClass .= ' pfShowIfSelected';
+			PFFormUtils::setShowOnSelect( $other_args['show on select'], $spanID );
+		}
+
+		$spanAttrs = [
+			'id' => $spanID,
+			'class' => $spanClass,
+			'data-input-type' => 'tokens'
+		];
+		$text = "\n" . Html::rawElement( 'span', $spanAttrs, $text );
 
 		return $text;
 	}

@@ -20,21 +20,11 @@ class PFTreeInput extends PFFormInput {
 	}
 
 	public static function getOtherPropTypesHandled() {
-		if ( defined( 'SMWDataItem::TYPE_STRING' ) ) {
-			// SMW < 1.9
-			return [ '_str', '_wpg' ];
-		} else {
-			return [ '_txt', '_wpg' ];
-		}
+		return [ '_txt', '_wpg' ];
 	}
 
 	public static function getOtherPropTypeListsHandled() {
-		if ( defined( 'SMWDataItem::TYPE_STRING' ) ) {
-			// SMW < 1.9
-			return [ '_str', '_wpg' ];
-		} else {
-			return [ '_txt', '_wpg' ];
-		}
+		return [ '_txt', '_wpg' ];
 	}
 
 	public static function getDefaultCargoTypes() {
@@ -102,9 +92,6 @@ class PFTreeInput extends PFFormInput {
 			$top_category = $other_args['top category'];
 
 			$title = self::makeTitle( $top_category );
-			if ( $title->getNamespace() != NS_CATEGORY ) {
-				return null;
-			}
 			$hideroot = array_key_exists( 'hideroot', $other_args );
 
 			$pftree = new PFTree( $depth, $cur_values );
@@ -117,7 +104,7 @@ class PFTreeInput extends PFFormInput {
 
 		} else {
 			// Escape - we can't do anything.
-			return null;
+			Html::element( 'div', [ 'class' => 'errorMessage' ], "Tree input: either 'structure' or 'top category' must be set." );
 		}
 
 		$cur_value = implode( $delimiter, $pftree->current_values );
@@ -204,7 +191,7 @@ class PFTreeInput extends PFFormInput {
 	static function makeTitle( $title ) {
 		$title = trim( $title );
 
-		if ( strval( $title ) === '' ) {
+		if ( $title === '' ) {
 			return null;
 		}
 

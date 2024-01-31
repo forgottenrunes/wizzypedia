@@ -33,7 +33,10 @@ class PFTemplateField {
 	private $mIsList;
 	private $mDelimiter;
 	private $mDisplay;
-	private $mNamespace;
+	private $mNSText = null;
+	private $mNamespace = 0;
+	private $mCategory = null;
+	private $mForm = null;
 	private $mIsMandatory = false;
 	private $mIsUnique = false;
 	private $mRegex = null;
@@ -46,7 +49,9 @@ class PFTemplateField {
 			// Keep this field null if no value was set.
 			$f->mLabel = trim( str_replace( '\\', '', $label ) );
 		}
-		$f->setSemanticProperty( $semanticProperty );
+		if ( $semanticProperty !== null ) {
+			$f->setSemanticProperty( $semanticProperty );
+		}
 		$f->mIsList = $isList;
 		$f->mDelimiter = $delimiter;
 		$f->mDisplay = $display;
@@ -80,8 +85,8 @@ class PFTemplateField {
 		if ( $this->mSemanticProperty != '' ) {
 			$attribsStrings['property'] = $this->mSemanticProperty;
 		}
-		if ( $this->mNamespace != '' ) {
-			$attribsStrings['namespace'] = $this->mNamespace;
+		if ( $this->mNSText != null ) {
+			$attribsStrings['namespace'] = $this->mNSText;
 		}
 		if ( $this->mDisplay != '' ) {
 			$attribsStrings['display'] = $this->mDisplay;
@@ -116,11 +121,13 @@ class PFTemplateField {
 			} elseif ( $key == 'delimiter' ) {
 				$f->mDelimiter = $value;
 			} elseif ( $key == 'namespace' ) {
-				$f->mNamespace = $value;
+				$f->setNSText( $value );
 			} elseif ( $key == 'display' ) {
 				$f->mDisplay = $value;
 			} elseif ( $key == 'holds template' ) {
 				$f->mHoldsTemplate = $value;
+			} elseif ( $key == 'category' ) {
+				$f->mCategory = $value;
 			}
 		}
 		// Delimiter should default to ','.
@@ -201,19 +208,8 @@ class PFTemplateField {
 		$this->mCargoField = $fieldName;
 
 		if ( $fieldDescription === null ) {
-			try {
-				$tableSchemas = CargoUtils::getTableSchemas( [ $tableName ] );
-			} catch ( MWException $e ) {
-				return;
-			}
-			if ( count( $tableSchemas ) == 0 ) {
-				return;
-			}
-			$tableSchema = $tableSchemas[$tableName];
-			$fieldDescriptions = $tableSchema->mFieldDescriptions;
-			if ( array_key_exists( $fieldName, $fieldDescriptions ) ) {
-				$fieldDescription = $fieldDescriptions[$fieldName];
-			} else {
+			$fieldDescription = PFUtils::getCargoFieldDescription( $tableName, $fieldName );
+			if ( $fieldDescription == null ) {
 				return;
 			}
 		}
@@ -307,8 +303,40 @@ class PFTemplateField {
 		return $this->mDisplay;
 	}
 
+	function getNSText() {
+		return $this->mNSText;
+	}
+
 	function getNamespace() {
 		return $this->mNamespace;
+	}
+
+	function getCategory() {
+		return $this->mCategory;
+	}
+
+	function getForm() {
+		// @todo - add alternate forms here too.
+		if ( $this->mForm !== null ) {
+			return $this->mForm;
+		}
+
+		$defaultFormForNamespace = PFFormLinker::getDefaultFormForNamespace( $this->mNamespace );
+		if ( $defaultFormForNamespace !== null ) {
+			$this->mForm = $defaultFormForNamespace;
+			return $defaultFormForNamespace;
+		}
+
+		if ( $this->mCategory != null ) {
+			$categoryPage = Title::makeTitleSafe( NS_CATEGORY, $this->mCategory );
+			$defaultFormForCategory = PFFormLinker::getDefaultForm( $categoryPage );
+			if ( $defaultFormForCategory !== null ) {
+				$this->mForm = $defaultFormForCategory;
+				return $defaultFormForCategory;
+			}
+		}
+
+		return null;
 	}
 
 	function isMandatory() {
@@ -332,14 +360,23 @@ class PFTemplateField {
 	}
 
 	function setNamespace( $namespace ) {
+		$this->mNSText = PFUtils::getCanonicalName( $namespace );
 		$this->mNamespace = $namespace;
+	}
+
+	function setNSText( $nsText ) {
+		$this->mNSText = $nsText;
+		// Translate from text to ID.
+		$dummyTitle = Title::newFromText( $nsText . ':ABC' );
+		$this->mNamespace = $dummyTitle->getNamespace();
 	}
 
 	function setFieldType( $fieldType ) {
 		$this->mFieldType = $fieldType;
 
 		if ( $fieldType == 'File' ) {
-			$this->mNamespace = PFUtils::getCanonicalName( NS_FILE );
+			$this->mNSText = PFUtils::getCanonicalName( NS_FILE );
+			$this->mNamespace = NS_FILE;
 		}
 	}
 
@@ -376,10 +413,14 @@ class PFTemplateField {
 			$text = "{{#arraymap:{{{" . $this->mFieldName . '|}}}|' . $this->mDelimiter . "|$var|[[";
 			if ( $fieldProperty == '' ) {
 				$text .= "$var]]";
-			} elseif ( $this->mNamespace == '' ) {
+			} elseif ( $this->mNamespace == 0 ) {
 				$text .= "$fieldProperty::$var]]";
 			} else {
 				$text .= $this->mNamespace . ":$var]] {{#set:" . $fieldProperty . "=$var}} ";
+			}
+			// If the delimiter isn't a comma, use that as the "new delimiter" as well.
+			if ( $this->mDelimiter !== ',' ) {
+				$text .= '|' . $this->mDelimiter . '\s';
 			}
 			// Close #arraymap call.
 			$text .= "}}\n";
@@ -388,7 +429,7 @@ class PFTemplateField {
 
 		// Not a list.
 		$fieldParam = '{{{' . $this->mFieldName . '|}}}';
-		if ( $this->mNamespace === null ) {
+		if ( $this->mNamespace == 0 ) {
 			$fieldString = $fieldParam;
 		} else {
 			$fieldString = $this->mNamespace . ':' . $fieldParam;
@@ -407,7 +448,7 @@ class PFTemplateField {
 				return $fieldString;
 			}
 			return $fieldString;
-		} elseif ( $this->mNamespace === null ) {
+		} elseif ( $this->mNamespace == 0 ) {
 			return "[[$fieldProperty::$fieldString]]";
 		} else {
 			// Special handling is needed, for at

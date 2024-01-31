@@ -352,12 +352,14 @@ class PFCreateForm extends SpecialPage {
 			'flags' => [ 'progressive' ],
 		] );
 
-		// Selection for before which item this template should be placed
-		if ( count( $form_items ) > 0 ) {
+		if ( count( $all_templates ) == 0 ) {
+			$addTemplateHtml = '';
+		} elseif ( count( $form_items ) > 0 ) {
 			$addTemplateHtml = new OOUI\HorizontalLayout( [
 				'items' => [
 					$addTemplateText,
 					$addTemplateDropdown,
+					// Selection for before which item this template should be placed
 					new OOUI\LabelWidget( [
 						'label' => $this->msg( 'pf_createform_before' )->escaped(),
 					] ),
@@ -618,13 +620,7 @@ END;
 			if ( $smwContLang != null ) {
 				$datatypeLabels = $smwContLang->getDatatypeLabels();
 				$datatypeLabels['enumeration'] = 'enumeration';
-
 				$propTypeID = $template_field->getPropertyType();
-
-				// Special handling for SMW 1.9
-				if ( $propTypeID == '_str' && !array_key_exists( '_str', $datatypeLabels ) ) {
-					$propTypeID = '_txt';
-				}
 				$propertyTypeStr = $datatypeLabels[$propTypeID];
 			}
 			$text .= Html::rawElement( 'p', null, $this->msg( $propDisplayMsg, $prop_link_text, $propertyTypeStr )->parse() ) . "\n";
@@ -656,7 +652,6 @@ END;
 		} elseif ( $default_input_type !== null ) {
 			$cur_input_type = $default_input_type;
 		} else {
-			// @phan-suppress-next-line PhanTypeInvalidDimOffset
 			$cur_input_type = $possible_input_types[0];
 		}
 
@@ -716,14 +711,12 @@ END;
 		$dropdownAttrs = [];
 		foreach ( $possible_input_types as $i => $input_type ) {
 			if ( $i == 0 ) {
-				array_push( $dropdownAttrs, [ 'data' => $input_type, 'label' => $input_type . ' ' . $this->msg( 'pf_createform_inputtypedefault' )->escaped() ] );
+				array_push( $dropdownAttrs, [ 'data' => '', 'label' => $input_type . ' ' . $this->msg( 'pf_createform_inputtypedefault' )->escaped() ] );
 			} else {
-				$value = ( $cur_input_type == $input_type ) ? $input_type : "";
 				array_push( $dropdownAttrs, [ 'data' => $input_type, 'label' => $input_type ] );
 			}
 		}
 		array_push( $dropdownAttrs, [ 'data' => 'hidden', 'label' => $this->msg( 'pf_createform_hidden' )->escaped() ] );
-		$value = ( $cur_input_type == 'hidden' ) ? 'hidden' : "";
 		$text = new OOUI\DropdownInputWidget( [
 			'classes' => [ 'inputTypeSelector' ],
 			'name' => 'input_type_' . $field_form_text,
