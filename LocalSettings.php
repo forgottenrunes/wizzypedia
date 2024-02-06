@@ -210,7 +210,6 @@ wfLoadExtensions( [
 $wgPopupsHideOptInOnPreferencesPage = true;
 
 $wgScribuntoDefaultEngine = 'luastandalone';
-$wgScribuntoEngineConf['luastandalone']['luaPath'] = '/app/extensions/Scribunto/includes/engines/LuaStandalone/binaries/lua5_1_5_linux_64_generic/lua';
 // $wgScribuntoEngineConf['luastandalone']['luaPath'] = '/app/extensions/Scribunto/includes/engines/LuaStandalone/binaries/lua5_1_5_linux_64_generic/lua';
 
 
