@@ -27,7 +27,11 @@
 		} ),
 		importButton = OO.ui.infuse( $( '.ve-init-mw-collabTarget-importButton' ) ),
 		// Infuse the form last to avoid recursive infusion with no config
-		form = OO.ui.infuse( $( '.ve-init-mw-collabTarget-form' ) );
+		form = OO.ui.infuse( $( '.ve-init-mw-collabTarget-form' ) ),
+		$targetContainer = $(
+			document.querySelector( '[data-mw-ve-target-container]' ) ||
+			document.getElementById( 'content' )
+		);
 
 	if ( !VisualEditorSupportCheck() ) {
 		// VE not supported - say something?
@@ -67,7 +71,7 @@
 
 			$( 'body' ).addClass( 've-activated ve-active' );
 
-			$( '#content' ).prepend( target.$element );
+			$targetContainer.prepend( target.$element );
 
 			target.transformPage();
 			$( '#firstHeading' ).addClass( 've-init-mw-desktopArticleTarget-uneditableContent' );
@@ -122,7 +126,7 @@
 								// Something (an animation?) steals focus during load, so wait a bit
 								// before opening and focusing the authorList.
 								setTimeout( function () {
-									target.actionsToolbar.tools.authorList.onSelect();
+									target.toolbar.tools.authorList.onSelect();
 								}, 500 );
 							}
 						} );
@@ -170,7 +174,7 @@
 
 						// Look for import metadata in document
 						surfaceModel = target.getSurface().getModel();
-						surfaceModel.getMetaList().getItemsInGroup( 'misc' ).some( function ( item ) {
+						surfaceModel.getDocument().getMetaList().getItemsInGroup( 'misc' ).some( function ( item ) {
 							var importedDocument = item.getAttribute( 'importedDocument' );
 							if ( importedDocument ) {
 								target.importTitle = mw.Title.newFromText( importedDocument.title );
@@ -207,7 +211,7 @@
 		var specialTitle = mw.Title.newFromText( 'Special:CollabPad' );
 
 		if ( pushState ) {
-			history.pushState( { tag: 'collabTarget' }, mw.msg( 'collabpad' ), specialTitle.getUrl() );
+			history.pushState( { tag: 'collabTarget' }, '', specialTitle.getUrl() );
 		}
 
 		if ( target ) {
@@ -232,13 +236,9 @@
 
 	function loadTitle( title, importTitle ) {
 		var specialTitle = mw.Title.newFromText( 'Special:CollabPad/' + title.toString() );
-		if ( history.pushState ) {
-			// TODO: Handle popstate
-			history.pushState( { tag: 'collabTarget', title: title.toString() }, title.getMain(), specialTitle.getUrl() );
-			showPage( title, importTitle );
-		} else {
-			location.href = specialTitle.getUrl();
-		}
+		// TODO: Handle popstate
+		history.pushState( { tag: 'collabTarget', title: title.toString() }, '', specialTitle.getUrl() );
+		showPage( title, importTitle );
 	}
 
 	function getRandomTitle() {
@@ -308,7 +308,10 @@
 	onImportChange();
 
 	if ( pageTitle ) {
-		showPage( pageTitle );
+		var url = new URL( location.href ),
+			importTitleText = url.searchParams.get( 'import' ),
+			importTitleParam = ( importTitleText ? mw.Title.newFromText( importTitleText ) : null );
+		showPage( pageTitle, importTitleParam );
 	} else {
 		showForm();
 	}
@@ -319,9 +322,7 @@
 	} );
 
 	// Tag current state
-	if ( history.replaceState ) {
-		history.replaceState( { tag: 'collabTarget', title: pageName }, document.title, location.href );
-	}
+	history.replaceState( { tag: 'collabTarget', title: pageName }, '', location.href );
 	window.addEventListener( 'popstate', function ( e ) {
 		if ( e.state && e.state.tag === 'collabTarget' ) {
 			if ( e.state.title ) {

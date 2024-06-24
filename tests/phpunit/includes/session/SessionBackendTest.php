@@ -2,10 +2,11 @@
 
 namespace MediaWiki\Session;
 
-use Config;
+use MediaWiki\Config\Config;
+use MediaWiki\Config\HashConfig;
 use MediaWiki\HookContainer\HookContainer;
+use MediaWiki\User\User;
 use MediaWikiIntegrationTestCase;
-use User;
 use Wikimedia\TestingAccessWrapper;
 
 /**
@@ -48,7 +49,7 @@ class SessionBackendTest extends MediaWikiIntegrationTestCase {
 	 */
 	protected function getBackend( User $user = null, $id = null ) {
 		if ( !$this->config ) {
-			$this->config = new \HashConfig();
+			$this->config = new HashConfig();
 			$this->manager = null;
 		}
 		if ( !$this->store ) {
@@ -84,7 +85,7 @@ class SessionBackendTest extends MediaWikiIntegrationTestCase {
 		$backend = new SessionBackend( $id, $info, $this->store, $logger, $hookContainer, 10 );
 		$priv = TestingAccessWrapper::newFromObject( $backend );
 		$priv->persist = false;
-		$priv->requests = [ 100 => new \FauxRequest() ];
+		$priv->requests = [ 100 => new \MediaWiki\Request\FauxRequest() ];
 		$priv->requests[100]->setSessionId( $id );
 		$priv->usePhpSessionHandling = false;
 
@@ -97,6 +98,7 @@ class SessionBackendTest extends MediaWikiIntegrationTestCase {
 	}
 
 	public function testConstructor() {
+		$username = 'TestConstructor';
 		// Set variables
 		$this->getBackend();
 
@@ -104,7 +106,7 @@ class SessionBackendTest extends MediaWikiIntegrationTestCase {
 			'provider' => $this->provider,
 			'id' => self::SESSIONID,
 			'persisted' => true,
-			'userInfo' => UserInfo::newFromName( 'UTSysop', false ),
+			'userInfo' => UserInfo::newFromName( $username, false ),
 			'idIsSafe' => true,
 		] );
 		$id = new SessionId( $info->getId() );
@@ -115,14 +117,14 @@ class SessionBackendTest extends MediaWikiIntegrationTestCase {
 			$this->fail( 'Expected exception not thrown' );
 		} catch ( \InvalidArgumentException $ex ) {
 			$this->assertSame(
-				"Refusing to create session for unverified user {$info->getUserInfo()}",
+				'Refusing to create session for unverified user ' . $info->getUserInfo(),
 				$ex->getMessage()
 			);
 		}
 
 		$info = new SessionInfo( SessionInfo::MIN_PRIORITY, [
 			'id' => self::SESSIONID,
-			'userInfo' => UserInfo::newFromName( 'UTSysop', true ),
+			'userInfo' => UserInfo::newFromName( $username, true ),
 			'idIsSafe' => true,
 		] );
 		$id = new SessionId( $info->getId() );
@@ -137,7 +139,7 @@ class SessionBackendTest extends MediaWikiIntegrationTestCase {
 			'provider' => $this->provider,
 			'id' => self::SESSIONID,
 			'persisted' => true,
-			'userInfo' => UserInfo::newFromName( 'UTSysop', true ),
+			'userInfo' => UserInfo::newFromName( $username, true ),
 			'idIsSafe' => true,
 		] );
 		$id = new SessionId( '!' . $info->getId() );
@@ -155,7 +157,7 @@ class SessionBackendTest extends MediaWikiIntegrationTestCase {
 			'provider' => $this->provider,
 			'id' => self::SESSIONID,
 			'persisted' => true,
-			'userInfo' => UserInfo::newFromName( 'UTSysop', true ),
+			'userInfo' => UserInfo::newFromName( $username, true ),
 			'idIsSafe' => true,
 		] );
 		$id = new SessionId( $info->getId() );
@@ -164,7 +166,7 @@ class SessionBackendTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( $id, $backend->getSessionId() );
 		$this->assertSame( $this->provider, $backend->getProvider() );
 		$this->assertInstanceOf( User::class, $backend->getUser() );
-		$this->assertSame( 'UTSysop', $backend->getUser()->getName() );
+		$this->assertSame( $username, $backend->getUser()->getName() );
 		$this->assertSame( $info->wasPersisted(), $backend->isPersistent() );
 		$this->assertSame( $info->wasRemembered(), $backend->shouldRememberUser() );
 		$this->assertSame( $info->forceHTTPS(), $backend->shouldForceHTTPS() );
@@ -201,9 +203,9 @@ class SessionBackendTest extends MediaWikiIntegrationTestCase {
 
 		$manager = TestingAccessWrapper::newFromObject( $this->manager );
 
-		$request1 = new \FauxRequest();
+		$request1 = new \MediaWiki\Request\FauxRequest();
 		$session1 = $backend->getSession( $request1 );
-		$request2 = new \FauxRequest();
+		$request2 = new \MediaWiki\Request\FauxRequest();
 		$session2 = $backend->getSession( $request2 );
 
 		$this->assertInstanceOf( Session::class, $session1 );
@@ -286,7 +288,7 @@ class SessionBackendTest extends MediaWikiIntegrationTestCase {
 		$this->provider->method( 'persistsSessionId' )
 			->willReturn( false );
 		$this->provider->expects( $this->never() )->method( 'sessionIdWasReset' );
-		$backend = $this->getBackend( User::newFromName( 'UTSysop' ) );
+		$backend = $this->getBackend( User::newFromName( 'TestResetId' ) );
 		$manager = TestingAccessWrapper::newFromObject( $this->manager );
 		$sessionId = $backend->getSessionId();
 		$backend->resetId();
@@ -725,11 +727,11 @@ class SessionBackendTest extends MediaWikiIntegrationTestCase {
 		$mockHook = $this->getMockBuilder( __CLASS__ )
 			->onlyMethods( [ 'onSessionMetadata' ] )->getMock();
 		$mockHook->method( 'onSessionMetadata' )
-			->will( $this->returnCallback(
+			->willReturnCallback(
 				static function ( SessionBackend $backend, array &$metadata, array $requests ) {
 					$metadata['userId']++;
 				}
-			) );
+			);
 		$this->mergeMwGlobalArrayValue( 'wgHooks', [ 'SessionMetadata' => [ $mockHook ] ] );
 		$this->store->setSessionData( self::SESSIONID, $testData );
 		$backend = $this->getBackend( $user );
@@ -877,7 +879,7 @@ class SessionBackendTest extends MediaWikiIntegrationTestCase {
 		session_write_close();
 
 		$backend2 = $this->getBackend(
-			User::newFromName( 'UTSysop' ), 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+			User::newFromName( 'TestTakeOverGlobalSession' ), 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 		);
 		TestingAccessWrapper::newFromObject( $backend2 )->usePhpSessionHandling = true;
 
@@ -901,7 +903,7 @@ class SessionBackendTest extends MediaWikiIntegrationTestCase {
 			$handler->enable = true;
 		}
 
-		$backend = $this->getBackend( User::newFromName( 'UTSysop' ) );
+		$backend = $this->getBackend( User::newFromName( 'TestResetIdOfGlobalSession' ) );
 		TestingAccessWrapper::newFromObject( $backend )->usePhpSessionHandling = true;
 
 		$resetSingleton = TestUtils::setSessionManagerSingleton( $this->manager );
@@ -937,7 +939,7 @@ class SessionBackendTest extends MediaWikiIntegrationTestCase {
 			$handler->enable = true;
 		}
 
-		$backend = $this->getBackend( User::newFromName( 'UTSysop' ) );
+		$backend = $this->getBackend( User::newFromName( 'TestUnpersistOfGlobalSession' ) );
 		$wrap = TestingAccessWrapper::newFromObject( $backend );
 		$wrap->usePhpSessionHandling = true;
 		$wrap->persist = true;

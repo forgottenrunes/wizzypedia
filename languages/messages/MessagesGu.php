@@ -1,11 +1,8 @@
 <?php
 /** Gujarati (ગુજરાતી)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
- *
+ * @ingroup Languages
  */
 
 $namespaceNames = [
@@ -108,7 +105,7 @@ $specialPageAliases = [
 	'Wantedpages'               => [ 'જોઇતા_પાનાં', 'ત્રુટક_કડી' ],
 	'Wantedtemplates'           => [ 'જોઇતા_ઢાંચા' ],
 	'Watchlist'                 => [ 'ધ્યાનસૂચિ' ],
-	'Whatlinkshere'             => [ 'અહિં_શું_જોડાય_છે?' ],
+	'Whatlinkshere'             => [ 'અહીં_શું_જોડાય_છે?', 'અહિં_શું_જોડાય_છે?' ],
 	'Withoutinterwiki'          => [ 'આંતરવિકિવિહીન' ],
 ];
 

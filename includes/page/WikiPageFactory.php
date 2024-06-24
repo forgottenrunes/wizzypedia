@@ -5,25 +5,24 @@ namespace MediaWiki\Page;
 use DBAccessObjectUtils;
 use MediaWiki\Linker\LinkTarget;
 use MediaWiki\Page\Hook\WikiPageFactoryHook;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleFactory;
 use stdClass;
-use Title;
-use TitleFactory;
 use WikiCategoryPage;
 use WikiFilePage;
 use Wikimedia\Rdbms\ILoadBalancer;
 use WikiPage;
 
 /**
+ * Service for creating WikiPage objects.
+ *
  * @since 1.36
  */
 class WikiPageFactory {
-
 	/** @var TitleFactory */
 	private $titleFactory;
-
 	/** @var WikiPageFactoryHook */
 	private $wikiPageFactoryHookRunner;
-
 	/** @var ILoadBalancer */
 	private $loadBalancer;
 
@@ -46,7 +45,6 @@ class WikiPageFactory {
 	 * Create a WikiPage object from a title.
 	 *
 	 * @param PageIdentity $pageIdentity
-	 *
 	 * @return WikiPage
 	 */
 	public function newFromTitle( PageIdentity $pageIdentity ): WikiPage {
@@ -66,7 +64,7 @@ class WikiPageFactory {
 
 		// TODO: remove the need for casting to Title. We'll have to create a new hook to
 		//       replace the WikiPageFactory hook.
-		$title = Title::castFromPageIdentity( $pageIdentity );
+		$title = Title::newFromPageIdentity( $pageIdentity );
 
 		$page = null;
 		if ( !$this->wikiPageFactoryHookRunner->onWikiPageFactory( $title, $page ) ) {
@@ -91,10 +89,9 @@ class WikiPageFactory {
 	 * Create a WikiPage object from a link target.
 	 *
 	 * @param LinkTarget $title
-	 *
 	 * @return WikiPage
 	 */
-	public function newFromLinkTarget( LinkTarget $title ) {
+	public function newFromLinkTarget( LinkTarget $title ): WikiPage {
 		return $this->newFromTitle( $this->titleFactory->newFromLinkTarget( $title ) );
 	}
 

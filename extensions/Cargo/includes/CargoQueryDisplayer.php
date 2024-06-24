@@ -11,11 +11,45 @@ use MediaWiki\MediaWikiServices;
 
 class CargoQueryDisplayer {
 
+	private const FORMAT_CLASSES = [
+		'list' => CargoListFormat::class,
+		'ul' => CargoULFormat::class,
+		'ol' => CargoOLFormat::class,
+		'template' => CargoTemplateFormat::class,
+		'embedded' => CargoEmbeddedFormat::class,
+		'csv' => CargoCSVFormat::class,
+		'excel' => CargoExcelFormat::class,
+		'feed' => CargoFeedFormat::class,
+		'json' => CargoJSONFormat::class,
+		'outline' => CargoOutlineFormat::class,
+		'tree' => CargoTreeFormat::class,
+		'table' => CargoTableFormat::class,
+		'dynamic table' => CargoDynamicTableFormat::class,
+		'map' => CargoMapsFormat::class,
+		'googlemaps' => CargoGoogleMapsFormat::class,
+		'leaflet' => CargoLeafletFormat::class,
+		'openlayers' => CargoOpenLayersFormat::class,
+		'calendar' => CargoCalendarFormat::class,
+		'icalendar' => CargoICalendarFormat::class,
+		'timeline' => CargoTimelineFormat::class,
+		'gantt' => CargoGanttFormat::class,
+		'bpmn' => CargoBPMNFormat::class,
+		'category' => CargoCategoryFormat::class,
+		'bar chart' => CargoBarChartFormat::class,
+		'pie chart' => CargoPieChartFormat::class,
+		'gallery' => CargoGalleryFormat::class,
+		'slideshow' => CargoSlideshowFormat::class,
+		'tag cloud' => CargoTagCloudFormat::class,
+		'exhibit' => CargoExhibitFormat::class,
+		'bibtex' => CargoBibtexFormat::class,
+		'zip' => CargoZipFormat::class,
+	];
+
 	public $mSQLQuery;
 	public $mFormat;
 	public $mDisplayParams = [];
 	public $mParser = null;
-	public $mFieldDescriptions;
+	public $mFieldDescriptions = [];
 	public $mFieldTables;
 
 	public static function newFromSQLQuery( $sqlQuery ) {
@@ -26,50 +60,23 @@ class CargoQueryDisplayer {
 		return $cqd;
 	}
 
+	/**
+	 * @return string[] List of {@see CargoDisplayFormat} subclasses
+	 */
 	public static function getAllFormatClasses() {
-		$formatClasses = [
-			'list' => 'CargoListFormat',
-			'ul' => 'CargoULFormat',
-			'ol' => 'CargoOLFormat',
-			'template' => 'CargoTemplateFormat',
-			'embedded' => 'CargoEmbeddedFormat',
-			'csv' => 'CargoCSVFormat',
-			'excel' => 'CargoExcelFormat',
-			'json' => 'CargoJSONFormat',
-			'outline' => 'CargoOutlineFormat',
-			'tree' => 'CargoTreeFormat',
-			'table' => 'CargoTableFormat',
-			'dynamic table' => 'CargoDynamicTableFormat',
-			'map' => 'CargoMapsFormat',
-			'googlemaps' => 'CargoGoogleMapsFormat',
-			'leaflet' => 'CargoLeafletFormat',
-			'openlayers' => 'CargoOpenLayersFormat',
-			'calendar' => 'CargoCalendarFormat',
-			'icalendar' => 'CargoICalendarFormat',
-			'timeline' => 'CargoTimelineFormat',
-			'gantt' => 'CargoGanttFormat',
-			'bpmn' => 'CargoBPMNFormat',
-			'category' => 'CargoCategoryFormat',
-			'bar chart' => 'CargoBarChartFormat',
-			'pie chart' => 'CargoPieChartFormat',
-			'gallery' => 'CargoGalleryFormat',
-			'slideshow' => 'CargoSlideshowFormat',
-			'tag cloud' => 'CargoTagCloudFormat',
-			'exhibit' => 'CargoExhibitFormat',
-			'bibtex' => 'CargoBibtexFormat',
-			'zip' => 'CargoZipFormat'
-		];
+		$formatClasses = self::FORMAT_CLASSES;
 
 		// Let other extensions add their own formats - or even
 		// remove formats, if they want to.
-		Hooks::run( 'CargoSetFormatClasses', [ &$formatClasses ] );
+		MediaWikiServices::getInstance()->getHookContainer()->run( 'CargoSetFormatClasses', [ &$formatClasses ] );
 
 		return $formatClasses;
 	}
 
 	/**
 	 * Given a format name, and a list of the fields, returns the name
-	 * of the function to call for that format.
+	 * of the class to instantiate for that format.
+	 * @return string
 	 */
 	public function getFormatClass() {
 		$formatClasses = self::getAllFormatClasses();
@@ -85,20 +92,25 @@ class CargoQueryDisplayer {
 		return $formatClasses[$format];
 	}
 
+	/**
+	 * @param ParserOutput $out
+	 * @param Parser|null $parser
+	 * @return CargoDisplayFormat
+	 */
 	public function getFormatter( $out, $parser = null ) {
 		$formatClass = $this->getFormatClass();
 		$formatObject = new $formatClass( $out, $parser );
 		return $formatObject;
 	}
 
-	public function getFormattedQueryResults( $queryResults ) {
-		// The assignment will do a copy.
+	public function getFormattedQueryResults( $queryResults, $escapeValues = false ) {
 		global $wgScriptPath, $wgServer;
-		$queryResults = CargoUtils::replaceRedirectWithTarget( $queryResults, $this->mFieldDescriptions );
+
+		// The assignment will do a copy.
 		$formattedQueryResults = $queryResults;
 		foreach ( $queryResults as $rowNum => $row ) {
 			foreach ( $row as $fieldName => $value ) {
-				if ( trim( $value ) == '' ) {
+				if ( $value === null || trim( $value ) === '' ) {
 					continue;
 				}
 
@@ -118,8 +130,8 @@ class CargoQueryDisplayer {
 					// this, using array_map().
 					$delimiter = $fieldDescription->getDelimiter();
 					// We need to decode it in case the delimiter is ;
-					$value = html_entity_decode( $value );
-					$fieldValues = explode( $delimiter, $value );
+					$valueDecoded = html_entity_decode( $value );
+					$fieldValues = explode( $delimiter, $valueDecoded );
 					foreach ( $fieldValues as $i => $fieldValue ) {
 						if ( trim( $fieldValue ) == '' ) {
 							continue;
@@ -136,7 +148,7 @@ class CargoQueryDisplayer {
 							// list parsing worked.
 							$text .= ' <span class="CargoDelimiter">&bull;</span> ';
 						}
-						$text .= self::formatFieldValue( $fieldValue, $fieldType, $fieldDescription, $this->mParser );
+						$text .= self::formatFieldValue( $fieldValue, $fieldType, $fieldDescription, $this->mParser, $escapeValues );
 					}
 				} elseif ( $fieldDescription->isDateOrDatetime() ) {
 					$datePrecisionField = $fieldName . '__precision';
@@ -163,7 +175,7 @@ class CargoQueryDisplayer {
 					// and an x mark for "no" would be
 					// cool, but those are apparently far
 					// from universal symbols.
-					$text = ( $value == true ) ? wfMessage( 'htmlform-yes' )->text() : wfMessage( 'htmlform-no' )->text();
+					$text = ( $value == true ) ? wfMessage( 'htmlform-yes' )->escaped() : wfMessage( 'htmlform-no' )->escaped();
 				} elseif ( $fieldType == 'Searchtext' && $this->mSQLQuery && array_key_exists( $fieldName, $this->mSQLQuery->mSearchTerms ) ) {
 					$searchTerms = $this->mSQLQuery->mSearchTerms[$fieldName];
 					$text = Html::rawElement( 'span', [ 'class' => 'searchresult' ], self::getTextSnippet( $value, $searchTerms ) );
@@ -173,7 +185,7 @@ class CargoQueryDisplayer {
 					$text = '<span style="display: block; width: 65px; height: 13px; background: url(\'' . $url . '\') 0 0;">
 						<span style="display: block; width: ' . $rate . '%; height: 13px; background: url(\'' . $url . '\') 0 -13px;"></span>';
 				} else {
-					$text = self::formatFieldValue( $value, $fieldType, $fieldDescription, $this->mParser );
+					$text = self::formatFieldValue( $value, $fieldType, $fieldDescription, $this->mParser, $escapeValues );
 				}
 
 				if ( array_key_exists( 'max display chars', $this->mDisplayParams ) && ( $fieldType == 'Text' || $fieldType == 'Wikitext' ) ) {
@@ -191,7 +203,7 @@ class CargoQueryDisplayer {
 		return $formattedQueryResults;
 	}
 
-	public static function formatFieldValue( $value, $type, $fieldDescription, $parser ) {
+	public static function formatFieldValue( $value, $type, $fieldDescription, $parser, $escapeValue ) {
 		if ( $type == 'Integer' ) {
 			global $wgCargoDecimalMark, $wgCargoDigitGroupingCharacter;
 			return number_format( $value, 0, $wgCargoDecimalMark, $wgCargoDigitGroupingCharacter );
@@ -228,12 +240,17 @@ class CargoQueryDisplayer {
 			if ( $title == null || !$title->exists() ) {
 				return $value;
 			}
-			if ( method_exists( MediaWikiServices::class, 'getRepoGroup' ) ) {
-				// MediaWiki 1.34+
-				$file = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo()->newFile( $title );
-			} else {
-				$file = wfLocalFile( $title );
+
+			// If it's a redirect, use the redirect target instead.
+			if ( $title->isRedirect() ) {
+				$page = CargoUtils::makeWikiPage( $title );
+				$title = $page->getRedirectTarget();
+				if ( !$title->exists() ) {
+					return $title->getText();
+				}
 			}
+
+			$file = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo()->newFile( $title );
 			return Linker::makeThumbLinkObj(
 				$title,
 				$file,
@@ -241,7 +258,15 @@ class CargoQueryDisplayer {
 				''
 			);
 		} elseif ( $type == 'URL' ) {
-			if ( array_key_exists( 'link text', $fieldDescription->mOtherParams ) ) {
+			// Validate URL - regexp code copied from Sanitizer::validateAttributes().
+			$hrefExp = '/^(' . wfUrlProtocols() . ')[^\s]+$/';
+			if ( !preg_match( $hrefExp, $value ) ) {
+				if ( $escapeValue ) {
+					return htmlspecialchars( $value );
+				} else {
+					return $value;
+				}
+			} elseif ( array_key_exists( 'link text', $fieldDescription->mOtherParams ) ) {
 				return Html::element( 'a', [ 'href' => $value ],
 						$fieldDescription->mOtherParams['link text'] );
 			} else {
@@ -260,7 +285,9 @@ class CargoQueryDisplayer {
 		} elseif ( $type == 'Wikitext' || $type == 'Wikitext string' || $type == '' ) {
 			return CargoUtils::smartParse( $value, $parser );
 		} elseif ( $type == 'Searchtext' ) {
-			$value = htmlspecialchars( $value );
+			if ( $escapeValue ) {
+				$value = htmlspecialchars( $value );
+			}
 			if ( strlen( $value ) > 300 ) {
 				return substr( $value, 0, 300 ) . ' ...';
 			} else {
@@ -270,6 +297,9 @@ class CargoQueryDisplayer {
 
 		// If it's not any of these specially-handled types, just
 		// return the value.
+		if ( $escapeValue ) {
+			$value = htmlspecialchars( $value );
+		}
 		return $value;
 	}
 
@@ -320,19 +350,9 @@ class CargoQueryDisplayer {
 	}
 
 	/**
-	 * Based heavily on MediaWiki's SearchResult::getTextSnippet()
+	 * Based on MediaWiki's SqlSearchResult::getTextSnippet()
 	 */
 	public function getTextSnippet( $text, $terms ) {
-		if ( defined( '\SearchHighlighter::DEFAULT_CONTEXT_LINES' ) ) {
-			// MW 1.34+
-			// TODO: once the else block is removed simply drop these vars
-			// SearchHighlighter methods take these same values as defaults.
-			$contextlines = SearchHighlighter::DEFAULT_CONTEXT_LINES;
-			$contextchars = SearchHighlighter::DEFAULT_CONTEXT_CHARS;
-		} else {
-			list( $contextlines, $contextchars ) = SearchEngine::userHighlightPrefs();
-		}
-
 		foreach ( $terms as $i => $term ) {
 			// Try to map from a MySQL search to a PHP one -
 			// this code could probably be improved.
@@ -354,25 +374,27 @@ class CargoQueryDisplayer {
 			// call the more expensive function, highlightText()
 			// rather than highlightSimple(), because we're not
 			// that concerned about performance.
-			$snippet = $h->highlightText( $text, $terms, $contextlines, $contextchars );
+			return $h->highlightText( $text, $terms );
 		} else {
-			$snippet = $h->highlightNone( $text, $contextlines, $contextchars );
+			return $h->highlightNone( $text );
 		}
-
-		// Why is this necessary for Cargo, but not for MediaWiki?
-		return html_entity_decode( $snippet );
 	}
 
+	/**
+	 * @param CargoDisplayFormat $formatter
+	 * @param array[] $queryResults
+	 * @return mixed|string
+	 */
 	public function displayQueryResults( $formatter, $queryResults ) {
 		if ( count( $queryResults ) == 0 ) {
 			if ( array_key_exists( 'default', $this->mDisplayParams ) ) {
 				return $this->mDisplayParams['default'];
 			} else {
-				return '<em>' . wfMessage( 'table_pager_empty' )->text() . '</em>'; // default
+				return '<em>' . wfMessage( 'table_pager_empty' )->escaped() . '</em>'; // default
 			}
 		}
 
-		$formattedQueryResults = $this->getFormattedQueryResults( $queryResults );
+		$formattedQueryResults = $this->getFormattedQueryResults( $queryResults, true );
 		$text = '';
 
 		// If this is the 'template' format, let the formatter print
@@ -382,9 +404,8 @@ class CargoQueryDisplayer {
 		// 'template' could there be complex formatting (like a table
 		// with a header and footer) where this approach to parsing
 		// would make a difference.
-		$formatClass = get_class( $formatter );
-		if ( array_key_exists( 'intro', $this->mDisplayParams ) && $formatClass !== 'CargoTemplateFormat' ) {
-			$text .= CargoUtils::smartParse( $this->mDisplayParams['intro'], $formatter->mParser );
+		if ( array_key_exists( 'intro', $this->mDisplayParams ) && !( $formatter instanceof CargoTemplateFormat ) ) {
+			$text .= CargoUtils::smartParse( $this->mDisplayParams['intro'], null );
 		}
 		try {
 			$text .= $formatter->display( $queryResults, $formattedQueryResults, $this->mFieldDescriptions,
@@ -392,8 +413,8 @@ class CargoQueryDisplayer {
 		} catch ( Exception $e ) {
 			return CargoUtils::formatError( $e->getMessage() );
 		}
-		if ( array_key_exists( 'outro', $this->mDisplayParams ) && $formatClass !== 'CargoTemplateFormat' ) {
-			$text .= CargoUtils::smartParse( $this->mDisplayParams['outro'], $formatter->mParser );
+		if ( array_key_exists( 'outro', $this->mDisplayParams ) && !( $formatter instanceof CargoTemplateFormat ) ) {
+			$text .= CargoUtils::smartParse( $this->mDisplayParams['outro'], null );
 		}
 		return $text;
 	}
@@ -429,7 +450,7 @@ class CargoQueryDisplayer {
 		if ( $sqlQuery->mOrigHavingStr != '' ) {
 			$queryStringParams['having'] = $sqlQuery->mOrigHavingStr;
 		}
-		$queryStringParams['order_by'] = $sqlQuery->mOrderBy;
+		$queryStringParams['order_by'] = $sqlQuery->mOrigOrderBy;
 		if ( $this->mFormat != '' ) {
 			$queryStringParams['format'] = $this->mFormat;
 		}

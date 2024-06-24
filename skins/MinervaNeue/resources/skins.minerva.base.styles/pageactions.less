@@ -1,12 +1,12 @@
+/* stylelint-disable selector-max-id */
 @import '../../minerva.less/minerva.variables.less';
-@import '../../minerva.less/minerva.mixins.less';
 
 .heading-holder {
 	padding: @titleSectionSpacingTop 0 0;
 	position: relative;
 
 	.tagline {
-		color: @colorGray5;
+		color: @color-subtle;
 		font-size: @taglineFontSize;
 	}
 }
@@ -16,26 +16,27 @@
 }
 
 // used to disable the languages icon.
-.mw-ui-icon-element.disabled,
 .language-selector.disabled {
 	cursor: default;
 	opacity: 0.25;
 }
 
-#page-actions { // stylelint-disable-line selector-max-id
+// FIXME: Remove #page-actions when cache has cleared
+#p-views,
+#page-actions {
 	position: relative;
 }
 
 .page-actions-menu {
-	.box-sizing( border-box );
-	border-top: 1px solid @colorGray14;
-	border-bottom: 1px solid @colorGray12;
-	margin-top: -1px; // Offset top border.
+	box-sizing: border-box;
+	border-top: @border-width-base @border-style-base #eaecf0;
+	border-bottom: @border-subtle;
+	margin-top: -@border-width-base; // Offset top border.
 }
 
 .page-actions-menu__list {
 	display: flex;
-	height: @iconSize * 2;
+	height: @size-icon * 2;
 	justify-content: space-between;
 }
 
@@ -45,6 +46,11 @@
 	align-items: center;
 	min-width: 0;
 	overflow: hidden;
+
+	.cdx-button {
+		color: @icon-color !important;
+		font-weight: 500;
+	}
 }
 
 // Layout for less than 5 items - one item at the beginning, rest at the end.
@@ -52,12 +58,12 @@
 .page-actions-menu__list-item:first-child {
 	flex-grow: 1;
 	justify-content: flex-start;
-	margin-left: @contentPadding/-2;
+	.cdx-mixin-button-layout-flush( 'start', true  );
 }
 
 // position the last icon with the edge of the content container
 .page-actions-menu__list-item:last-child {
-	margin-right: @contentPadding/-2;
+	.cdx-mixin-button-layout-flush( 'end', true  );
 }
 
 // Watchstar is hidden for anonymous no-js users
@@ -82,14 +88,13 @@
 // On small devices that don't support Javascript, hide the page actions bar
 @media all and ( max-width: @width-breakpoint-mobile - 1 ) {
 	.client-nojs {
-		#page-actions { // stylelint-disable-line selector-max-id
+		// FIXME: Remove #page-actions when cache has cleared
+		#p-views,
+		#page-actions {
 			display: none;
 		}
 
-		// FIXME: #section_0 rule can be removed > 1 week after
-		// I2ffdedd64414ffb3c6e441391a75fd6e744847a4 is in production.
-		.mw-first-heading,
-		#section_0 { // stylelint-disable-line selector-max-id
+		.mw-first-heading {
 			border: 0;
 		}
 	}

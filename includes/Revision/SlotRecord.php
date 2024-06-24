@@ -256,7 +256,7 @@ class SlotRecord {
 	 *        in revision history.
 	 */
 	public function __construct( \stdClass $row, $content, bool $derived = false ) {
-		Assert::parameterType( 'Content|callable', $content, '$content' );
+		Assert::parameterType( [ 'Content', 'callable' ], $content, '$content' );
 
 		Assert::parameter(
 			property_exists( $row, 'slot_revision_id' ),
@@ -310,6 +310,8 @@ class SlotRecord {
 	 *
 	 * @throws SuppressedDataException if access to the content is not allowed according
 	 * to the audience check performed by RevisionRecord::getSlot().
+	 * @throws BadRevisionException if the revision is permanently missing
+	 * @throws RevisionAccessException for other storage access errors
 	 *
 	 * @return Content The slot's content. This is a direct reference to the internal instance,
 	 * copy before exposing to application logic!
@@ -686,9 +688,3 @@ class SlotRecord {
 	}
 
 }
-
-/**
- * Retain the old class name for backwards compatibility.
- * @deprecated since 1.32
- */
-class_alias( SlotRecord::class, 'MediaWiki\Storage\SlotRecord' );

@@ -47,6 +47,10 @@
 #1.4: MW 1.34 support
 #1.4.1: Fix MW 1.34 support
 #1.5: Fix PHP warning
+#1.6: Fix MW 1.37 compatibility issue
+#1.7: Remove Bing search notifications from default config
+#1.7.1: Fix MW 1.37 compatibility warning
+#1.8: Add rate-limit feature and warning messages for too large sitemap
 
 if (!defined('MEDIAWIKI')) {
     die('This file is a MediaWiki extension, it is not a valid entry point');
@@ -86,34 +90,96 @@ if (!isset($wgAutoSitemap["header"]           )) $wgAutoSitemap["header"]       
 
 if (!isset($wgAutoSitemap["footer"]           )) $wgAutoSitemap["footer"]              = "\n</urlset>";
 
+if (!isset($wgAutoSitemap["min_age"]          )) $wgAutoSitemap["min_age"]             = 0; // No rate limit
+
 class AutoSitemap {
     static public function writeSitemap() {
         global $wgAutoSitemap;
 
+        $filename = $wgAutoSitemap["filename"];
+        $min_age = $wgAutoSitemap["min_age"];
+
+        $mtime = filemtime($filename);
+        if ($mtime !== FALSE && time() - $mtime < $min_age) {
+           // Sitemap is young, no need to update.
+           return;
+        }
+
         $server       = $wgAutoSitemap["server"];
-        $filename     = $wgAutoSitemap["filename"];
         $tmp_filename = $filename.'.tmp'.bin2hex(random_bytes(16)).'.tmp';
 
-        $file_handle = fopen($tmp_filename, 'w') or die('Cannot write to '.$tmp_filename.'.');
+        $file_handle = fopen($tmp_filename, 'w');
+        if ($file_handle === FALSE) {
+           error_log("Couldn't fopen file: $tmp_filename");
+           return;
+        }
 
         $dbr = wfGetDB(DB_REPLICA);
         $res = $dbr->query(self::getSQL());
 
-        $count = $dbr->numRows($res);
-        $pos   = 0;
+        // Sitemaps are limited to 50,000 URLs and 50 MB.
+        $entries    = 0;
+        $bytes      = 0;
+        $maxEntries = 50000;
+        $maxBytes   = 50000000;
 
-        $data = $wgAutoSitemap["header"];
-        while($row = $dbr->fetchObject($res)) {
-            $data .= self::formatResult($server, $row, $pos, $count);
-            ++$pos;
+        /* Note:
+         *
+         * Actually, https://www.sitemaps.org/protocol.html says the limit is 52,428,800 bytes,
+         * which is 50 MiB (MiB = 1024 * 1024), but it uses the old notation of "MB" which has
+         * since been standardized in ISO to mean 1000 * 1000.  We use the lower limit just in
+         * case, because some systems may interpret the "50MB" to mean 50 * 1000 * 1000.
+         *
+         * It's very unlikely to reach the size limit before reaching the 50k URL limit anyway,
+         * unless there are tons of *extremely* long URLs in a sitemap.
+         */
+
+        $error = FALSE;
+
+        try {
+            $bytes += self::write($file_handle, $wgAutoSitemap["header"]);
+            while($row = $res->fetchObject()) {
+                $entries += 1;
+                $bytes += self::write($file_handle, self::formatResult($server, $row));
+            }
+            $bytes += self::write($file_handle, $wgAutoSitemap["footer"]);
+        } catch (Exception $e) {
+            error_log("Writing sitemap failed: $e");
+            $error = TRUE;
+        } finally {
+            fclose($file_handle);
         }
-        $data .= $wgAutoSitemap["footer"];
 
-        fwrite($file_handle, utf8_encode($data));
-        fclose($file_handle);
-        rename($tmp_filename, $filename);
+        // Show warning message if sitemap is large than 80% of the limit.
+        // If limit was exceeded, show error message
+        if ($entries >= $maxEntries) {
+            error_log("ERROR: Sitemap is exceeded size limit of $maxEntries items! Please use https://www.mediawiki.org/wiki/Manual:GenerateSitemap.php for generating sitemap file instead of Extensions:AutoSitemap.");
+        } else if ($entries >= $maxEntries * 0.8) {
+            error_log("WARNING: Sitemap is exceeded 80% of size limit of $maxEntries items. Please use https://www.mediawiki.org/wiki/Manual:GenerateSitemap.php for generating sitemap file instead of Extensions:AutoSitemap.");
+        }
 
-        self::notifySitemap();
+        if ($bytes >= $maxBytes) {
+            error_log("ERROR: Sitemap is exceeded size limit of $maxBytes bytes!. Please use https://www.mediawiki.org/wiki/Manual:GenerateSitemap.php for generating sitemap file instead of Extensions:AutoSitemap.");
+        } else if ($bytes >= $maxBytes * 0.8) {
+            error_log("WARNING: Sitemap is exceeded 80% of size limit of $maxBytes bytes.. Please use https://www.mediawiki.org/wiki/Manual:GenerateSitemap.php for generating sitemap file instead of Extensions:AutoSitemap.");
+        }
+
+        if ($error) {
+            if (!unlink($tmp_filename)) {
+                error_log("Warning: Couldn't delete $tmp_filename.");
+            }
+        } else {
+            rename($tmp_filename, $filename);
+            self::notifySitemap();
+        }
+    }
+
+    static function write($handle, $data) {
+        $bytes = fwrite($handle, $data);
+        if ($bytes === FALSE || $bytes === 0) {
+            throw new Exception("Call to fwrite failed (returned $bytes).");
+        }
+        return $bytes;
     }
 
     static function getSQL() {
@@ -155,7 +221,7 @@ class AutoSitemap {
     }
 
 
-    static function getPriority($title, $pos, $count) {
+    static function getPriority($title) {
         global $wgAutoSitemap;
         $priority = $wgAutoSitemap["priority"];
         if (!is_array($priority)) {
@@ -169,7 +235,7 @@ class AutoSitemap {
         if (array_key_exists($pageName, $priority)) {
             return $priority[$pageName];
         }
-        return $pos/$count;
+        return 1.0;
     }
 
     static function getChangeFreq($page_id) {
@@ -189,12 +255,12 @@ class AutoSitemap {
         FROM $revision WHERE rev_page = $page_id";
 
         $res   = $dbr->query($sql);
-        $count = $dbr->numRows($res);
+        $count = $res->numRows();
 
         if($count < 1) {
             return "daily";
         } else {
-            $item1 = $dbr->fetchObject($res);
+            $item1 = $res->fetchObject();
             $cur = time() ;
             $first = wfTimestamp(TS_UNIX, $item1->creation_timestamp);
 
@@ -210,13 +276,13 @@ class AutoSitemap {
         }
     }
 
-    static function formatResult($server, $result, $pos, $count) {
+    static function formatResult($server, $result) {
         global $wgContLang;
 
         $title = Title::makeTitle($result->namespace, $result->title);
         $url   = $title->getLocalURL();
 
-        $priority = self::getPriority($title, $pos, $count);
+        $priority = sprintf("%01.1f", self::getPriority($title));
         $last_modification = gmdate("Y-m-d\TH:i:s\Z", wfTimestamp(TS_UNIX, $result->last_modification));
         $freq = self::getChangeFreq($result->id);
 
@@ -227,7 +293,7 @@ class AutoSitemap {
         return '
   <url>
     <loc>'.self::encodeUrl($url).'</loc>
-    <priority>'.str_replace(",", ".", round($priority,1)).'</priority>
+    <priority>'.$priority.'</priority>
     <lastmod>'.$last_modification.'</lastmod>
     <changefreq>'.$freq.'</changefreq>
   </url>';

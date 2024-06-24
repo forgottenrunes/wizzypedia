@@ -21,7 +21,9 @@
  * @ingroup Search
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Parser\Sanitizer;
 
 /**
  * Highlight bits of wikitext
@@ -64,7 +66,7 @@ class SearchHighlighter {
 		$contextchars = self::DEFAULT_CONTEXT_CHARS
 	) {
 		$searchHighlightBoundaries = MediaWikiServices::getInstance()
-			->getMainConfig()->get( 'SearchHighlightBoundaries' );
+			->getMainConfig()->get( MainConfigNames::SearchHighlightBoundaries );
 
 		if ( $text == '' ) {
 			return '';
@@ -248,12 +250,16 @@ class SearchHighlighter {
 		foreach ( $snippets as $index => $line ) {
 			$extended[$index] = $line;
 			$len = strlen( $line );
+			// @phan-suppress-next-next-line PhanPossiblyUndeclaredVariable
+			// $targetchars is set when $snippes contains anything
 			if ( $len < $targetchars - 20 ) {
 				// complete this line
 				if ( $len < strlen( $all[$index] ) ) {
 					$extended[$index] = $this->extract(
 						$all[$index],
 						$offsets[$index],
+						// @phan-suppress-next-next-line PhanPossiblyUndeclaredVariable
+						// $targetchars is set when $snippes contains anything
 						$offsets[$index] + $targetchars,
 						$offsets[$index]
 					);
@@ -262,10 +268,14 @@ class SearchHighlighter {
 
 				// add more lines
 				$add = $index + 1;
+				// @phan-suppress-next-next-line PhanPossiblyUndeclaredVariable
+				// $targetchars is set when $snippes contains anything
 				while ( $len < $targetchars - 20
 						&& array_key_exists( $add, $all )
 						&& !array_key_exists( $add, $snippets ) ) {
 					$offsets[$add] = 0;
+					// @phan-suppress-next-next-line PhanPossiblyUndeclaredVariable
+					// $targetchars is set when $snippes contains anything
 					$tt = "\n" . $this->extract( $all[$add], 0, $targetchars - $len, $offsets[$add] );
 					$extended[$add] = $tt;
 					$len += strlen( $tt );
@@ -463,7 +473,7 @@ class SearchHighlighter {
 	/**
 	 * Basic wikitext removal
 	 * @param string $text
-	 * @return mixed
+	 * @return string
 	 */
 	private function removeWiki( $text ) {
 		$text = preg_replace( "/\\{\\{([^|]+?)\\}\\}/", "", $text );
@@ -529,17 +539,14 @@ class SearchHighlighter {
 
 		$terms = implode( '|', $terms );
 		$max = intval( $contextchars ) + 1;
-		$pat1 = "/(.*)($terms)(.{0,$max})/i";
+		$pat1 = "/(.*)($terms)(.{0,$max})/ui";
 
-		$lineno = 0;
-
-		$extract = "";
+		$extract = '';
 		$contLang = MediaWikiServices::getInstance()->getContentLanguage();
 		foreach ( $lines as $line ) {
 			if ( $contextlines == 0 ) {
 				break;
 			}
-			++$lineno;
 			$m = [];
 			if ( !preg_match( $pat1, $line, $m ) ) {
 				continue;
@@ -557,10 +564,10 @@ class SearchHighlighter {
 			$found = $m[2];
 
 			$line = htmlspecialchars( $pre . $found . $post );
-			$pat2 = '/(' . $terms . ")/i";
-			$line = preg_replace( $pat2, "<span class='searchmatch'>\\1</span>", $line );
+			$pat2 = '/(' . $terms . ')/ui';
+			$line = preg_replace( $pat2, '<span class="searchmatch">\1</span>', $line );
 
-			$extract .= "${line}\n";
+			$extract .= "{$line}\n";
 		}
 
 		return $extract;

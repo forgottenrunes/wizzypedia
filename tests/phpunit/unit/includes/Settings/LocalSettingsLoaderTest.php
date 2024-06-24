@@ -28,7 +28,7 @@ class LocalSettingsLoaderTest extends TestCase {
 		);
 	}
 
-	public function provideLoadingFromFile() {
+	public static function provideLoadingFromFile() {
 		$expected = [
 			'SiteName' => 'TestSite',
 			'HttpsPort' => 443,
@@ -44,7 +44,7 @@ class LocalSettingsLoaderTest extends TestCase {
 			'fixtures/settings.json',
 			$expected
 		];
-		yield 'PHP with variabls' => [
+		yield 'PHP with variables' => [
 			'fixtures/settings-with-variables.php',
 			$expected
 		];

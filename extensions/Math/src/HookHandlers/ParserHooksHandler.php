@@ -2,8 +2,7 @@
 
 namespace MediaWiki\Extension\Math\HookHandlers;
 
-use FatalError;
-use Hooks as MWHooks;
+use MediaWiki\Extension\Math\Hooks\HookRunner;
 use MediaWiki\Extension\Math\MathConfig;
 use MediaWiki\Extension\Math\MathMathML;
 use MediaWiki\Extension\Math\MathMathMLCli;
@@ -12,9 +11,9 @@ use MediaWiki\Extension\Math\Render\RendererFactory;
 use MediaWiki\Hook\ParserAfterTidyHook;
 use MediaWiki\Hook\ParserFirstCallInitHook;
 use MediaWiki\Hook\ParserOptionsRegisterHook;
+use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\User\UserOptionsLookup;
-use MWException;
 use Parser;
 use ParserOptions;
 
@@ -39,16 +38,22 @@ class ParserHooksHandler implements
 	/** @var UserOptionsLookup */
 	private $userOptionsLookup;
 
+	/** @var HookRunner */
+	private $hookRunner;
+
 	/**
 	 * @param RendererFactory $rendererFactory
 	 * @param UserOptionsLookup $userOptionsLookup
+	 * @param HookContainer $hookContainer
 	 */
 	public function __construct(
 		RendererFactory $rendererFactory,
-		UserOptionsLookup $userOptionsLookup
+		UserOptionsLookup $userOptionsLookup,
+		HookContainer $hookContainer
 	) {
 		$this->rendererFactory = $rendererFactory;
 		$this->userOptionsLookup = $userOptionsLookup;
+		$this->hookRunner = new HookRunner( $hookContainer );
 	}
 
 	/**
@@ -76,8 +81,10 @@ class ParserHooksHandler implements
 		$renderer = $this->rendererFactory->getRenderer( $content ?? '', $attributes, $mode );
 
 		$parser->getOutput()->addModuleStyles( [ 'ext.math.styles' ] );
+		if ( array_key_exists( "qid", $attributes ) ) {
+			$parser->getOutput()->addModules( [ 'ext.math.popup' ] );
+		}
 		if ( $mode == MathConfig::MODE_MATHML ) {
-			$parser->getOutput()->addModules( [ 'ext.math.scripts' ] );
 			$marker = Parser::MARKER_PREFIX .
 				'-postMath-' . sprintf( '%08X', $this->mathTagCounter++ ) .
 				Parser::MARKER_SUFFIX;
@@ -106,8 +113,6 @@ class ParserHooksHandler implements
 	 * @param MathRenderer $renderer
 	 * @param Parser $parser
 	 * @return string
-	 * @throws FatalError
-	 * @throws MWException
 	 */
 	private function mathPostTagHook( MathRenderer $renderer, Parser $parser ) {
 		$checkResult = $renderer->checkTeX();
@@ -130,9 +135,8 @@ class ParserHooksHandler implements
 			$renderer->addTrackingCategories( $parser );
 			return $renderer->getLastError();
 		}
-		// TODO: Convert to a new style hook system and inject HookContainer
-		MWHooks::run( 'MathFormulaPostRender',
-			[ $parser, $renderer, &$renderedMath ]
+		$this->hookRunner->onMathFormulaPostRender(
+			$parser, $renderer, $renderedMath
 		); // Enables indexing of math formula
 
 		// Writes cache if rendering was successful
@@ -147,9 +151,7 @@ class ParserHooksHandler implements
 	 */
 	public function onParserAfterTidy( $parser, &$text ) {
 		global $wgMathoidCli;
-		$renderers = array_map( static function ( $tag ) {
-			return $tag[0];
-		}, $this->mathLazyRenderBatch );
+		$renderers = array_column( $this->mathLazyRenderBatch, 0 );
 		if ( $wgMathoidCli ) {
 			MathMathMLCli::batchEvaluate( $renderers );
 		} else {
@@ -157,12 +159,6 @@ class ParserHooksHandler implements
 		}
 		foreach ( $this->mathLazyRenderBatch as $key => [ $renderer, $renderParser ] ) {
 			$value = $this->mathPostTagHook( $renderer, $renderParser );
-			// Workaround for https://phabricator.wikimedia.org/T103269
-			$text = preg_replace(
-				'/(<mw:editsection[^>]*>.*?)' . preg_quote( $key ) . '(.*?)<\/mw:editsection>/',
-				'\1 $' . htmlspecialchars( $renderer->getTex() ) . '\2</mw:editsection>',
-				$text
-			);
 			$count = 0;
 			$text = str_replace( $key, $value, $text, $count );
 			if ( $count ) {

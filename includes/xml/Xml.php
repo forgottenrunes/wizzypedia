@@ -20,8 +20,12 @@
  * @file
  */
 
+use MediaWiki\Html\Html;
 use MediaWiki\Languages\LanguageNameUtils;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Parser\Sanitizer;
+use MediaWiki\Utils\MWTimestamp;
 
 /**
  * Module of static functions for generating XML
@@ -34,10 +38,14 @@ class Xml {
 	 * characters (<, >, &) are escaped but illegals are not touched.
 	 *
 	 * @param string $element Element name
+	 * @param-taint $element tainted
 	 * @param array|null $attribs Name=>value pairs. Values will be escaped.
+	 * @param-taint $attribs escapes_html
 	 * @param string|null $contents Null to make an open tag only; '' for a contentless closed tag (default)
+	 * @param-taint $contents escapes_html
 	 * @param bool $allowShortTag Whether '' in $contents will result in a contentless closed tag
 	 * @return string
+	 * @return-taint escaped
 	 */
 	public static function element( $element, $attribs = null, $contents = '',
 		$allowShortTag = true
@@ -62,21 +70,17 @@ class Xml {
 	 * The values are passed to Sanitizer::encodeAttribute.
 	 * Returns null or empty string if no attributes given.
 	 * @param array|null $attribs Array of attributes for an XML element
-	 * @throws MWException
 	 * @return null|string
 	 */
-	public static function expandAttributes( $attribs ) {
-		$out = '';
+	public static function expandAttributes( ?array $attribs ) {
 		if ( $attribs === null ) {
 			return null;
-		} elseif ( is_array( $attribs ) ) {
-			foreach ( $attribs as $name => $val ) {
-				$out .= " {$name}=\"" . Sanitizer::encodeAttribute( $val ) . '"';
-			}
-			return $out;
-		} else {
-			throw new MWException( 'Expected attribute array, got something else in ' . __METHOD__ );
 		}
+		$out = '';
+		foreach ( $attribs as $name => $val ) {
+			$out .= " {$name}=\"" . Sanitizer::encodeAttribute( $val ) . '"';
+		}
+		return $out;
 	}
 
 	/**
@@ -126,9 +130,13 @@ class Xml {
 	 * content you have is already valid xml.
 	 *
 	 * @param string $element Element name
+	 * @param-taint $element tainted
 	 * @param array|null $attribs Array of attributes
+	 * @param-taint $attribs escapes_html
 	 * @param string $contents Content of the element
+	 * @param-taint $contents tainted
 	 * @return string
+	 * @return-taint escaped
 	 */
 	public static function tags( $element, $attribs, $contents ) {
 		return self::openElement( $element, $attribs ) . $contents . "</$element>";
@@ -147,10 +155,7 @@ class Xml {
 		global $wgLang;
 		$options = [];
 
-		if ( $selected === null ) {
-			$selected = '';
-		}
-		$data = new XmlSelect( 'month', $id, $selected );
+		$data = new XmlSelect( 'month', $id, $selected ?? '' );
 
 		if ( $allmonths !== null ) {
 			$options[wfMessage( 'monthsall' )->text()] = $allmonths;
@@ -182,7 +187,7 @@ class Xml {
 			$timestamp = MWTimestamp::getInstance();
 			$thisMonth = intval( $timestamp->format( 'n' ) );
 			$thisYear = intval( $timestamp->format( 'Y' ) );
-			if ( intval( $encMonth ) > $thisMonth ) {
+			if ( $encMonth > $thisMonth ) {
 				$thisYear--;
 			}
 			$encYear = $thisYear;
@@ -209,7 +214,8 @@ class Xml {
 	public static function languageSelector( $selected, $customisedOnly = true,
 		$inLanguage = null, $overrideAttrs = [], Message $msg = null
 	) {
-		global $wgLanguageCode;
+		$languageCode = MediaWikiServices::getInstance()->getMainConfig()
+			->get( MainConfigNames::LanguageCode );
 
 		$include = $customisedOnly ? LanguageNameUtils::SUPPORTED : LanguageNameUtils::DEFINED;
 		$languages = MediaWikiServices::getInstance()
@@ -218,8 +224,8 @@ class Xml {
 
 		// Make sure the site language is in the list;
 		// a custom language code might not have a defined name...
-		if ( !array_key_exists( $wgLanguageCode, $languages ) ) {
-			$languages[$wgLanguageCode] = $wgLanguageCode;
+		if ( !array_key_exists( $languageCode, $languages ) ) {
+			$languages[$languageCode] = $languageCode;
 			// Sort the array again
 			ksort( $languages );
 		}
@@ -229,7 +235,7 @@ class Xml {
 		 * Otherwise, no default is selected and the user ends up
 		 * with Afrikaans since it's first in the list.
 		 */
-		$selected = isset( $languages[$selected] ) ? $selected : $wgLanguageCode;
+		$selected = isset( $languages[$selected] ) ? $selected : $languageCode;
 		$options = "\n";
 		foreach ( $languages as $code => $name ) {
 			$options .= self::option( "$code - $name", $code, $code == $selected ) . "\n";
@@ -387,7 +393,7 @@ class Xml {
 	public static function inputLabel( $label, $name, $id, $size = false,
 		$value = false, $attribs = []
 	) {
-		list( $label, $input ) = self::inputLabelSep( $label, $name, $id, $size, $value, $attribs );
+		[ $label, $input ] = self::inputLabelSep( $label, $name, $id, $size, $value, $attribs );
 		return $label . "\u{00A0}" . $input;
 	}
 
@@ -424,12 +430,13 @@ class Xml {
 	 * @return string HTML
 	 */
 	public static function checkLabel( $label, $name, $id, $checked = false, $attribs = [] ) {
-		global $wgUseMediaWikiUIEverywhere;
+		$useMediaWikiUIEverywhere = MediaWikiServices::getInstance()->getMainConfig()
+			->get( MainConfigNames::UseMediaWikiUIEverywhere );
 		$chkLabel = self::check( $name, $checked, [ 'id' => $id ] + $attribs ) .
 			"\u{00A0}" .
 			self::label( $label, $id, $attribs );
 
-		if ( $wgUseMediaWikiUIEverywhere ) {
+		if ( $useMediaWikiUIEverywhere ) {
 			$chkLabel = self::openElement( 'div', [ 'class' => 'mw-ui-checkbox' ] ) .
 				$chkLabel . self::closeElement( 'div' );
 		}
@@ -464,7 +471,8 @@ class Xml {
 	 * @return string HTML
 	 */
 	public static function submitButton( $value, $attribs = [] ) {
-		global $wgUseMediaWikiUIEverywhere;
+		$useMediaWikiUIEverywhere = MediaWikiServices::getInstance()->getMainConfig()
+			->get( MainConfigNames::UseMediaWikiUIEverywhere );
 		$baseAttrs = [
 			'type' => 'submit',
 			'value' => $value,
@@ -472,10 +480,10 @@ class Xml {
 		// Done conditionally for time being as it is possible
 		// some submit forms
 		// might need to be mw-ui-destructive (e.g. delete a page)
-		if ( $wgUseMediaWikiUIEverywhere ) {
+		if ( $useMediaWikiUIEverywhere ) {
 			$baseAttrs['class'] = 'mw-ui-button mw-ui-progressive';
 		}
-		// Any custom attributes will take precendence of anything in baseAttrs e.g. override the class
+		// Any custom attributes will take precedence of anything in baseAttrs e.g. override the class
 		$attribs += $baseAttrs;
 		return Html::element( 'input', $attribs );
 	}
@@ -662,20 +670,20 @@ class Xml {
 
 	/**
 	 * Encode a variable of arbitrary type to JavaScript.
-	 * If the value is an XmlJsCode object, pass through the object's value verbatim.
+	 * If the value is an HtmlJsCode object, pass through the object's value verbatim.
 	 *
 	 * @note Only use this function for generating JavaScript code. If generating output
 	 *       for a proper JSON parser, just call FormatJson::encode() directly.
 	 *
 	 * @param mixed $value The value being encoded. Can be any type except a resource.
+	 * @param-taint $value escapes_html
 	 * @param bool $pretty If true, add non-significant whitespace to improve readability.
 	 * @return string|false String if successful; false upon failure
+	 * @return-taint none
+	 * @deprecated since 1.41, use {@link Html::encodeJsVar()} instead
 	 */
 	public static function encodeJsVar( $value, $pretty = false ) {
-		if ( $value instanceof XmlJsCode ) {
-			return $value->value;
-		}
-		return FormatJson::encode( $value, $pretty, FormatJson::UTF8_OK );
+		return Html::encodeJsVar( $value, $pretty );
 	}
 
 	/**
@@ -685,22 +693,16 @@ class Xml {
 	 * @since 1.17
 	 * @param string $name The name of the function to call, or a JavaScript expression
 	 *    which evaluates to a function object which is called.
+	 * @param-taint $name tainted
 	 * @param array $args The arguments to pass to the function.
+	 * @param-taint $args escapes_html
 	 * @param bool $pretty If true, add non-significant whitespace to improve readability.
 	 * @return string|false String if successful; false upon failure
+	 * @return-taint none
+	 * @deprecated since 1.41, use {@link Html::encodeJsCall()} instead
 	 */
 	public static function encodeJsCall( $name, $args, $pretty = false ) {
-		foreach ( $args as &$arg ) {
-			$arg = self::encodeJsVar( $arg, $pretty );
-			if ( $arg === false ) {
-				return false;
-			}
-		}
-
-		return "$name(" . ( $pretty
-			? ( ' ' . implode( ', ', $args ) . ' ' )
-			: implode( ',', $args )
-		) . ");";
+		return Html::encodeJsCall( $name, $args, $pretty );
 	}
 
 	/**

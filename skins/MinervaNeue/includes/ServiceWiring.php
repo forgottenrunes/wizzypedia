@@ -75,7 +75,7 @@ return [
 			new AdvancedMainMenuBuilder( $showMobileOptions, $showDonateLink, $definitions ) :
 			new DefaultMainMenuBuilder( $showMobileOptions, $showDonateLink, $user, $definitions );
 
-		return new MainMenuDirector( $builder, $context, $services->getSpecialPageFactory() );
+		return new MainMenuDirector( $builder );
 	},
 	'Minerva.Menu.PageActionsDirector' =>
 		static function ( MediaWikiServices $services ): PageActionsMenu\PageActionsDirector {
@@ -98,6 +98,7 @@ return [
 			$relevantUserPageHelper = $title->inNamespace( NS_USER_TALK ) ?
 				new SkinUserPageHelper(
 					$services->getUserNameUtils(),
+					$services->getUserFactory(),
 					$context->getSkin()->getRelevantTitle()->getSubjectPage(),
 					$context
 				) :
@@ -126,6 +127,7 @@ return [
 						$languagesHelper
 					) :
 					new PageActionsMenu\DefaultOverflowBuilder(
+						$title,
 						$context,
 						$services->getService( 'Minerva.Permissions' )
 					);
@@ -142,6 +144,7 @@ return [
 	'Minerva.SkinUserPageHelper' => static function ( MediaWikiServices $services ): SkinUserPageHelper {
 		return new SkinUserPageHelper(
 			$services->getUserNameUtils(),
+			$services->getUserFactory(),
 			RequestContext::getMain()->getSkin()->getRelevantTitle(),
 			RequestContext::getMain()
 		);
@@ -157,7 +160,8 @@ return [
 			$services->getService( 'Minerva.SkinOptions' ),
 			$services->getService( 'Minerva.LanguagesHelper' ),
 			$services->getPermissionManager(),
-			$services->getContentHandlerFactory()
+			$services->getContentHandlerFactory(),
+			$services->getUserFactory()
 		);
 		// TODO: This should not be allowed, this is basically global $wgTitle and $wgUser.
 		$permissions->setContext( RequestContext::getMain() );

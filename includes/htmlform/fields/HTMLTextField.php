@@ -1,5 +1,6 @@
 <?php
 
+use MediaWiki\Html\Html;
 use OOUI\Widget;
 
 /**
@@ -102,6 +103,7 @@ class HTMLTextField extends HTMLFormField {
 			'step',
 			'title',
 			'maxlength',
+			'minlength',
 			'tabindex',
 			'disabled',
 			'required',
@@ -117,7 +119,20 @@ class HTMLTextField extends HTMLFormField {
 
 		# Extract 'type'
 		$type = $this->getType( $attribs );
-		return Html::input( $this->mName, $value, $type, $attribs );
+		$isCodexForm = $this->mParent && $this->mParent instanceof CodexHTMLForm;
+		if ( $isCodexForm ) {
+			$class = $attribs['class'] ?? [];
+			if ( is_string( $class ) ) {
+				$attribs['class'] .= ' cdx-text-input__input';
+			} else {
+				$class[] = 'cdx-text-input__input';
+				$attribs['class'] = $class;
+			}
+		}
+		$inputHtml = Html::input( $this->mName, $value, $type, $attribs );
+		return $isCodexForm
+			? Html::rawElement( 'div', [ 'class' => 'cdx-text-input' ], $inputHtml )
+			: $inputHtml;
 	}
 
 	protected function getType( &$attribs ) {
@@ -179,6 +194,7 @@ class HTMLTextField extends HTMLFormField {
 			'step',
 			'title',
 			'maxlength',
+			'minlength',
 			'tabindex',
 			'disabled',
 			'required',

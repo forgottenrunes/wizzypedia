@@ -24,9 +24,13 @@
  * @file
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\ParamValidator\TypeDef\UserDef;
 use MediaWiki\Permissions\GroupPermissionsLookup;
-use Wikimedia\Rdbms\IDatabase;
+use MediaWiki\Title\Title;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\IntegerDef;
+use Wikimedia\Rdbms\IReadableDatabase;
 
 /**
  * Query module to enumerate all images.
@@ -40,8 +44,7 @@ class ApiQueryAllImages extends ApiQueryGeneratorBase {
 	 */
 	protected $mRepo;
 
-	/** @var GroupPermissionsLookup */
-	private $groupPermissionsLookup;
+	private GroupPermissionsLookup $groupPermissionsLookup;
 
 	/**
 	 * @param ApiQuery $query
@@ -65,7 +68,7 @@ class ApiQueryAllImages extends ApiQueryGeneratorBase {
 	 * which may not necessarily be the same as the local DB.
 	 *
 	 * TODO: allow querying non-local repos.
-	 * @return IDatabase
+	 * @return IReadableDatabase
 	 */
 	protected function getDB() {
 		return $this->mRepo->getReplicaDB();
@@ -148,11 +151,9 @@ class ApiQueryAllImages extends ApiQueryGeneratorBase {
 
 			// Pagination
 			if ( $params['continue'] !== null ) {
-				$cont = explode( '|', $params['continue'] );
-				$this->dieContinueUsageIf( count( $cont ) != 1 );
-				$op = $ascendingOrder ? '>' : '<';
-				$continueFrom = $db->addQuotes( $cont[0] );
-				$this->addWhere( "img_name $op= $continueFrom" );
+				$cont = $this->parseContinueParamOrDie( $params['continue'], [ 'string' ] );
+				$op = $ascendingOrder ? '>=' : '<=';
+				$this->addWhere( $db->buildComparison( $op, [ 'img_name' => $cont[0] ] ) );
 			}
 
 			// Image filters
@@ -199,15 +200,12 @@ class ApiQueryAllImages extends ApiQueryGeneratorBase {
 			$this->addWhereRange( 'img_name', $ascendingOrder ? 'newer' : 'older', null, null );
 
 			if ( $params['continue'] !== null ) {
-				$cont = explode( '|', $params['continue'] );
-				$this->dieContinueUsageIf( count( $cont ) != 2 );
-				$op = ( $ascendingOrder ? '>' : '<' );
-				$continueTimestamp = $db->addQuotes( $db->timestamp( $cont[0] ) );
-				$continueName = $db->addQuotes( $cont[1] );
-				$this->addWhere( "img_timestamp $op $continueTimestamp OR " .
-					"(img_timestamp = $continueTimestamp AND " .
-					"img_name $op= $continueName)"
-				);
+				$cont = $this->parseContinueParamOrDie( $params['continue'], [ 'timestamp', 'string' ] );
+				$op = ( $ascendingOrder ? '>=' : '<=' );
+				$this->addWhere( $db->buildComparison( $op, [
+					'img_timestamp' => $db->timestamp( $cont[0] ),
+					'img_name' => $cont[1],
+				] ) );
 			}
 
 			// Image filters
@@ -256,13 +254,13 @@ class ApiQueryAllImages extends ApiQueryGeneratorBase {
 		}
 
 		if ( $params['mime'] !== null ) {
-			if ( $this->getConfig()->get( 'MiserMode' ) ) {
+			if ( $this->getConfig()->get( MainConfigNames::MiserMode ) ) {
 				$this->dieWithError( 'apierror-mimesearchdisabled' );
 			}
 
 			$mimeConds = [];
 			foreach ( $params['mime'] as $mime ) {
-				list( $major, $minor ) = File::splitMime( $mime );
+				[ $major, $minor ] = File::splitMime( $mime );
 				$mimeConds[] = $db->makeList(
 					[
 						'img_major_mime' => $major,
@@ -283,15 +281,6 @@ class ApiQueryAllImages extends ApiQueryGeneratorBase {
 
 		$limit = $params['limit'];
 		$this->addOption( 'LIMIT', $limit + 1 );
-		$sortFlag = '';
-		if ( !$ascendingOrder ) {
-			$sortFlag = ' DESC';
-		}
-		if ( $params['sort'] == 'timestamp' ) {
-			$this->addOption( 'ORDER BY', 'img_timestamp' . $sortFlag );
-		} else {
-			$this->addOption( 'ORDER BY', 'img_name' . $sortFlag );
-		}
 
 		$res = $this->select( __METHOD__ );
 
@@ -340,15 +329,15 @@ class ApiQueryAllImages extends ApiQueryGeneratorBase {
 	public function getAllowedParams() {
 		$ret = [
 			'sort' => [
-				ApiBase::PARAM_DFLT => 'name',
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_DEFAULT => 'name',
+				ParamValidator::PARAM_TYPE => [
 					'name',
 					'timestamp'
 				]
 			],
 			'dir' => [
-				ApiBase::PARAM_DFLT => 'ascending',
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_DEFAULT => 'ascending',
+				ParamValidator::PARAM_TYPE => [
 					// sort=name
 					'ascending',
 					'descending',
@@ -363,53 +352,53 @@ class ApiQueryAllImages extends ApiQueryGeneratorBase {
 				ApiBase::PARAM_HELP_MSG => 'api-help-param-continue',
 			],
 			'start' => [
-				ApiBase::PARAM_TYPE => 'timestamp'
+				ParamValidator::PARAM_TYPE => 'timestamp'
 			],
 			'end' => [
-				ApiBase::PARAM_TYPE => 'timestamp'
+				ParamValidator::PARAM_TYPE => 'timestamp'
 			],
 			'prop' => [
-				ApiBase::PARAM_TYPE => ApiQueryImageInfo::getPropertyNames( $this->propertyFilter ),
-				ApiBase::PARAM_DFLT => 'timestamp|url',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => ApiQueryImageInfo::getPropertyNames( $this->propertyFilter ),
+				ParamValidator::PARAM_DEFAULT => 'timestamp|url',
+				ParamValidator::PARAM_ISMULTI => true,
 				ApiBase::PARAM_HELP_MSG => 'apihelp-query+imageinfo-param-prop',
 				ApiBase::PARAM_HELP_MSG_PER_VALUE =>
 					ApiQueryImageInfo::getPropertyMessages( $this->propertyFilter ),
 			],
 			'prefix' => null,
 			'minsize' => [
-				ApiBase::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_TYPE => 'integer',
 			],
 			'maxsize' => [
-				ApiBase::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_TYPE => 'integer',
 			],
 			'sha1' => null,
 			'sha1base36' => null,
 			'user' => [
-				ApiBase::PARAM_TYPE => 'user',
+				ParamValidator::PARAM_TYPE => 'user',
 				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name', 'ip', 'id', 'interwiki' ],
 			],
 			'filterbots' => [
-				ApiBase::PARAM_DFLT => 'all',
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_DEFAULT => 'all',
+				ParamValidator::PARAM_TYPE => [
 					'all',
 					'bots',
 					'nobots'
 				]
 			],
 			'mime' => [
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'limit' => [
-				ApiBase::PARAM_DFLT => 10,
-				ApiBase::PARAM_TYPE => 'limit',
-				ApiBase::PARAM_MIN => 1,
-				ApiBase::PARAM_MAX => ApiBase::LIMIT_BIG1,
-				ApiBase::PARAM_MAX2 => ApiBase::LIMIT_BIG2
+				ParamValidator::PARAM_DEFAULT => 10,
+				ParamValidator::PARAM_TYPE => 'limit',
+				IntegerDef::PARAM_MIN => 1,
+				IntegerDef::PARAM_MAX => ApiBase::LIMIT_BIG1,
+				IntegerDef::PARAM_MAX2 => ApiBase::LIMIT_BIG2
 			],
 		];
 
-		if ( $this->getConfig()->get( 'MiserMode' ) ) {
+		if ( $this->getConfig()->get( MainConfigNames::MiserMode ) ) {
 			$ret['mime'][ApiBase::PARAM_HELP_MSG] = 'api-help-param-disabled-in-miser-mode';
 		}
 

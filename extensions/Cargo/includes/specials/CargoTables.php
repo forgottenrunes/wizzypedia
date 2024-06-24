@@ -35,10 +35,11 @@ class CargoTables extends IncludableSpecialPage {
 
 		$out->addModules( [
 			'ext.cargo.main',
+			'ext.cargo.cargotables',
 		] );
 		$out->addModuleStyles( [
-			'ext.cargo.cargotables',
-			'mediawiki.pager.tablePager'
+			'mediawiki.pager.tablePager', // MW <= 1.37
+			'mediawiki.pager.styles'
 		] );
 
 		if ( $tableName == '' ) {
@@ -78,15 +79,12 @@ class CargoTables extends IncludableSpecialPage {
 						$this->msg( 'cargo-cargotables-deletereplacement', $deleteURL )->parse();
 				}
 			}
-			$out->addHtml( Html::rawElement( 'div', [ 'class' => 'warningbox plainlinks' ],
-				$text ) );
+			$out->addHtml( Html::warningBox( $text ) );
 			$tableName .= '__NEXT';
 		} else {
 			$pageTitle = $this->msg( 'cargo-cargotables-viewtable', $tableName )->parse();
 			if ( CargoUtils::tableFullyExists( $tableName . '__NEXT' ) ) {
-				$text =
-					Html::rawElement( 'div', [ 'class' => 'warningbox' ],
-						$this->msg( 'cargo-cargotables-hasreplacement' )->parse() );
+				$text = Html::warningBox( $this->msg( 'cargo-cargotables-hasreplacement' )->parse() );
 				$out->addHtml( $text );
 			}
 		}
@@ -106,21 +104,21 @@ class CargoTables extends IncludableSpecialPage {
 
 		// Display the table structure.
 		$structureDesc = '<p>' . $this->msg( 'cargo-cargotables-tablestructure' )->parse() . '</p>';
-		$structureDesc .= '<ul>';
+		$structureDesc .= '<ol>';
 		foreach ( $fieldDescriptions as $fieldName => $fieldDescription ) {
 			$fieldDesc = '<strong>' . $fieldName . '</strong> - ';
-			$fieldDesc .= $fieldDescription->prettyPrintType();
+			$fieldDesc .= $fieldDescription->prettyPrintTypeAndAttributes();
 			$structureDesc .= Html::rawElement( 'li', null, $fieldDesc ) . "\n";
 		}
-		$structureDesc .= '</ul>';
+		$structureDesc .= '</ol>';
 		$out->addHTML( $structureDesc );
 
 		// Then, display a count.
 		$cdb = CargoUtils::getDB();
 		$numRows = $cdb->selectRowCount( $tableName, '*', null, __METHOD__ );
 		$numRowsMessage =
-			$this->msg( 'cargo-cargotables-totalrows' )->numParams( $numRows );
-		$out->addWikiTextAsInterface( $numRowsMessage->plain() . "\n" );
+			$this->msg( 'cargo-cargotables-totalrows' )->numParams( $numRows )->parse();
+		$out->addWikiTextAsInterface( $numRowsMessage . "\n" );
 
 		// Display "Recreate data" link.
 		if ( array_key_exists( $tableName, $this->templatesThatDeclareTables ) ) {
@@ -161,12 +159,19 @@ class CargoTables extends IncludableSpecialPage {
 			// @TODO - something similar should be done for lists
 			// of URLs.
 			if ( $fieldType == 'URL' && !$fieldDescription->mIsList ) {
+				$quotedFieldName = $cdb->addIdentifierQuotes( $fieldName );
 				// Thankfully, there's a message in core
 				// MediaWiki that seems to just be "URL".
 				$fieldName =
-					"IF (" . $cdb->addIdentifierQuotes( $fieldName ) . " <> '', " .
-					"CONCAT('[', " . $cdb->addIdentifierQuotes( $fieldName ) . ", ' " .
-					$this->msg( 'version-entrypoints-header-url' )->parse() . "]'), '')";
+					"CONCAT('[', $quotedFieldName, ' " .
+					$this->msg( 'version-entrypoints-header-url' )->parse() . "]')";
+				// Only display this if the URL is not blank.
+				// Unfortunately, IF is not consistently
+				// supported in PostgreSQL - just leave this
+				// logic out if we're using Postgres.
+				if ( $cdb->getType() !== 'postgres' ) {
+					$fieldName = "IF ($quotedFieldName <> '', $fieldName, '')";
+				}
 			}
 
 			if ( $fieldDescription->mIsList ) {
@@ -198,6 +203,7 @@ class CargoTables extends IncludableSpecialPage {
 
 		$displayParams = [];
 		$displayParams['max display chars'] = 300;
+		$displayParams['edit link'] = 'yes';
 
 		$queryDisplayer = CargoQueryDisplayer::newFromSQLQuery( $sqlQuery );
 		$queryDisplayer->mDisplayParams = $displayParams;
@@ -226,6 +232,11 @@ class CargoTables extends IncludableSpecialPage {
 
 		return number_format( intval( $row['total'] ), 0, $wgCargoDecimalMark,
 			$wgCargoDigitGroupingCharacter );
+	}
+
+	public function displayNumColumnsForTable( $tableName ) {
+		$tableSchemas = CargoUtils::getTableSchemas( [ $tableName ] );
+		return count( $tableSchemas[$tableName]->mFieldDescriptions );
 	}
 
 	private function getTableLinkedToView( $tableName, $isReplacementTable ) {
@@ -302,7 +313,7 @@ class CargoTables extends IncludableSpecialPage {
 			$allowedActions['create'] =
 				[
 					"ooui-icon" => "add",
-					"ooui-title" => "cargo-cargotables-action-create",
+					"ooui-title" => "create",
 					"parent" => "recreate",
 				];
 		}
@@ -321,7 +332,7 @@ class CargoTables extends IncludableSpecialPage {
 		}
 
 		// allow opportunity for adding additional actions & display info
-		Hooks::run( 'CargoTablesSetAllowedActions', [ $this, &$allowedActions ] );
+		$this->getHookContainer()->run( 'CargoTablesSetAllowedActions', [ $this, &$allowedActions ] );
 		self::$actionList = $allowedActions;
 	}
 
@@ -399,7 +410,7 @@ class CargoTables extends IncludableSpecialPage {
 			$actionLinks['delete'] = $this->getActionButton( $deleteAction, $deleteTableURL );
 		}
 
-		Hooks::run( 'CargoTablesSetActionLinks', [
+		$this->getHookContainer()->run( 'CargoTablesSetActionLinks', [
 			$this,
 			&$actionLinks,
 			$tableName,
@@ -467,10 +478,6 @@ class CargoTables extends IncludableSpecialPage {
 
 		$listOfColumns = $this->deriveListOfColumnsFromUserAllowedActions();
 
-		// if there's an error message, it needs to span all of the action columns
-		// plus the number of rows column
-		$colspanOfErrorMessage = 1 + count( $listOfColumns );
-
 		// Show a note if there are currently Cargo populate-data jobs
 		// that haven't been run, to make troubleshooting easier.
 		if ( method_exists( MediaWikiServices::class, 'getJobQueueGroup' ) ) {
@@ -484,8 +491,9 @@ class CargoTables extends IncludableSpecialPage {
 		// queue - a bug in MediaWiki?
 		// if ( $group->queuesHaveJobs( 'cargoPopulateTable' ) ) {
 		if ( in_array( 'cargoPopulateTable', $group->getQueuesWithJobs() ) ) {
-			$text .= '<div class="warningbox">' .
-				$this->msg( 'cargo-cargotables-beingpopulated' )->text() . "</div>\n";
+			$text .= Html::warningBox(
+				$this->msg( 'cargo-cargotables-beingpopulated' )->text()
+			);
 		}
 
 		$cdb = CargoUtils::getDB();
@@ -519,9 +527,11 @@ class CargoTables extends IncludableSpecialPage {
 		$headerText = Html::element( 'th', null, $this->msg( "cargo-cargotables-header-table" ) );
 		$headerText .= Html::element( 'th', null,
 			$this->msg( "cargo-cargotables-header-rowcount" ) );
+		$headerText .= Html::element( 'th', [ 'class' => 'cargotables-columncount' ],
+			$this->msg( "cargo-cargotables-header-columncount" ) );
 
 		foreach ( $listOfColumns as $action ) {
-			$headerText .= Html::rawElement( 'th', null, $this->getActionIcon( $action, null ) );
+			$headerText .= Html::rawElement( 'th', null, $this->getActionIcon( $action ) );
 		}
 
 		$headerText .= Html::element( 'th', null,
@@ -543,12 +553,15 @@ class CargoTables extends IncludableSpecialPage {
 			$actionLinks = $this->getActionLinksForTable( $tableName, false, $hasReplacementTable );
 
 			$numRowsText = $this->displayNumRowsForTable( $cdb, $tableName );
+			$numColumnsText = $this->displayNumColumnsForTable( $tableName );
 			$templatesText = $this->tableTemplatesText( $tableName );
 
 			$rowText .= Html::rawElement( 'td', [ 'class' => 'cargo-tablelist-tablename' ],
 				$tableLink );
 			$rowText .= Html::element( 'td', [ 'class' => 'cargo-tablelist-numrows' ],
 				$numRowsText );
+			$rowText .= Html::element( 'td', [ 'class' => 'cargo-tablelist-numcolumns' ],
+				$numColumnsText );
 
 			$this->displayActionLinks( $listOfColumns, $actionLinks, $rowText );
 
@@ -566,12 +579,15 @@ class CargoTables extends IncludableSpecialPage {
 			$tableLink = $this->getTableLinkedToView( $tableName, true );
 
 			$numRowsText = $this->displayNumRowsForTable( $cdb, $tableName . '__NEXT' );
+			$numColumnsText = $this->displayNumColumnsForTable( $tableName . '__NEXT' );
 			$actionLinks = $this->getActionLinksForTable( $tableName, true, false );
 
 			$replacementRowText .= Html::rawElement( 'td',
 				[ 'class' => 'cargo-tablelist-tablename' ], $tableLink );
 			$replacementRowText .= Html::element( 'td', [ 'class' => 'cargo-tablelist-numrows' ],
 				$numRowsText );
+			$replacementRowText .= Html::element( 'td', [ 'class' => 'cargo-tablelist-numcolumns' ],
+				$numColumnsText );
 
 			$this->displayActionLinks( $listOfColumns, $actionLinks, $replacementRowText );
 
@@ -588,6 +604,8 @@ class CargoTables extends IncludableSpecialPage {
 		$headerText = Html::element( 'th', null, $this->msg( "cargo-cargotables-header-table" ) );
 		$headerText .= Html::element( 'th', null,
 			$this->msg( "cargo-cargotables-header-rowcount" ) );
+		$headerText .= Html::element( 'th', [ 'class' => 'cargotables-columncount' ],
+			$this->msg( "cargo-cargotables-header-columncount" ) );
 
 		$invalidActionsForSpecialTables = [ 'edit' ];
 		foreach ( $listOfColumns as $i => $action ) {
@@ -595,7 +613,7 @@ class CargoTables extends IncludableSpecialPage {
 				unset( $listOfColumns[$i] );
 				continue;
 			}
-			$headerText .= Html::rawElement( 'th', null, $this->getActionIcon( $action, null ) );
+			$headerText .= Html::rawElement( 'th', null, $this->getActionIcon( $action ) );
 		}
 		$wikitableText = Html::rawElement( 'tr', null, $headerText );
 
@@ -629,11 +647,16 @@ class CargoTables extends IncludableSpecialPage {
 				$tableLink );
 			if ( $tableExists ) {
 				$numRowsText = $this->displayNumRowsForTable( $cdb, $specialTableName );
+				$numColumnsText = $this->displayNumColumnsForTable( $specialTableName );
 			} else {
 				$numRowsText = '';
+				$numColumnsText = '';
 			}
 			$rowText .= Html::element( 'td', [ 'class' => 'cargo-tablelist-numrows' ],
 				$numRowsText );
+
+			$rowText .= Html::element( 'td', [ 'class' => 'cargo-tablelist-numcolumns' ],
+				$numColumnsText );
 
 			$this->displayActionLinks( $listOfColumns, $actionLinks, $rowText );
 			$wikitableText .= Html::rawElement( 'tr', null, $rowText );
@@ -647,12 +670,15 @@ class CargoTables extends IncludableSpecialPage {
 			$tableLink = $this->getTableLinkedToView( $specialTableName, true );
 
 			$numRowsText = $this->displayNumRowsForTable( $cdb, $specialTableName . '__NEXT' );
+			$numColumnsText = $this->displayNumColumnsForTable( $specialTableName . '__NEXT' );
 			$actionLinks = $this->getActionLinksForTable( $specialTableName, true, false );
 
 			$replacementRowText .= Html::rawElement( 'td',
 				[ 'class' => 'cargo-tablelist-tablename' ], $tableLink );
 			$replacementRowText .= Html::element( 'td', [ 'class' => 'cargo-tablelist-numrows' ],
 				$numRowsText );
+			$replacementRowText .= Html::element( 'td', [ 'class' => 'cargo-tablelist-numcolumns' ],
+				$numColumnsText );
 
 			$this->displayActionLinks( $listOfColumns, $actionLinks, $replacementRowText );
 

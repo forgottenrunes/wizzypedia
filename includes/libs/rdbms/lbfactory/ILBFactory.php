@@ -1,7 +1,5 @@
 <?php
 /**
- * Generator and manager of database load balancing instances
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,19 +16,34 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Database
  */
-
 namespace Wikimedia\Rdbms;
 
+use Generator;
 use InvalidArgumentException;
 
 /**
- * An interface for generating database load balancers
+ * Manager of ILoadBalancer objects and, indirectly, IDatabase connections
+ *
+ * Each Load balancer instances corresponds to a specific database cluster.
+ * A "cluster" is the set of database servers that manage a given dataset.
+ *
+ * The "core" clusters are meant to colocate the most basic and highly relational application
+ * data for one or more "sister projects" managed by this site. This allows for highly flexible
+ * queries. Each project is identified by a database domain. Note that if there are several
+ * projects stored on a cluster, then the cluster dataset is a superset of the dataset for each
+ * of those projects.
+ *
+ * The "external" clusters are meant to provide places for bulk text storage, to colocate bulky
+ * relational data from specific modules, and to colocate data from cross-project modules such
+ * as authentication systems. An external cluster can have a database/schema for each project.
+ *
+ * @see ILoadBalancer
+ *
  * @ingroup Database
  * @since 1.28
  */
-interface ILBFactory {
+interface ILBFactory extends IConnectionProvider {
 	/** Idiom for "no special shutdown flags" */
 	public const SHUTDOWN_NORMAL = 0;
 	/** Do not save "session consistency" DB replication positions */
@@ -40,9 +53,7 @@ interface ILBFactory {
 	public const CLUSTER_MAIN_DEFAULT = 'DEFAULT';
 
 	/**
-	 * Construct a manager of ILoadBalancer instances
-	 *
-	 * Sub-classes will extend the required keys in $conf with additional parameters
+	 * Sub-classes may extend the required keys in $conf with additional parameters
 	 *
 	 * @param array $conf Array with keys:
 	 *  - localDomain: A DatabaseDomain or database domain ID string.
@@ -52,19 +63,14 @@ interface ILBFactory {
 	 *    See [ChronologyProtector requirements](@ref ChronologyProtector-storage-requirements).
 	 *  - wanCache: WANObjectCache instance [optional]
 	 *  - cliMode: Whether the execution context is a CLI script. [optional]
-	 *  - maxLag: Try to avoid DB replicas with lag above this many seconds [optional]
-	 *  - profiler: Callback that takes a section name argument and returns
-	 *      a ScopedCallback instance that ends the profile section in its destructor [optional]
+	 *  - profiler: Callback that takes a profile section name and returns a ScopedCallback
+	 *     that ends the profile section in its destructor [optional]
 	 *  - trxProfiler: TransactionProfiler instance. [optional]
-	 *  - replLogger: PSR-3 logger instance. [optional]
-	 *  - connLogger: PSR-3 logger instance. [optional]
-	 *  - queryLogger: PSR-3 logger instance. [optional]
-	 *  - perfLogger: PSR-3 logger instance. [optional]
+	 *  - logger: PSR-3 logger instance. [optional]
 	 *  - errorLogger: Callback that takes an Exception and logs it. [optional]
 	 *  - deprecationLogger: Callback to log a deprecation warning. [optional]
 	 *  - secret: Secret string to use for HMAC hashing [optional]
 	 *  - criticalSectionProvider: CriticalSectionProvider instance [optional]
-	 * @throws InvalidArgumentException
 	 */
 	public function __construct( array $conf );
 
@@ -78,6 +84,12 @@ interface ILBFactory {
 	public function destroy();
 
 	/**
+	 * Reload the configuration if necessary.
+	 * This may or may not have any effect.
+	 */
+	public function autoReconfigure(): void;
+
+	/**
 	 * Get the local (and default) database domain ID of connection handles
 	 *
 	 * @see DatabaseDomain
@@ -85,13 +97,6 @@ interface ILBFactory {
 	 * @since 1.32
 	 */
 	public function getLocalDomainID();
-
-	/**
-	 * @param DatabaseDomain|string|bool $domain Database domain
-	 * @return string Value of $domain if provided or the local domain otherwise
-	 * @since 1.32
-	 */
-	public function resolveDomainID( $domain );
 
 	/**
 	 * Close all connections and redefine the local database domain
@@ -119,11 +124,10 @@ interface ILBFactory {
 	 * @note The local/default database domain used by the load balancer instance will
 	 * still inherit from this ILBFactory instance, regardless of the $domain parameter.
 	 *
-	 * @param bool|string $domain Domain ID, or false for the current domain
-	 * @param int|null $owner Owner ID of the new instance (e.g. this LBFactory ID)
-	 * @return ILoadBalancer
+	 * @param string|false $domain Domain ID, or false for the current domain
+	 * @return ILoadBalancerForOwner
 	 */
-	public function newMainLB( $domain = false, $owner = null ): ILoadBalancer;
+	public function newMainLB( $domain = false ): ILoadBalancerForOwner;
 
 	/**
 	 * Get the tracked load balancer instance for the main cluster that handles the given domain
@@ -133,7 +137,7 @@ interface ILBFactory {
 	 * @note The local/default database domain used by the load balancer instance will
 	 * still inherit from this ILBFactory instance, regardless of the $domain parameter.
 	 *
-	 * @param bool|string $domain Domain ID, or false for the current domain
+	 * @param string|false $domain Domain ID, or false for the current domain
 	 * @return ILoadBalancer
 	 */
 	public function getMainLB( $domain = false ): ILoadBalancer;
@@ -150,11 +154,10 @@ interface ILBFactory {
 	 * (DBO_TRX off) but still use DBO_TRX transaction rounds on other tables.
 	 *
 	 * @param string $cluster External cluster name
-	 * @param int|null $owner Owner ID of the new instance (e.g. this LBFactory ID)
 	 * @throws InvalidArgumentException If $cluster is not recognized
-	 * @return ILoadBalancer
+	 * @return ILoadBalancerForOwner
 	 */
-	public function newExternalLB( $cluster, $owner = null ): ILoadBalancer;
+	public function newExternalLB( $cluster ): ILoadBalancerForOwner;
 
 	/**
 	 * Get the tracked load balancer instance for an external cluster
@@ -190,15 +193,12 @@ interface ILBFactory {
 	public function getAllExternalLBs(): array;
 
 	/**
-	 * Execute a function for each instantiated tracked load balancer instance
+	 * Get all tracked load balancer instances (generator)
 	 *
-	 * The callback is called with the load balancer as the first parameter,
-	 * and $params passed as the subsequent parameters.
-	 *
-	 * @param callable $callback
-	 * @param array $params
+	 * @return Generator|ILoadBalancer[]
+	 * @since 1.39
 	 */
-	public function forEachLB( $callback, array $params = [] );
+	public function getAllLBs();
 
 	/**
 	 * Prepare all instantiated tracked load balancer instances for shutdown
@@ -216,7 +216,7 @@ interface ILBFactory {
 	);
 
 	/**
-	 * Commit all replica DB transactions so as to flush any REPEATABLE-READ or SSI snapshot
+	 * Commit all replica database server transactions, clearing any REPEATABLE-READ/SSI snapshots
 	 *
 	 * This only applies to the instantiated tracked load balancer instances.
 	 *
@@ -227,27 +227,11 @@ interface ILBFactory {
 	public function flushReplicaSnapshots( $fname = __METHOD__ );
 
 	/**
-	 * Commit open transactions on all connections
-	 *
-	 * This only applies to the instantiated tracked load balancer instances.
-	 *
-	 * This is useful for two main cases:
-	 *   - a) Committing changes to the masters
-	 *   - b) Releasing the snapshot on all connections, primary and replica DBs
-	 *
-	 * @param string $fname Caller name
-	 * @param array $options Options map:
-	 *   - maxWriteDuration: abort if more than this much time was spent in write queries
-	 */
-	public function commitAll( $fname = __METHOD__, array $options = [] );
-
-	/**
 	 * Flush any primary transaction snapshots and set DBO_TRX (if DBO_DEFAULT is set)
 	 *
 	 * The DBO_TRX setting will be reverted to the default in each of these methods:
 	 *   - commitPrimaryChanges()
 	 *   - rollbackPrimaryChanges()
-	 *   - commitAll()
 	 *
 	 * This only applies to the tracked load balancer instances.
 	 *
@@ -265,12 +249,11 @@ interface ILBFactory {
 	 * This only applies to the instantiated tracked load balancer instances.
 	 *
 	 * @param string $fname Caller name
-	 * @param array $options Options map:
-	 *   - maxWriteDuration: abort if more than this much time was spent in write queries
+	 * @param int $maxWriteDuration abort if more than this much time was spent in write queries
 	 * @throws DBTransactionError
 	 * @since 1.37
 	 */
-	public function commitPrimaryChanges( $fname = __METHOD__, array $options = [] );
+	public function commitPrimaryChanges( $fname = __METHOD__, int $maxWriteDuration = 0 );
 
 	/**
 	 * Rollback changes on all primary connections
@@ -281,6 +264,19 @@ interface ILBFactory {
 	 * @since 1.37
 	 */
 	public function rollbackPrimaryChanges( $fname = __METHOD__ );
+
+	/**
+	 * Release important session-level state (named lock, table locks) as post-rollback cleanup
+	 *
+	 * This only applies to the instantiated tracked load balancer instances.
+	 *
+	 * This should only be called by application entry point functions, since there must be
+	 * no chance that a future caller will still be expecting some of the lost session state.
+	 *
+	 * @param string $fname Caller name
+	 * @since 1.38
+	 */
+	public function flushPrimarySessions( $fname = __METHOD__ );
 
 	/**
 	 * Check if an explicit transaction round is active
@@ -311,7 +307,7 @@ interface ILBFactory {
 	public function hasPrimaryChanges();
 
 	/**
-	 * Determine if any lagged replica DB connection was used
+	 * Determine if any lagged replica database server connection was used.
 	 *
 	 * This only applies to the instantiated tracked load balancer instances.
 	 *
@@ -330,17 +326,15 @@ interface ILBFactory {
 	public function hasOrMadeRecentPrimaryChanges( $age = null );
 
 	/**
-	 * Waits for the replica DBs to catch up to the current primary position
+	 * Waits for the replica database server to catch up to the current primary position
 	 *
-	 * Use this when updating very large numbers of rows, as in maintenance scripts,
-	 * to avoid causing too much lag. Of course, this is a no-op if there are no replica DBs.
+	 * Use this when updating very large numbers of rows, as in maintenance scripts, to
+	 * avoid causing too much lag. This is a no-op if there are no replica database servers.
 	 *
 	 * By default this waits on all DB clusters actually used in this request.
 	 * This makes sense when lag being waiting on is caused by the code that does this check.
 	 * In that case, setting "ifWritesSince" can avoid the overhead of waiting for clusters
-	 * that were not changed since the last wait check. To forcefully wait on a specific cluster
-	 * for a given domain, use the 'domain' parameter. To forcefully wait on an "external" cluster,
-	 * use the "cluster" parameter.
+	 * that were not changed since the last wait check.
 	 *
 	 * Never call this function after a large DB write that is *still* in a transaction.
 	 * It only makes sense to call this after the possible lag inducing changes were committed.
@@ -348,8 +342,6 @@ interface ILBFactory {
 	 * This only applies to the instantiated tracked load balancer instances.
 	 *
 	 * @param array $opts Optional fields that include:
-	 *   - domain: Wait on the load balancer DBs that handles the given domain ID.
-	 *   - cluster: Wait on the given external load balancer DBs.
 	 *   - timeout: Max wait time. Default: 60 seconds for CLI, 1 second for web.
 	 *   - ifWritesSince: Only wait if writes were done since this UNIX timestamp.
 	 * @return bool True on success, false if a timeout or error occurred while waiting
@@ -365,38 +357,6 @@ interface ILBFactory {
 	 * @param callable|null $callback Use null to unset a callback
 	 */
 	public function setWaitForReplicationListener( $name, callable $callback = null );
-
-	/**
-	 * Get a token asserting that no transaction writes are active on tracked load balancers
-	 *
-	 * @param string $fname Caller name (e.g. __METHOD__)
-	 * @return mixed A value to pass to commitAndWaitForReplication()
-	 */
-	public function getEmptyTransactionTicket( $fname );
-
-	/**
-	 * Call commitPrimaryChanges() and waitForReplication() if $ticket indicates it is safe
-	 *
-	 * The ticket is used to check that the caller owns the transaction round or can act on
-	 * behalf of the caller that owns the transaction round.
-	 *
-	 * @see commitPrimaryChanges()
-	 * @see waitForReplication()
-	 *
-	 * @param string $fname Caller name (e.g. __METHOD__)
-	 * @param mixed $ticket Result of getEmptyTransactionTicket()
-	 * @param array $opts Options to waitForReplication()
-	 * @return bool True if the wait was successful, false on timeout
-	 */
-	public function commitAndWaitForReplication( $fname, $ticket, array $opts = [] );
-
-	/**
-	 * Get the UNIX timestamp when the client last touched the DB, if they did so recently
-	 *
-	 * @param DatabaseDomain|string|bool $domain Domain ID, or false for the current domain
-	 * @return float|false UNIX timestamp; false if not recent or on record
-	 */
-	public function getChronologyProtectorTouched( $domain = false );
 
 	/**
 	 * Disable the ChronologyProtector on all instantiated tracked load balancer instances
@@ -415,8 +375,10 @@ interface ILBFactory {
 
 	/**
 	 * Close all connections on instantiated tracked load balancer instances
+	 *
+	 * @param string $fname Caller name (e.g. __METHOD__)
 	 */
-	public function closeAll();
+	public function closeAll( $fname = __METHOD__ );
 
 	/**
 	 * @param string $agent Agent name for query profiling
@@ -424,34 +386,12 @@ interface ILBFactory {
 	public function setAgentName( $agent );
 
 	/**
-	 * Append ?cpPosIndex parameter to a URL for ChronologyProtector purposes if needed
+	 * Whether it has streaming replica servers.
 	 *
-	 * Note that unlike cookies, this works across domains.
-	 *
-	 * @param string $url
-	 * @param int $index Write counter index
-	 * @return string
+	 * @since 1.41
+	 * @return bool
 	 */
-	public function appendShutdownCPIndexAsQuery( $url, $index );
-
-	/**
-	 * Get the client ID of the ChronologyProtector instance
-	 *
-	 * @return string Client ID
-	 * @since 1.34
-	 */
-	public function getChronologyProtectorClientId();
-
-	/**
-	 * Inject HTTP request header/cookie information during setup of this instance
-	 *
-	 * @param array $info Map of fields, including:
-	 *   - IPAddress : IP address
-	 *   - UserAgent : User-Agent HTTP header
-	 *   - ChronologyProtection : cookie/header value specifying ChronologyProtector usage
-	 *   - ChronologyPositionIndex: timestamp used to get up-to-date DB positions for the agent
-	 */
-	public function setRequestInfo( array $info );
+	public function hasStreamingReplicaServers();
 
 	/**
 	 * Set the default timeout for replication wait checks

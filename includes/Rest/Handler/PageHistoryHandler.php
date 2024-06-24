@@ -7,6 +7,8 @@ use IDBAccessObject;
 use MediaWiki\Page\ExistingPageRecord;
 use MediaWiki\Page\PageLookup;
 use MediaWiki\Permissions\GroupPermissionsLookup;
+use MediaWiki\Rest\Handler\Helper\PageRedirectHelper;
+use MediaWiki\Rest\Handler\Helper\PageRestHelperFactory;
 use MediaWiki\Rest\LocalizedHttpException;
 use MediaWiki\Rest\Response;
 use MediaWiki\Rest\SimpleHandler;
@@ -15,38 +17,29 @@ use MediaWiki\Revision\RevisionStore;
 use MediaWiki\Storage\NameTableAccessException;
 use MediaWiki\Storage\NameTableStore;
 use MediaWiki\Storage\NameTableStoreFactory;
-use TitleFormatter;
+use MediaWiki\Title\TitleFormatter;
 use Wikimedia\Message\MessageValue;
 use Wikimedia\Message\ParamType;
 use Wikimedia\Message\ScalarParam;
 use Wikimedia\ParamValidator\ParamValidator;
-use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IResultWrapper;
 
 /**
  * Handler class for Core REST API endpoints that perform operations on revisions
  */
 class PageHistoryHandler extends SimpleHandler {
+
 	private const REVISIONS_RETURN_LIMIT = 20;
 	private const ALLOWED_FILTER_TYPES = [ 'anonymous', 'bot', 'reverted', 'minor' ];
 
-	/** @var RevisionStore */
-	private $revisionStore;
-
-	/** @var NameTableStore */
-	private $changeTagDefStore;
-
-	/** @var GroupPermissionsLookup */
-	private $groupPermissionsLookup;
-
-	/** @var ILoadBalancer */
-	private $loadBalancer;
-
-	/** @var PageLookup */
-	private $pageLookup;
-
-	/** @var TitleFormatter */
-	private $titleFormatter;
+	private RevisionStore $revisionStore;
+	private NameTableStore $changeTagDefStore;
+	private GroupPermissionsLookup $groupPermissionsLookup;
+	private IConnectionProvider $dbProvider;
+	private PageLookup $pageLookup;
+	private TitleFormatter $titleFormatter;
+	private PageRestHelperFactory $helperFactory;
 
 	/**
 	 * @var ExistingPageRecord|false|null
@@ -59,24 +52,36 @@ class PageHistoryHandler extends SimpleHandler {
 	 * @param RevisionStore $revisionStore
 	 * @param NameTableStoreFactory $nameTableStoreFactory
 	 * @param GroupPermissionsLookup $groupPermissionsLookup
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param PageLookup $pageLookup
 	 * @param TitleFormatter $titleFormatter
+	 * @param PageRestHelperFactory $helperFactory
 	 */
 	public function __construct(
 		RevisionStore $revisionStore,
 		NameTableStoreFactory $nameTableStoreFactory,
 		GroupPermissionsLookup $groupPermissionsLookup,
-		ILoadBalancer $loadBalancer,
+		IConnectionProvider $dbProvider,
 		PageLookup $pageLookup,
-		TitleFormatter $titleFormatter
+		TitleFormatter $titleFormatter,
+		PageRestHelperFactory $helperFactory
 	) {
 		$this->revisionStore = $revisionStore;
 		$this->changeTagDefStore = $nameTableStoreFactory->getChangeTagDef();
 		$this->groupPermissionsLookup = $groupPermissionsLookup;
-		$this->loadBalancer = $loadBalancer;
+		$this->dbProvider = $dbProvider;
 		$this->pageLookup = $pageLookup;
 		$this->titleFormatter = $titleFormatter;
+		$this->helperFactory = $helperFactory;
+	}
+
+	private function getRedirectHelper(): PageRedirectHelper {
+		return $this->helperFactory->newPageRedirectHelper(
+			$this->getResponseFactory(),
+			$this->getRouter(),
+			$this->getPath(),
+			$this->getRequest()
+		);
 	}
 
 	/**
@@ -126,6 +131,7 @@ class PageHistoryHandler extends SimpleHandler {
 		}
 
 		$page = $this->getPage();
+
 		if ( !$page ) {
 			throw new LocalizedHttpException(
 				new MessageValue( 'rest-nonexistent-title',
@@ -140,6 +146,16 @@ class PageHistoryHandler extends SimpleHandler {
 					[ new ScalarParam( ParamType::PLAINTEXT, $title ) ] ),
 				403
 			);
+		}
+
+		'@phan-var \MediaWiki\Page\ExistingPageRecord $page';
+		$redirectResponse = $this->getRedirectHelper()->createNormalizationRedirectResponseIfNeeded(
+			$page,
+			$params['title'] ?? null
+		);
+
+		if ( $redirectResponse !== null ) {
+			return $redirectResponse;
 		}
 
 		$relativeRevId = $params['older_than'] ?? $params['newer_than'] ?? 0;
@@ -184,20 +200,13 @@ class PageHistoryHandler extends SimpleHandler {
 	 * @return IResultWrapper|bool the results, or false if no query was executed
 	 */
 	private function getDbResults( ExistingPageRecord $page, array $params, $relativeRevId, $ts, $tagIds ) {
-		$dbr = $this->loadBalancer->getConnectionRef( DB_REPLICA );
+		$dbr = $this->dbProvider->getReplicaDatabase();
 		$revQuery = $this->revisionStore->getQueryInfo();
 		$cond = [
 			'rev_page' => $page->getId()
 		];
 
 		if ( $params['filter'] ) {
-			// This redundant join condition tells MySQL that rev_page and revactor_page are the
-			// same, so it can propagate the condition
-			if ( isset( $revQuery['tables']['temp_rev_user'] ) /* SCHEMA_COMPAT_READ_TEMP */ ) {
-				$revQuery['joins']['temp_rev_user'][1] =
-					"temp_rev_user.revactor_rev = rev_id AND revactor_page = rev_page";
-			}
-
 			// The validator ensures this value, if present, is one of the expected values
 			switch ( $params['filter'] ) {
 				case 'bot':
@@ -218,7 +227,7 @@ class PageHistoryHandler extends SimpleHandler {
 					break;
 
 				case 'anonymous':
-					$cond[] = "actor_user IS NULL";
+					$cond['actor_user'] = null;
 					$bitmask = $this->getBitmask();
 					if ( $bitmask ) {
 						$cond[] = $dbr->bitAnd( 'rev_deleted', $bitmask ) . " != $bitmask";
@@ -246,9 +255,10 @@ class PageHistoryHandler extends SimpleHandler {
 		if ( $relativeRevId ) {
 			$op = $params['older_than'] ? '<' : '>';
 			$sort = $params['older_than'] ? 'DESC' : 'ASC';
-			$ts = $dbr->addQuotes( $dbr->timestamp( $ts ) );
-			$cond[] = "rev_timestamp $op $ts OR " .
-				"(rev_timestamp = $ts AND rev_id $op $relativeRevId)";
+			$cond[] = $dbr->buildComparison( $op, [
+				'rev_timestamp' => $dbr->timestamp( $ts ),
+				'rev_id' => $relativeRevId,
+			] );
 			$orderBy = "rev_timestamp $sort, rev_id $sort";
 		} else {
 			$orderBy = "rev_timestamp DESC, rev_id DESC";
@@ -372,7 +382,11 @@ class PageHistoryHandler extends SimpleHandler {
 
 			if ( $revisions && $params['newer_than'] ) {
 				$revisions = array_reverse( $revisions );
+				// @phan-suppress-next-next-line PhanPossiblyUndeclaredVariable
+				// $lastRevId is declared because $res has one element
 				$temp = $lastRevId;
+				// @phan-suppress-next-next-line PhanPossiblyUndeclaredVariable
+				// $firstRevId is declared because $res has one element
 				$lastRevId = $firstRevId;
 				$firstRevId = $temp;
 			}
@@ -386,11 +400,15 @@ class PageHistoryHandler extends SimpleHandler {
 		// This facilitates clients doing "paging" style api operations.
 		if ( $revisions ) {
 			if ( $params['newer_than'] || $res->numRows() > self::REVISIONS_RETURN_LIMIT ) {
+				// @phan-suppress-next-next-line PhanPossiblyUndeclaredVariable
+				// $lastRevId is declared because $res has one element
 				$older = $lastRevId;
 			}
 			if ( $params['older_than'] ||
 				( $params['newer_than'] && $res->numRows() > self::REVISIONS_RETURN_LIMIT )
 			) {
+				// @phan-suppress-next-next-line PhanPossiblyUndeclaredVariable
+				// $firstRevId is declared because $res has one element
 				$newer = $firstRevId;
 			}
 		}

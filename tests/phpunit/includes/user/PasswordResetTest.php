@@ -6,13 +6,16 @@ use MediaWiki\Block\CompositeBlock;
 use MediaWiki\Block\DatabaseBlock;
 use MediaWiki\Block\SystemBlock;
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\Status\Status;
 use MediaWiki\Tests\Unit\DummyServicesTrait;
 use MediaWiki\User\StaticUserOptionsLookup;
+use MediaWiki\User\User;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserNameUtils;
 use MediaWiki\User\UserOptionsLookup;
 use Psr\Log\NullLogger;
-use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * TODO make this a unit test, all dependencies are injected, but DatabaseBlock::__construct()
@@ -31,19 +34,17 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 	 * @dataProvider provideIsAllowed
 	 */
 	public function testIsAllowed( $passwordResetRoutes, $enableEmail,
-		$allowsAuthenticationDataChange, $canEditPrivate, $block, $globalBlock, $isAllowed
+		$allowsAuthenticationDataChange, $canEditPrivate, $block, $isAllowed
 	) {
 		$config = $this->makeConfig( $enableEmail, $passwordResetRoutes, false );
 
-		$authManager = $this->getMockBuilder( AuthManager::class )->disableOriginalConstructor()
-			->getMock();
+		$authManager = $this->createMock( AuthManager::class );
 		$authManager->method( 'allowsAuthenticationDataChange' )
 			->willReturn( $allowsAuthenticationDataChange ? Status::newGood() : Status::newFatal( 'foo' ) );
 
-		$user = $this->getMockBuilder( User::class )->getMock();
+		$user = $this->createMock( User::class );
 		$user->method( 'getName' )->willReturn( 'Foo' );
 		$user->method( 'getBlock' )->willReturn( $block );
-		$user->method( 'getGlobalBlock' )->willReturn( $globalBlock );
 		$user->method( 'isAllowed' )->with( 'editmyprivateinfo' )->willReturn( $canEditPrivate );
 
 		$passwordReset = new PasswordReset(
@@ -51,7 +52,7 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 			new NullLogger(),
 			$authManager,
 			$this->createHookContainer(),
-			$this->createNoOpMock( ILoadBalancer::class ),
+			$this->createNoOpMock( IConnectionProvider::class ),
 			$this->createNoOpMock( UserFactory::class ),
 			$this->createNoOpMock( UserNameUtils::class ),
 			$this->createNoOpMock( UserOptionsLookup::class )
@@ -60,7 +61,7 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( $isAllowed, $passwordReset->isAllowed( $user )->isGood() );
 	}
 
-	public function provideIsAllowed() {
+	public static function provideIsAllowed() {
 		return [
 			'no routes' => [
 				'passwordResetRoutes' => [],
@@ -68,7 +69,6 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 				'allowsAuthenticationDataChange' => true,
 				'canEditPrivate' => true,
 				'block' => null,
-				'globalBlock' => null,
 				'isAllowed' => false,
 			],
 			'email disabled' => [
@@ -77,7 +77,6 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 				'allowsAuthenticationDataChange' => true,
 				'canEditPrivate' => true,
 				'block' => null,
-				'globalBlock' => null,
 				'isAllowed' => false,
 			],
 			'auth data change disabled' => [
@@ -86,7 +85,6 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 				'allowsAuthenticationDataChange' => false,
 				'canEditPrivate' => true,
 				'block' => null,
-				'globalBlock' => null,
 				'isAllowed' => false,
 			],
 			'cannot edit private data' => [
@@ -95,7 +93,6 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 				'allowsAuthenticationDataChange' => true,
 				'canEditPrivate' => false,
 				'block' => null,
-				'globalBlock' => null,
 				'isAllowed' => false,
 			],
 			'blocked with account creation disabled' => [
@@ -104,7 +101,6 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 				'allowsAuthenticationDataChange' => true,
 				'canEditPrivate' => true,
 				'block' => new DatabaseBlock( [ 'createAccount' => true ] ),
-				'globalBlock' => null,
 				'isAllowed' => false,
 			],
 			'blocked w/o account creation disabled' => [
@@ -113,7 +109,6 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 				'allowsAuthenticationDataChange' => true,
 				'canEditPrivate' => true,
 				'block' => new DatabaseBlock( [] ),
-				'globalBlock' => null,
 				'isAllowed' => true,
 			],
 			'using blocked proxy' => [
@@ -124,7 +119,6 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 				'block' => new SystemBlock(
 					[ 'systemBlock' => 'proxy' ]
 				),
-				'globalBlock' => null,
 				'isAllowed' => false,
 			],
 			'globally blocked with account creation not disabled' => [
@@ -133,9 +127,6 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 				'allowsAuthenticationDataChange' => true,
 				'canEditPrivate' => true,
 				'block' => null,
-				'globalBlock' => new SystemBlock(
-					[ 'systemBlock' => 'global-block' ]
-				),
 				'isAllowed' => true,
 			],
 			'blocked via wgSoftBlockRanges' => [
@@ -146,7 +137,6 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 				'block' => new SystemBlock(
 					[ 'systemBlock' => 'wgSoftBlockRanges', 'anonOnly' => true ]
 				),
-				'globalBlock' => null,
 				'isAllowed' => true,
 			],
 			'blocked with an unknown system block type' => [
@@ -155,7 +145,6 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 				'allowsAuthenticationDataChange' => true,
 				'canEditPrivate' => true,
 				'block' => new SystemBlock( [ 'systemBlock' => 'unknown' ] ),
-				'globalBlock' => null,
 				'isAllowed' => false,
 			],
 			'blocked with multiple blocks, all allowing password reset' => [
@@ -169,7 +158,6 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 						new DatabaseBlock( [] ),
 					]
 				] ),
-				'globalBlock' => null,
 				'isAllowed' => true,
 			],
 			'blocked with multiple blocks, not all allowing password reset' => [
@@ -183,7 +171,6 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 						new SystemBlock( [ 'systemBlock' => 'proxy' ] ),
 					]
 				] ),
-				'globalBlock' => null,
 				'isAllowed' => false,
 			],
 			'all OK' => [
@@ -192,7 +179,6 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 				'allowsAuthenticationDataChange' => true,
 				'canEditPrivate' => true,
 				'block' => null,
-				'globalBlock' => null,
 				'isAllowed' => true,
 			],
 		];
@@ -263,7 +249,7 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 				new NullLogger(),
 				$authManager,
 				$this->createHookContainer(),
-				$this->createNoOpMock( ILoadBalancer::class ),
+				$this->createNoOpMock( IConnectionProvider::class ),
 				$userFactory,
 				$this->getDummyUserNameUtils(),
 				$userOptionsLookup
@@ -276,7 +262,14 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 
 		/** @var PasswordReset $passwordReset */
 		$status = $passwordReset->execute( $performingUser, $username, $email );
-		$this->assertStatus( $status, $expectedError );
+
+		if ( is_string( $expectedError ) ) {
+			$this->assertStatusError( $expectedError, $status );
+		} elseif ( $expectedError ) {
+			$this->assertStatusNotOk( $status );
+		} else {
+			$this->assertStatusGood( $status );
+		}
 	}
 
 	public function provideExecute() {
@@ -424,7 +417,7 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 			"Couldn't determine the performing user's IP" => [
 				'expectedError' => 'badipaddress',
 				'config' => $defaultConfig,
-				'performingUser' => $this->makePerformingUser( null, false ),
+				'performingUser' => $this->makePerformingUser( '', false ),
 				'authManager' => $this->makeAuthManager(),
 				'username' => 'User1',
 				'email' => '',
@@ -515,25 +508,6 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 		];
 	}
 
-	private function assertStatus( StatusValue $status, $error = false ) {
-		if ( $error === false ) {
-			$this->assertTrue(
-				$status->isGood(),
-				'Expected status to be good, result was: ' . $status->__toString()
-			);
-		} else {
-			$this->assertFalse( $status->isGood(), 'Expected status to not be good' );
-			if ( is_string( $error ) ) {
-				$this->assertNotEmpty( $status->getErrors() );
-				$message = $status->getErrors()[0]['message'];
-				if ( $message instanceof MessageSpecifier ) {
-					$message = $message->getKey();
-				}
-				$this->assertSame( $error, $message );
-			}
-		}
-	}
-
 	private function makeConfig( $enableEmail, array $passwordResetRoutes, $emailForResets ) {
 		$hash = [
 			'AllowRequiringEmailForResets' => $emailForResets,
@@ -545,13 +519,12 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * @param string|null $ip
+	 * @param string $ip
 	 * @param bool $pingLimited
 	 * @return User
 	 */
-	private function makePerformingUser( $ip, $pingLimited ): User {
-		$request = $this->getMockBuilder( WebRequest::class )
-			->getMock();
+	private function makePerformingUser( string $ip, $pingLimited ): User {
+		$request = $this->createMock( WebRequest::class );
 		$request->method( 'getIP' )
 			->willReturn( $ip );
 		/** @var WebRequest $request */
@@ -592,9 +565,7 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 		array $ignored = [],
 		array $mailThrottledLimited = []
 	): AuthManager {
-		$authManager = $this->getMockBuilder( AuthManager::class )
-			->disableOriginalConstructor()
-			->getMock();
+		$authManager = $this->createMock( AuthManager::class );
 		$authManager->method( 'allowsAuthenticationDataChange' )
 			->willReturnCallback(
 				static function ( TemporaryPasswordAuthenticationRequest $req )
@@ -625,7 +596,7 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 	 */
 	private function makeUsers() {
 		$getGoodUserCb = function ( int $num ) {
-			$user = $this->getMockBuilder( User::class )->getMock();
+			$user = $this->createMock( User::class );
 			$user->method( 'getName' )->willReturn( "User$num" );
 			$user->method( 'getId' )->willReturn( $num );
 			$user->method( 'isRegistered' )->willReturn( true );
@@ -637,7 +608,7 @@ class PasswordResetTest extends MediaWikiIntegrationTestCase {
 		$user3 = $getGoodUserCb( 3 );
 		$user4 = $getGoodUserCb( 4 );
 
-		$badUser = $this->getMockBuilder( User::class )->getMock();
+		$badUser = $this->createMock( User::class );
 		$badUser->method( 'getName' )->willReturn( 'BadUser' );
 		$badUser->method( 'getId' )->willReturn( 5 );
 		$badUser->method( 'isRegistered' )->willReturn( true );

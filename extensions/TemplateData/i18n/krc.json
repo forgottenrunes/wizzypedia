@@ -2,7 +2,8 @@
 	"@metadata": {
 		"authors": [
 			"Ernác",
-			"Iltever"
+			"Iltever",
+			"Къарачайлы"
 		]
 	},
 	"templatedata-desc": "Шаблон параметрле ючюн билгиле сакъланнган джерни реализациясы (JSON'ни болушлугъу бла)",
@@ -44,7 +45,7 @@
 	"templatedata-modal-button-add-language": "Тилни къошуу",
 	"templatedata-modal-button-addparam": "Параметрни къошуу",
 	"templatedata-modal-button-apply": "Хайырландыр",
-	"templatedata-modal-button-back": "Артха",
+	"templatedata-modal-button-back": "Кери",
 	"templatedata-modal-button-cancel": "Ызына алыу",
 	"templatedata-modal-button-changelang": "Тилни ауушдуруу",
 	"templatedata-modal-button-delparam": "Параметрни юсюнден информацияны кетер",
@@ -57,7 +58,6 @@
 	"templatedata-modal-notice-import-numparams": "$1 {{PLURAL:$1|джангы параметр импорт этилди}}: $2",
 	"templatedata-modal-placeholder-paramkey": "Параметрни аты",
 	"templatedata-modal-search-input-placeholder": "Тилни атына неда конуда кёре излеу",
-	"templatedata-modal-table-param-actions": "Этиуле",
 	"templatedata-modal-table-param-aliases": "Псевдонимле (тыйгъыч белги бла айырылыб)",
 	"templatedata-modal-table-param-autovalue": "Авто-магъана",
 	"templatedata-modal-table-param-default": "Тынгылау бла",
@@ -70,7 +70,6 @@
 	"templatedata-modal-table-param-required": "Ажымсыз",
 	"templatedata-modal-table-param-suggested": "Теджелген",
 	"templatedata-modal-table-param-type": "Тип",
-	"templatedata-modal-table-param-uneditablefield": "Тюрлендирилмейди",
 	"templatedata-modal-title": "Документ шаблонланы редактору",
 	"templatedata-modal-title-addparam": "Джангы параметр къош",
 	"templatedata-modal-title-choose-language": "Тилни сайла",

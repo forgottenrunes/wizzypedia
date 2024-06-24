@@ -22,11 +22,12 @@
 
 namespace MediaWiki\Deferred\LinksUpdate;
 
-use Category;
 use DeferredUpdates;
 use EnqueueableDataUpdate;
 use InvalidArgumentException;
 use JobSpecification;
+use MediaWiki\Category\Category;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MWException;
 use ParserOutput;
@@ -70,7 +71,7 @@ class LinksDeletionUpdate extends LinksUpdate implements EnqueueableDataUpdate {
 		$services = MediaWikiServices::getInstance();
 		$config = $services->getMainConfig();
 		$lbFactory = $services->getDBLoadBalancerFactory();
-		$batchSize = $config->get( 'UpdateRowsPerQuery' );
+		$batchSize = $config->get( MainConfigNames::UpdateRowsPerQuery );
 
 		$id = $this->mId;
 		$title = $this->mTitle;
@@ -90,35 +91,32 @@ class LinksDeletionUpdate extends LinksUpdate implements EnqueueableDataUpdate {
 		}
 
 		// Delete restrictions for the deleted page
-		$dbw->delete( 'page_restrictions', [ 'pr_page' => $id ], __METHOD__ );
+		$dbw->newDeleteQueryBuilder()
+			->deleteFrom( 'page_restrictions' )
+			->where( [ 'pr_page' => $id ] )
+			->caller( __METHOD__ )->execute();
 
 		// Delete any redirect entry
-		$dbw->delete( 'redirect', [ 'rd_from' => $id ], __METHOD__ );
+		$dbw->newDeleteQueryBuilder()
+			->deleteFrom( 'redirect' )
+			->where( [ 'rd_from' => $id ] )
+			->caller( __METHOD__ )->execute();
 
 		// Find recentchanges entries to clean up...
-		$rcIdsForTitle = $dbw->selectFieldValues(
-			'recentchanges',
-			'rc_id',
-			[
-				'rc_type != ' . RC_LOG,
-				'rc_namespace' => $title->getNamespace(),
-				'rc_title' => $title->getDBkey(),
-				'rc_timestamp < ' .
-					$dbw->addQuotes( $dbw->timestamp( $this->timestamp ) )
-			],
-			__METHOD__
-		);
-		$rcIdsForPage = $dbw->selectFieldValues(
-			'recentchanges',
-			'rc_id',
-			[ 'rc_type != ' . RC_LOG, 'rc_cur_id' => $id ],
-			__METHOD__
-		);
+		// Select RC IDs just by curid, and not by title (see T307865 and T140960)
+		$rcIdsForPage = $dbw->newSelectQueryBuilder()
+			->select( 'rc_id' )
+			->from( 'recentchanges' )
+			->where( [ 'rc_type != ' . RC_LOG, 'rc_cur_id' => $id ] )
+			->caller( __METHOD__ )->fetchFieldValues();
 
 		// T98706: delete by PK to avoid lock contention with RC delete log insertions
-		$rcIdBatches = array_chunk( array_merge( $rcIdsForTitle, $rcIdsForPage ), $batchSize );
+		$rcIdBatches = array_chunk( $rcIdsForPage, $batchSize );
 		foreach ( $rcIdBatches as $rcIdBatch ) {
-			$dbw->delete( 'recentchanges', [ 'rc_id' => $rcIdBatch ], __METHOD__ );
+			$dbw->newDeleteQueryBuilder()
+				->deleteFrom( 'recentchanges' )
+				->where( [ 'rc_id' => $rcIdBatch ] )
+				->caller( __METHOD__ )->execute();
 			if ( count( $rcIdBatches ) > 1 ) {
 				$lbFactory->commitAndWaitForReplication(
 					__METHOD__, $this->ticket, [ 'domain' => $dbw->getDomainID() ]

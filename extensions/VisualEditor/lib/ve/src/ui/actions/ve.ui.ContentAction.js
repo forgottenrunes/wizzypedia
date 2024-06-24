@@ -12,6 +12,7 @@
  *
  * @constructor
  * @param {ve.ui.Surface} surface Surface to act on
+ * @param {string} [source]
  */
 ve.ui.ContentAction = function VeUiContentAction() {
 	// Parent constructor
@@ -26,7 +27,7 @@ OO.inheritClass( ve.ui.ContentAction, ve.ui.Action );
 
 ve.ui.ContentAction.static.name = 'content';
 
-ve.ui.ContentAction.static.methods = [ 'insert', 'remove', 'select', 'pasteSpecial', 'selectAll', 'changeDirectionality', 'submit', 'focusContext' ];
+ve.ui.ContentAction.static.methods = [ 'insert', 'remove', 'select', 'pasteSpecial', 'selectAll', 'changeDirectionality', 'submit', 'cancel', 'focusContext' ];
 
 /* Methods */
 
@@ -127,6 +128,21 @@ ve.ui.ContentAction.prototype.changeDirectionality = function () {
  */
 ve.ui.ContentAction.prototype.submit = function () {
 	this.surface.emit( 'submit' );
+	return true;
+};
+
+/**
+ * Emit a surface cancel event
+ *
+ * @return {boolean} Action was executed
+ */
+ve.ui.ContentAction.prototype.cancel = function () {
+	if ( this.surface.context.isVisible() ) {
+		// T97350
+		this.surface.context.hide();
+	} else {
+		this.surface.emit( 'cancel' );
+	}
 	return true;
 };
 

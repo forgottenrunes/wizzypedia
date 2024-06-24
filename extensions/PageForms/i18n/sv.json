@@ -12,6 +12,7 @@
 			"Najami",
 			"Per",
 			"Rotsee",
+			"Sabelöga",
 			"WikiPhoenix"
 		]
 	},
@@ -161,6 +162,8 @@
 	"pf_formedit_saveandcontinueediting": "Spara och fortsätt",
 	"pf_formedit_saveandcontinue_summary": "Sparad med hjälp av \"$1\"-knappen i formuläret",
 	"pf_formedit_tooltip_saveandcontinueediting": "Spara data och fortsätt redigera",
+	"pf-wizard-back": "Tillbaka",
+	"pf-wizard-continue": "Fortsätt",
 	"pf_autoedit_anoneditwarning": "Varning: Du är inte inloggad. Din IP-adress kommer att sparas i historiken för den här sidan.",
 	"pf_autoedit_success": "Ändrade [[$1]] med hjälp av formuläret $2.",
 	"pf_autoedit_fail": "Ändring av [[$1]] misslyckades.",
@@ -198,6 +201,7 @@
 	"pf_deletionlog": "Raderingslogg",
 	"pf-preview-header": "Förgranska formulär",
 	"pf-preview-note": "Så här kommer formuläret att se ut när det används:",
+	"pf-pageschemas-header": "Formulär",
 	"pf-pageschemas-pagenameformula": "Formel för sidnamn:",
 	"pf-pageschemas-createtitle": "Titel på formulär för nya sidor:",
 	"pf-pageschemas-edittitle": "Titel på formulär för befintliga sidor:",

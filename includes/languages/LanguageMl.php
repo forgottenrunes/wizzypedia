@@ -1,7 +1,5 @@
 <?php
 /**
- * Malayalam (മലയാളം) specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,13 +16,14 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
+
+use MediaWiki\Languages\Data\NormalizeMl;
 
 /**
  * Malayalam (മലയാളം)
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class LanguageMl extends Language {
 	/**
@@ -43,7 +42,6 @@ class LanguageMl extends Language {
 	 */
 	public function normalize( $s ) {
 		$s = parent::normalize( $s );
-		$s = $this->transformUsingPairFile( MediaWiki\Languages\Data\NormalizeMl::class, $s );
-		return $s;
+		return $this->transformUsingPairFile( NormalizeMl::class, $s );
 	}
 }

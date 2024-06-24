@@ -1,10 +1,8 @@
 <?php
 /** Pashto (پښتو)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Ahmed-Najib-Biabani-Ibrahimkhel
  * @author Kaganer
@@ -89,6 +87,7 @@ $specialPageAliases = [
 	'Protectedtitles'           => [ 'ژغورلي_سرليکونه' ],
 	'Randompage'                => [ 'ناټاکلی،_ناټاکلی_مخ' ],
 	'Recentchanges'             => [ 'اوسني_بدلونونه' ],
+	'Renameuser'                => [ 'دکارونکي_نوم_بدلون' ],
 	'Search'                    => [ 'پلټنه' ],
 	'Shortpages'                => [ 'لنډ_مخونه' ],
 	'Specialpages'              => [ 'ځانګړي_مخونه' ],

@@ -20,12 +20,15 @@
 
 namespace MediaWiki\Block;
 
-use CommentStoreComment;
 use Language;
+use MediaWiki\CommentStore\CommentStoreComment;
+use MediaWiki\HookContainer\HookContainer;
+use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\Page\PageReferenceValue;
+use MediaWiki\Title\TitleFormatter;
 use MediaWiki\User\UserIdentity;
+use MediaWiki\User\UserIdentityUtils;
 use Message;
-use TitleFormatter;
 
 /**
  * A service class for getting formatted information about a block.
@@ -38,13 +41,27 @@ class BlockErrorFormatter {
 	/** @var TitleFormatter */
 	private $titleFormatter;
 
+	/** @var HookRunner */
+	private $hookRunner;
+
+	/**
+	 * @var UserIdentityUtils
+	 */
+	private $userIdentityUtils;
+
 	/**
 	 * @param TitleFormatter $titleFormatter
+	 * @param HookContainer $hookContainer
+	 * @param UserIdentityUtils $userIdentityUtils
 	 */
 	public function __construct(
-		TitleFormatter $titleFormatter
+		TitleFormatter $titleFormatter,
+		HookContainer $hookContainer,
+		UserIdentityUtils $userIdentityUtils
 	) {
 		$this->titleFormatter = $titleFormatter;
+		$this->hookRunner = new HookRunner( $hookContainer );
+		$this->userIdentityUtils = $userIdentityUtils;
 	}
 
 	/**
@@ -64,7 +81,7 @@ class BlockErrorFormatter {
 		Language $language,
 		$ip
 	) {
-		$key = $this->getBlockErrorMessageKey( $block );
+		$key = $this->getBlockErrorMessageKey( $block, $user );
 		$params = $this->getBlockErrorMessageParams( $block, $user, $language, $ip );
 		return new Message( $key, $params );
 	}
@@ -171,13 +188,15 @@ class BlockErrorFormatter {
 	 * Determine the block error message key by examining the block.
 	 *
 	 * @param Block $block
+	 * @param UserIdentity $user
 	 * @return string Message key
 	 */
-	private function getBlockErrorMessageKey( Block $block ) {
-		$key = 'blockedtext';
+	private function getBlockErrorMessageKey( Block $block, UserIdentity $user ) {
+		$isTempUser = $this->userIdentityUtils->isTemp( $user );
+		$key = $isTempUser ? 'blockedtext-tempuser' : 'blockedtext';
 		if ( $block instanceof DatabaseBlock ) {
 			if ( $block->getType() === Block::TYPE_AUTO ) {
-				$key = 'autoblockedtext';
+				$key = $isTempUser ? 'autoblockedtext-tempuser' : 'autoblockedtext';
 			} elseif ( !$block->isSitewide() ) {
 				$key = 'blockedtext-partial';
 			}
@@ -186,6 +205,10 @@ class BlockErrorFormatter {
 		} elseif ( $block instanceof CompositeBlock ) {
 			$key = 'blockedtext-composite';
 		}
+
+		// Allow extensions to modify the block error message
+		$this->hookRunner->onGetBlockErrorMessageKey( $block, $key );
+
 		return $key;
 	}
 

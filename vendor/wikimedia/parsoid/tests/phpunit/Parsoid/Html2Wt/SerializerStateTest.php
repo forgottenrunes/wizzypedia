@@ -39,7 +39,7 @@ class SerializerStateTest extends TestCase {
 			$env = new MockEnv( [] );
 		}
 		if ( !$serializer ) {
-			$serializer = new WikitextSerializer( [ 'env' => $env ] );
+			$serializer = new WikitextSerializer( $env, [] );
 		}
 		return new SerializerState( $serializer, $options );
 	}
@@ -174,9 +174,9 @@ class SerializerStateTest extends TestCase {
 				return $node->nextSibling;
 			} );
 		$state = $this->getState( [], null, $serializer );
-		$this->assertEmpty( $state->wteHandlerStack );
+		$this->assertSame( [], $state->wteHandlerStack );
 		$state->serializeChildren( $node, $callback );
-		$this->assertEmpty( $state->wteHandlerStack );
+		$this->assertSame( [], $state->wteHandlerStack );
 	}
 
 	/**

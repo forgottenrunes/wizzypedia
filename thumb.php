@@ -28,6 +28,10 @@
 
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Profiler\ProfilingContext;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
 use Wikimedia\AtEase\AtEase;
 
 define( 'MW_NO_OUTPUT_COMPRESSION', 1 );
@@ -42,6 +46,8 @@ wfThumbMain();
 
 function wfThumbMain() {
 	global $wgTrivialMimeDetection, $wgRequest;
+
+	ProfilingContext::singleton()->init( MW_ENTRY_POINT, 'stream' );
 
 	// Don't use fancy MIME detection, just check the file extension for jpg/gif/png
 	$wgTrivialMimeDetection = true;
@@ -104,7 +110,6 @@ function wfThumbHandle404() {
  */
 function wfStreamThumb( array $params ) {
 	global $wgVaryOnXFP;
-	$permissionManager = MediaWikiServices::getInstance()->getPermissionManager();
 
 	$headers = []; // HTTP headers to send
 
@@ -131,9 +136,11 @@ function wfStreamThumb( array $params ) {
 	$isTemp = ( isset( $params['temp'] ) && $params['temp'] );
 	unset( $params['temp'] ); // handlers don't care
 
+	$services = MediaWikiServices::getInstance();
+
 	// Some basic input validation
 	$fileName = strtr( $fileName, '\\/', '__' );
-	$localRepo = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo();
+	$localRepo = $services->getRepoGroup()->getLocalRepo();
 
 	// Actually fetch the image. Method depends on whether it is archived or not.
 	if ( $isTemp ) {
@@ -169,11 +176,11 @@ function wfStreamThumb( array $params ) {
 
 	// Check permissions if there are read restrictions
 	$varyHeader = [];
-	if ( !in_array( 'read', $permissionManager->getGroupPermissions( [ '*' ] ), true ) ) {
+	if ( !$services->getGroupPermissionsLookup()->groupHasPermission( '*', 'read' ) ) {
 		$user = RequestContext::getMain()->getUser();
 		$imgTitle = $img->getTitle();
 
-		if ( !$imgTitle || !$permissionManager->userCan( 'read', $user, $imgTitle ) ) {
+		if ( !$imgTitle || !$services->getPermissionManager()->userCan( 'read', $user, $imgTitle ) ) {
 			wfThumbError( 403, 'Access denied. You do not have permission to access ' .
 				'the source file.' );
 			return;
@@ -270,7 +277,7 @@ function wfStreamThumb( array $params ) {
 	// Get the normalized thumbnail name from the parameters...
 	try {
 		$thumbName = $img->thumbName( $params );
-		if ( !strlen( $thumbName ) ) { // invalid params?
+		if ( !strlen( $thumbName ?? '' ) ) { // invalid params?
 			throw new MediaTransformInvalidParametersException(
 				'Empty return from File::thumbName'
 			);
@@ -322,7 +329,7 @@ function wfStreamThumb( array $params ) {
 
 	// Suggest a good name for users downloading this thumbnail
 	$headers[] =
-		"Content-Disposition: {$img->getThumbDisposition( $thumbName, $dispositionType )}";
+		'Content-Disposition: ' . $img->getThumbDisposition( $thumbName, $dispositionType );
 
 	if ( count( $varyHeader ) ) {
 		$headers[] = 'Vary: ' . implode( ', ', $varyHeader );
@@ -336,7 +343,7 @@ function wfStreamThumb( array $params ) {
 		$streamtime = microtime( true ) - $starttime;
 
 		if ( $status->isOK() ) {
-			MediaWikiServices::getInstance()->getStatsdDataFactory()->timing(
+			$services->getStatsdDataFactory()->timing(
 				'media.thumbnail.stream', $streamtime
 			);
 		} else {
@@ -357,13 +364,13 @@ function wfStreamThumb( array $params ) {
 
 	$thumbProxyUrl = $img->getRepo()->getThumbProxyUrl();
 
-	if ( strlen( $thumbProxyUrl ) ) {
+	if ( strlen( $thumbProxyUrl ?? '' ) ) {
 		wfProxyThumbnailRequest( $img, $thumbName );
 		// No local fallback when in proxy mode
 		return;
 	} else {
 		// Generate the thumbnail locally
-		list( $thumb, $errorMsg ) = wfGenerateThumbnail( $img, $params, $thumbName, $thumbPath );
+		[ $thumb, $errorMsg ] = wfGenerateThumbnail( $img, $params, $thumbName, $thumbPath );
 	}
 
 	/** @var MediaTransformOutput|MediaTransformError|bool $thumb */
@@ -416,18 +423,18 @@ function wfProxyThumbnailRequest( $img, $thumbName ) {
 	// Instead of generating the thumbnail ourselves, we proxy the request to another service
 	$thumbProxiedUrl = $thumbProxyUrl . $img->getThumbRel( $thumbName );
 
-	$req = MWHttpRequest::factory( $thumbProxiedUrl );
+	$req = MediaWikiServices::getInstance()->getHttpRequestFactory()->create( $thumbProxiedUrl );
 	$secret = $img->getRepo()->getThumbProxySecret();
 
 	// Pass a secret key shared with the proxied service if any
-	if ( strlen( $secret ) ) {
+	if ( strlen( $secret ?? '' ) ) {
 		$req->setHeader( 'X-Swift-Secret', $secret );
 	}
 
 	// Send request to proxied service
-	$status = $req->execute();
+	$req->execute();
 
-	MediaWiki\HeaderCallback::warnIfHeadersSent();
+	\MediaWiki\Request\HeaderCallback::warnIfHeadersSent();
 
 	// Simply serve the response from the proxied service as-is
 	header( 'HTTP/1.1 ' . $req->getStatus() );
@@ -561,10 +568,10 @@ function wfExtractThumbRequestInfo( $thumbRel ) {
 
 	// Check if this is a thumbnail of an original in the local file repo
 	if ( preg_match( "!^((archive/)?$hashDirReg([^/]*)/([^/]*))$!", $thumbRel, $m ) ) {
-		list( /*all*/, $rel, $archOrTemp, $filename, $thumbname ) = $m;
-	// Check if this is a thumbnail of an temp file in the local file repo
+		[ /*all*/, $rel, $archOrTemp, $filename, $thumbname ] = $m;
+	// Check if this is a thumbnail of a temp file in the local file repo
 	} elseif ( preg_match( "!^(temp/)($hashDirReg([^/]*)/([^/]*))$!", $thumbRel, $m ) ) {
-		list( /*all*/, $archOrTemp, $rel, $filename, $thumbname ) = $m;
+		[ /*all*/, $archOrTemp, $rel, $filename, $thumbname ] = $m;
 	} else {
 		return null; // not a valid looking thumbnail request
 	}
@@ -620,7 +627,7 @@ function wfExtractThumbParams( $file, $params ) {
 
 	// As a last ditch fallback, use the traditional common parameters
 	if ( preg_match( '!^(page(\d*)-)*(\d*)px-[^/]*$!', $thumbname, $matches ) ) {
-		list( /* all */, /* pagefull */, $pagenum, $size ) = $matches;
+		[ /* all */, /* pagefull */, $pagenum, $size ] = $matches;
 		$params['width'] = $size;
 		if ( $pagenum ) {
 			$params['page'] = $pagenum;
@@ -654,7 +661,7 @@ function wfThumbErrorText( $status, $msgText ) {
 function wfThumbError( $status, $msgHtml, $msgText = null, $context = [] ) {
 	global $wgShowHostnames;
 
-	MediaWiki\HeaderCallback::warnIfHeadersSent();
+	\MediaWiki\Request\HeaderCallback::warnIfHeadersSent();
 
 	if ( headers_sent() ) {
 		LoggerFactory::getInstance( 'thumbnail' )->error(

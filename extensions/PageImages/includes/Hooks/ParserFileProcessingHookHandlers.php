@@ -6,14 +6,20 @@ use DerivativeContext;
 use Exception;
 use File;
 use FormatMetadata;
-use Http;
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Hook\ParserAfterTidyHook;
+use MediaWiki\Hook\ParserModifyImageHTMLHook;
+use MediaWiki\Hook\ParserTestGlobalsHook;
+use MediaWiki\Http\HttpRequestFactory;
+use MediaWiki\Page\PageReference;
 use PageImages\PageImageCandidate;
 use PageImages\PageImages;
 use Parser;
 use ParserOutput;
+use RepoGroup;
 use RuntimeException;
-use Title;
+use TitleFactory;
+use WANObjectCache;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * Handlers for parser hooks.
@@ -32,44 +38,53 @@ use Title;
  * @author Max Semenik
  * @author Thiemo Kreuz
  */
-class ParserFileProcessingHookHandlers {
+class ParserFileProcessingHookHandlers implements
+	ParserAfterTidyHook,
+	ParserModifyImageHTMLHook,
+	ParserTestGlobalsHook
+{
 	private const CANDIDATE_REGEX = '/<!--MW-PAGEIMAGES-CANDIDATE-([0-9]+)-->/';
 
-	/**
-	 * ParserModifyImageHTML hook. Save candidate images, and mark them with a
-	 * comment so that we can later tell if they were in the lead section.
-	 *
-	 * @param Parser $parser
-	 * @param File $file
-	 * @param array $params
-	 * @param string &$html
-	 */
-	public static function onParserModifyImageHTML(
-		Parser $parser,
-		File $file,
-		array $params,
-		&$html
-	): void {
-		$handler = new self();
-		$handler->doParserModifyImageHTML( $parser, $file, $params, $html );
-	}
+	/** @var RepoGroup */
+	private $repoGroup;
+
+	/** @var WANObjectCache */
+	private $mainWANObjectCache;
+
+	/** @var HttpRequestFactory */
+	private $httpRequestFactory;
+
+	/** @var IConnectionProvider */
+	private $connectionProvider;
+
+	/** @var TitleFactory */
+	private $titleFactory;
 
 	/**
-	 * ParserAfterTidy hook handler. Remove candidate images which were not in
-	 * the lead section.
-	 *
-	 * @param Parser $parser
-	 * @param string &$text
+	 * @param RepoGroup $repoGroup
+	 * @param WANObjectCache $mainWANObjectCache
+	 * @param HttpRequestFactory $httpRequestFactory
+	 * @param IConnectionProvider $connectionProvider
+	 * @param TitleFactory $titleFactory
 	 */
-	public static function onParserAfterTidy( Parser $parser, &$text ) {
-		$handler = new self();
-		$handler->doParserAfterTidy( $parser, $text );
+	public function __construct(
+		RepoGroup $repoGroup,
+		WANObjectCache $mainWANObjectCache,
+		HttpRequestFactory $httpRequestFactory,
+		IConnectionProvider $connectionProvider,
+		TitleFactory $titleFactory
+	) {
+		$this->repoGroup = $repoGroup;
+		$this->mainWANObjectCache = $mainWANObjectCache;
+		$this->httpRequestFactory = $httpRequestFactory;
+		$this->connectionProvider = $connectionProvider;
+		$this->titleFactory = $titleFactory;
 	}
 
 	/**
 	 * @param array &$globals
 	 */
-	public static function onParserTestGlobals( &$globals ) {
+	public function onParserTestGlobals( &$globals ) {
 		$globals += [
 			'wgPageImagesScores' => [
 				'width' => [
@@ -85,58 +100,42 @@ class ParserFileProcessingHookHandlers {
 	}
 
 	/**
+	 * ParserModifyImageHTML hook. Save candidate images, and mark them with a
+	 * comment so that we can later tell if they were in the lead section.
+	 *
 	 * @param Parser $parser
 	 * @param File $file
 	 * @param array $params
 	 * @param string &$html
 	 */
-	public function doParserModifyImageHTML(
+	public function onParserModifyImageHTML(
 		Parser $parser,
 		File $file,
 		array $params,
-		&$html
-	) {
-		$this->processFile( $parser, $file, $params, $html );
-	}
-
-	/**
-	 * @param Parser $parser
-	 * @param File|Title|null $file
-	 * @param array[] $handlerParams
-	 * @param string &$html
-	 */
-	private function processFile( Parser $parser, $file, $handlerParams, &$html ) {
-		if ( !$file || !$this->processThisTitle( $parser->getTitle() ) ) {
+		string &$html
+	): void {
+		$page = $parser->getPage();
+		if ( !$page || !$this->processThisTitle( $page ) ) {
 			return;
 		}
 
-		if ( !( $file instanceof File ) ) {
-			$file = MediaWikiServices::getInstance()->getRepoGroup()->findFile( $file );
-			// Non-image files (e.g. audio files) from a <gallery> can end here
-			if ( !$file || !$file->canRender() ) {
-				return;
-			}
-		}
-
-		if ( is_array( $handlerParams ) ) {
-			$myParams = $handlerParams;
-			$this->calcWidth( $myParams, $file );
-		} else {
-			$myParams = [];
-		}
+		$this->calcWidth( $params, $file );
 
 		$index = $this->addPageImageCandidateToParserOutput(
-			PageImageCandidate::newFromFileAndParams( $file, $myParams ),
+			PageImageCandidate::newFromFileAndParams( $file, $params ),
 			$parser->getOutput()
 		);
 		$html .= "<!--MW-PAGEIMAGES-CANDIDATE-$index-->";
 	}
 
 	/**
+	 * ParserAfterTidy hook handler. Remove candidate images which were not in
+	 * the lead section.
+	 *
 	 * @param Parser $parser
 	 * @param string &$text
 	 */
-	public function doParserAfterTidy( Parser $parser, &$text ) {
+	public function onParserAfterTidy( $parser, &$text ) {
 		global $wgPageImagesLeadSectionOnly;
 		$parserOutput = $parser->getOutput();
 		$allImages = $parserOutput->getExtensionData( 'pageImages' );
@@ -144,27 +143,26 @@ class ParserFileProcessingHookHandlers {
 			return;
 		}
 
-		// Find our special comments
+		// Find and remove our special comments
 		$images = [];
 		if ( $wgPageImagesLeadSectionOnly ) {
-			$sectionText = strstr( $text, '<mw:editsection', true );
-			if ( $sectionText === false ) {
-				$sectionText = $text;
-			}
+			$leadEndPos = strpos( $text, '<mw:editsection' );
 		} else {
-			$sectionText = $text;
+			$leadEndPos = false;
 		}
-		$matches = [];
-		preg_match_all( self::CANDIDATE_REGEX, $sectionText, $matches );
-		foreach ( $matches[1] as $id ) {
-			$id = intval( $id );
-			if ( isset( $allImages[$id] ) ) {
-				$images[] = PageImageCandidate::newFromArray( $allImages[$id] );
-			}
-		}
-
-		// Remove the comments
-		$text = preg_replace( self::CANDIDATE_REGEX, '', $text );
+		$text = preg_replace_callback(
+			self::CANDIDATE_REGEX,
+			static function ( $m ) use ( $allImages, &$images, $leadEndPos ) {
+				$offset = $m[0][1];
+				$id = intval( $m[1][0] );
+				$inLead = $leadEndPos === false || $offset < $leadEndPos;
+				if ( $inLead && isset( $allImages[$id] ) ) {
+					$images[] = PageImageCandidate::newFromArray( $allImages[$id] );
+				}
+				return '';
+			},
+			$text, -1, $count, PREG_OFFSET_CAPTURE
+		);
 
 		list( $bestImageName, $freeImageName ) = $this->findBestImages( $images );
 
@@ -248,11 +246,11 @@ class ParserFileProcessingHookHandlers {
 	/**
 	 * Returns true if data for this title should be saved
 	 *
-	 * @param Title $title
+	 * @param PageReference $pageReference
 	 *
 	 * @return bool
 	 */
-	private function processThisTitle( Title $title ) {
+	private function processThisTitle( PageReference $pageReference ) {
 		global $wgPageImagesNamespaces;
 		static $flipped = false;
 
@@ -260,7 +258,7 @@ class ParserFileProcessingHookHandlers {
 			$flipped = array_flip( $wgPageImagesNamespaces );
 		}
 
-		return isset( $flipped[$title->getNamespace()] );
+		return isset( $flipped[$pageReference->getNamespace()] );
 	}
 
 	/**
@@ -370,7 +368,7 @@ class ParserFileProcessingHookHandlers {
 	 * @return bool
 	 */
 	protected function isImageFree( $fileName ) {
-		$file = MediaWikiServices::getInstance()->getRepoGroup()->findFile( $fileName );
+		$file = $this->repoGroup->findFile( $fileName );
 		if ( $file ) {
 			// Process copyright metadata from CommonsMetadata, if present.
 			// Image is considered free if the value is '0' or unset.
@@ -423,10 +421,8 @@ class ParserFileProcessingHookHandlers {
 	protected function getDenylist() {
 		global $wgPageImagesDenylistExpiry;
 
-		$cache = MediaWikiServices::getInstance()->getMainWANObjectCache();
-
-		return $cache->getWithSetCallback(
-			$cache->makeKey( 'pageimages-denylist' ),
+		return $this->mainWANObjectCache->getWithSetCallback(
+			$this->mainWANObjectCache->makeKey( 'pageimages-denylist' ),
 			$wgPageImagesDenylistExpiry,
 			function () {
 				global $wgPageImagesDenylist;
@@ -461,35 +457,32 @@ class ParserFileProcessingHookHandlers {
 	/**
 	 * Returns list of images linked by the given denylist page
 	 *
-	 * @param string|bool $dbName Database name or false for current database
+	 * @param string|false $dbName Database name or false for current database
 	 * @param string $page
 	 *
 	 * @return string[]
 	 */
 	private function getDbDenylist( $dbName, $page ) {
-		$dbr = wfGetDB( DB_REPLICA, [], $dbName );
-		$title = Title::newFromText( $page );
-		$list = [];
-
-		$id = $dbr->selectField(
-			'page',
-			'page_id',
-			[ 'page_namespace' => $title->getNamespace(), 'page_title' => $title->getDBkey() ],
-			__METHOD__
-		);
-
-		if ( $id ) {
-			$res = $dbr->select( 'pagelinks',
-				'pl_title',
-				[ 'pl_from' => $id, 'pl_namespace' => NS_FILE ],
-				__METHOD__
-			);
-			foreach ( $res as $row ) {
-				$list[] = $row->pl_title;
-			}
+		$title = $this->titleFactory->newFromText( $page );
+		if ( !$title || !$title->canExist() ) {
+			return [];
 		}
 
-		return $list;
+		$dbr = $this->connectionProvider->getReplicaDatabase( $dbName );
+		$id = $dbr->newSelectQueryBuilder()
+			->select( 'page_id' )
+			->from( 'page' )
+			->where( [ 'page_namespace' => $title->getNamespace(), 'page_title' => $title->getDBkey() ] )
+			->caller( __METHOD__ )->fetchField();
+		if ( !$id ) {
+			return [];
+		}
+
+		return $dbr->newSelectQueryBuilder()
+			->select( 'pl_title' )
+			->from( 'pagelinks' )
+			->where( [ 'pl_from' => (int)$id, 'pl_namespace' => NS_FILE ] )
+			->caller( __METHOD__ )->fetchFieldValues();
 	}
 
 	/**
@@ -505,12 +498,12 @@ class ParserFileProcessingHookHandlers {
 		global $wgFileExtensions;
 
 		$list = [];
-		$text = Http::get( $url, [ 'timeout' => 3 ], __METHOD__ );
+		$text = $this->httpRequestFactory->get( $url, [ 'timeout' => 3 ], __METHOD__ );
 		$regex = '/\[\[:([^|\#]*?\.(?:' . implode( '|', $wgFileExtensions ) . '))/i';
 
 		if ( $text && preg_match_all( $regex, $text, $matches ) ) {
 			foreach ( $matches[1] as $s ) {
-				$t = Title::makeTitleSafe( NS_FILE, $s );
+				$t = $this->titleFactory->makeTitleSafe( NS_FILE, $s );
 
 				if ( $t ) {
 					$list[] = $t->getDBkey();

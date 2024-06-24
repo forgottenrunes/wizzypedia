@@ -13,8 +13,11 @@
  */
 class PFCreateTemplate extends SpecialPage {
 
-	public function __construct() {
+	private $mCalledFromCreateClass;
+
+	public function __construct( $calledFromCreateClass = false ) {
 		parent::__construct( 'CreateTemplate' );
+		$this->mCalledFromCreateClass = $calledFromCreateClass;
 	}
 
 	public function execute( $query ) {
@@ -33,10 +36,6 @@ class PFCreateTemplate extends SpecialPage {
 		$options = new SMWRequestOptions();
 		$options->limit = 500;
 		$used_properties = PFUtils::getSMWStore()->getPropertiesSpecial( $options );
-		if ( $used_properties instanceof SMW\SQLStore\PropertiesCollector ) {
-			// SMW 1.9+
-			$used_properties = $used_properties->runCollector();
-		}
 		foreach ( $used_properties as $property ) {
 			// Skip over properties that are errors. (This
 			// shouldn't happen, but it sometimes does.)
@@ -50,10 +49,6 @@ class PFCreateTemplate extends SpecialPage {
 		}
 
 		$unused_properties = PFUtils::getSMWStore()->getUnusedPropertiesSpecial( $options );
-		if ( $unused_properties instanceof SMW\SQLStore\UnusedPropertiesCollector ) {
-			// SMW 1.9+
-			$unused_properties = $unused_properties->runCollector();
-		}
 		foreach ( $unused_properties as $property ) {
 			// Skip over properties that are errors. (This
 			// shouldn't happen, but it sometimes does.)
@@ -89,11 +84,17 @@ class PFCreateTemplate extends SpecialPage {
 	}
 
 	function printFieldTypeDropdown( $id ) {
-		global $wgCargoFieldTypes;
+		if ( defined( 'SMW_VERSION' ) ) {
+			$possibleTypes = PFUtils::getSMWContLang()->getDatatypeLabels();
+		} elseif ( defined( 'CARGO_VERSION' ) ) {
+			global $wgCargoFieldTypes;
+			$possibleTypes = $wgCargoFieldTypes;
+		} else {
+			$possibleTypes = [];
+		}
 
-		$selectBody = '';
 		$optionAttrs = [];
-		foreach ( $wgCargoFieldTypes as $type ) {
+		foreach ( $possibleTypes as $type ) {
 			array_push( $optionAttrs, [ 'data' => $type, 'label' => $type ] );
 		}
 		return new OOUI\DropdownInputWidget( [
@@ -128,30 +129,44 @@ class PFCreateTemplate extends SpecialPage {
 		$text .= "<td style=\"padding-left:10px\">\n";
 
 		if ( defined( 'SMW_VERSION' ) ) {
-			$dropdown_html = self::printPropertiesComboBox( $all_properties, $id );
-			array_push(
-				$items,
-				new OOUI\LabelWidget( [
-					'label' => new OOUi\HtmlSnippet( $this->msg( 'pf_createproperty_propname' )->escaped() )
-				] ),
-				new OOUI\TextInputWidget( [
-					'name' => 'property_name_' . $id,
-					'classes' => [ 'pfPropertyName' ]
-				] ),
-				new OOUI\LabelWidget( [
-					'label' => new OOUi\HtmlSnippet( $this->msg( 'pf_createtemplate_semanticproperty' )->escaped() )
-				] ),
-				$dropdown_html
-			);
+			// If it's CreateClass, the property is created as
+			// well; if it's CreateTemplate, the user just chooses
+			// from a dropdown.
+			if ( $this->mCalledFromCreateClass ) {
+				$propertyTypeDropdown = $this->printFieldTypeDropdown( $id );
+				array_push(
+					$items,
+					new OOUI\LabelWidget( [
+						'label' => new OOUI\HtmlSnippet( $this->msg( 'pf_createproperty_propname' )->escaped() )
+					] ),
+					new OOUI\TextInputWidget( [
+						'name' => 'property_name_' . $id,
+						'classes' => [ 'pfPropertyName' ]
+					] ),
+					new OOUI\LabelWidget( [
+						'label' => new OOUI\HtmlSnippet( $this->msg( 'pf_createproperty_proptype' )->escaped() )
+					] ),
+					$propertyTypeDropdown
+				);
+			} else {
+				$propertiesDropdown = self::printPropertiesComboBox( $all_properties, $id );
+				array_push(
+					$items,
+					new OOUI\LabelWidget( [
+						'label' => new OOUI\HtmlSnippet( $this->msg( 'pf_createtemplate_semanticproperty' )->escaped() )
+					] ),
+					$propertiesDropdown
+				);
+			}
 		} elseif ( defined( 'CARGO_VERSION' ) ) {
-			$dropdown_html = $this->printFieldTypeDropdown( $id );
+			$fieldTypeDropdown = $this->printFieldTypeDropdown( $id );
 			array_push(
 				$items,
 				new OOUI\LabelWidget( [
 					'label' => new OOUI\HtmlSnippet( $this->msg( 'pf_createproperty_proptype' )->escaped() ),
 					'classes' => [ 'cargo_field_type' ]
 				] ),
-				$dropdown_html
+				$fieldTypeDropdown
 			);
 		}
 		$fieldBoxFirstRow = new OOUI\HorizontalLayout( [
@@ -210,6 +225,20 @@ class PFCreateTemplate extends SpecialPage {
 				'rows' => 10,
 			] );
 		}
+
+		// If this code is being called from Special:CreateClass, we want to have the "allowed values"
+		// input in there no matter what.
+		if ( !defined( 'SMW_VERSION' ) && !defined( 'CARGO_VERSION' ) && $this->mCalledFromCreateClass ) {
+			$text .= new OOUI\LabelWidget( [
+				'label' => new OOUI\HtmlSnippet( $this->msg( 'pf_createproperty_allowedvalsinput' )->escaped() ),
+				'classes' => [ 'allowed_values_input' ]
+			] );
+			$text .= new OOUI\TextInputWidget( [
+				'name' => "allowed_values_$id",
+				'classes' => [ 'allowed_values_input' ]
+			] );
+		}
+
 		$text .= "\t</td>\n";
 		$addAboveButton = Html::element( 'a', [ 'class' => "addAboveButton", 'title' => $this->msg( 'pf_createtemplate_addanotherabove' )->text() ] );
 		$removeButton = Html::element( 'a', [ 'class' => "removeButton", 'title' => $this->msg( 'pf_createtemplate_deletefield' )->text() ] );
@@ -242,12 +271,12 @@ END;
 		if ( !$curSelection ) {
 			$curSelection = 'standard';
 		}
-		$text = "<br>\t<p>" . wfMessage( 'pf_createtemplate_outputformat' )->escaped() . "\n";
+		$text = "<p class=\"pfCreateTemplateStyle\">" . wfMessage( 'pf_createtemplate_outputformat' )->escaped() . "\n";
 		$text .= self::printTemplateStyleButton( 'standard', 'pf_createtemplate_standardformat', $htmlFieldName, $curSelection );
 		$text .= self::printTemplateStyleButton( 'infobox', 'pf_createtemplate_infoboxformat', $htmlFieldName, $curSelection );
 		$text .= self::printTemplateStyleButton( 'plain', 'pf_createtemplate_plainformat', $htmlFieldName, $curSelection );
 		$text .= self::printTemplateStyleButton( 'sections', 'pf_createtemplate_sectionsformat', $htmlFieldName, $curSelection );
-		$text .= "</p>\n<br>";
+		$text .= "</p>";
 		return $text;
 	}
 
@@ -265,6 +294,7 @@ END;
 		}
 
 		$out->addModules( [ 'ext.pageforms.main', 'ext.pageforms.PF_CreateTemplate' ] );
+		$out->addModuleStyles( [ 'ext.pageforms.main.styles' ] );
 
 		$text = '';
 		$save_page = $req->getCheck( 'wpSave' );
@@ -279,6 +309,7 @@ END;
 
 			$use_cargo = $req->getBool( 'use_cargo' );
 			$cargo_table = $req->getVal( 'cargo_table' );
+			$use_fullwikitext = $req->getBool( 'use_fullwikitext' );
 
 			$fields = [];
 			// Cycle through the query values, setting the
@@ -330,6 +361,7 @@ END;
 			if ( $use_cargo ) {
 				$pfTemplate->setCargoTable( $cargo_table );
 			}
+			$pfTemplate->setFullWikiTextStatus( $use_fullwikitext );
 			$pfTemplate->setAggregatingInfo( $aggregating_property, $aggregation_label );
 			$pfTemplate->setFormat( $template_format );
 			$full_text = $pfTemplate->createText();
@@ -399,6 +431,11 @@ END;
 			] );
 			$text .= $cargoTableNameRow;
 		}
+
+		$text .= "\t<p><label id='fullwikitext_toggle'>" .
+			Html::hidden( 'use_fullwikitext', false ) .
+			$this->msg( 'pf_createtemplate_fullwikitext', '#template_display' )->escaped() .
+			"</label></p>";
 
 		$text .= "\t<fieldset>\n";
 		$text .= "\t" . Html::element( 'legend', null, $this->msg( 'pf_createtemplate_templatefields' )->text() ) . "\n";

@@ -20,6 +20,10 @@
  * @file
  */
 
+use MediaWiki\ChangeTags\ChangeTagsStore;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\IntegerDef;
+
 /**
  * Query module to enumerate change tags.
  *
@@ -27,8 +31,11 @@
  */
 class ApiQueryTags extends ApiQueryBase {
 
-	public function __construct( ApiQuery $query, $moduleName ) {
+	private ChangeTagsStore $changeTagsStore;
+
+	public function __construct( ApiQuery $query, $moduleName, ChangeTagsStore $changeTagsStore ) {
 		parent::__construct( $query, $moduleName, 'tg' );
+		$this->changeTagsStore = $changeTagsStore;
 	}
 
 	public function execute() {
@@ -46,12 +53,15 @@ class ApiQueryTags extends ApiQueryBase {
 		$limit = $params['limit'];
 		$result = $this->getResult();
 
-		$softwareDefinedTags = array_fill_keys( ChangeTags::listSoftwareDefinedTags(), 0 );
-		$explicitlyDefinedTags = array_fill_keys( ChangeTags::listExplicitlyDefinedTags(), 0 );
-		$softwareActivatedTags = array_fill_keys( ChangeTags::listSoftwareActivatedTags(), 0 );
-		$tagStats = ChangeTags::tagUsageStatistics();
+		$softwareDefinedTags = array_fill_keys( $this->changeTagsStore->listSoftwareDefinedTags(), 0 );
+		$explicitlyDefinedTags = array_fill_keys( $this->changeTagsStore->listExplicitlyDefinedTags(), 0 );
+		$softwareActivatedTags = array_fill_keys( $this->changeTagsStore->listSoftwareActivatedTags(), 0 );
 
-		$tagHitcounts = array_merge( $softwareDefinedTags, $explicitlyDefinedTags, $tagStats );
+		$tagHitcounts = array_merge(
+			$softwareDefinedTags,
+			$explicitlyDefinedTags,
+			$this->changeTagsStore->tagUsageStatistics()
+		);
 		$tags = array_keys( $tagHitcounts );
 
 		# Fetch defined tags that aren't past the continuation
@@ -130,15 +140,15 @@ class ApiQueryTags extends ApiQueryBase {
 				ApiBase::PARAM_HELP_MSG => 'api-help-param-continue',
 			],
 			'limit' => [
-				ApiBase::PARAM_DFLT => 10,
-				ApiBase::PARAM_TYPE => 'limit',
-				ApiBase::PARAM_MIN => 1,
-				ApiBase::PARAM_MAX => ApiBase::LIMIT_BIG1,
-				ApiBase::PARAM_MAX2 => ApiBase::LIMIT_BIG2
+				ParamValidator::PARAM_DEFAULT => 10,
+				ParamValidator::PARAM_TYPE => 'limit',
+				IntegerDef::PARAM_MIN => 1,
+				IntegerDef::PARAM_MAX => ApiBase::LIMIT_BIG1,
+				IntegerDef::PARAM_MAX2 => ApiBase::LIMIT_BIG2
 			],
 			'prop' => [
-				ApiBase::PARAM_DFLT => '',
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_DEFAULT => '',
+				ParamValidator::PARAM_TYPE => [
 					'displayname',
 					'description',
 					'hitcount',
@@ -146,7 +156,7 @@ class ApiQueryTags extends ApiQueryBase {
 					'source',
 					'active',
 				],
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_ISMULTI => true,
 				ApiBase::PARAM_HELP_MSG_PER_VALUE => [],
 			]
 		];

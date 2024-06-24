@@ -1,7 +1,5 @@
 <?php
 /**
- * Talysh specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -17,14 +15,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  * http://www.gnu.org/copyleft/gpl.html
  *
- * @author Amir E. Aharoni
- *
  * @file
- * @ingroup Language
+ * @author Amir E. Aharoni
  */
 
 /**
- * @ingroup Language
+ * Talysh specific code.
+ *
+ * @ingroup Languages
  */
 class TlyConverter extends LanguageConverter {
 	/**
@@ -75,42 +73,24 @@ class TlyConverter extends LanguageConverter {
 	 */
 	private $toCyrillic = [];
 
-	/**
-	 * Get Main language code.
-	 * @since 1.36
-	 *
-	 * @return string
-	 */
 	public function getMainCode(): string {
 		return 'tly';
 	}
 
-	/**
-	 * Get supported variants of the language.
-	 * @since 1.36
-	 *
-	 * @return array
-	 */
 	public function getLanguageVariants(): array {
 		return [ 'tly', 'tly-cyrl' ];
 	}
 
-	/**
-	 * Get language variants fallbacks.
-	 * @since 1.36
-	 *
-	 * @return array
-	 */
 	public function getVariantsFallbacks(): array {
 		return [
 			'tly-cyrl' => 'tly',
 		];
 	}
 
-	protected function loadDefaultTables() {
+	protected function loadDefaultTables(): array {
 		$this->toCyrillic = array_flip( $this->toLatin );
 
-		$this->mTables = [
+		return [
 			'tly-cyrl' => new ReplacementArray( $this->toCyrillic ),
 			'tly' => new ReplacementArray( $this->toLatin ),
 		];

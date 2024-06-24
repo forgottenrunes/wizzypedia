@@ -33,24 +33,21 @@ class SelectiveSerializer {
 
 	private $wts;
 	private $trace;
-	private $metrics;
 
 	/** @var SelserData */
 	private $selserData;
 
 	/**
+	 * @param Env $env
 	 * @param array $options
 	 */
-	public function __construct( $options ) {
-		$this->env = $options['env'];
-		$this->wts = new WikitextSerializer( $options );
+	public function __construct( Env $env, array $options ) {
+		$this->env = $env;
+		$this->wts = new WikitextSerializer( $env, $options );
 		$this->selserData = $options['selserData'];
 
 		// Debug options
 		$this->trace = $this->env->hasTraceFlag( 'selser' );
-
-		// Performance Timing option
-		$this->metrics = $this->env->getSiteConfig()->metrics();
 	}
 
 	/**
@@ -182,7 +179,7 @@ class SelectiveSerializer {
 	/**
 	 * @param Element $body
 	 */
-	private function preprocessDOM( Element $body ): void {
+	private function preprocessDOMForSelser( Element $body ): void {
 		if ( Semver::satisfies( $this->env->getInputContentVersion(), '>=2.1.2' ) ) {
 			// Wrap text node children of <li> elements in dummy spans
 			$this->wrapTextChildrenOfNode( $body, 'li' );
@@ -203,14 +200,12 @@ class SelectiveSerializer {
 		$domDiffStart = null;
 		$r = null;
 
-		$timing = Timing::start( $this->metrics );
-
 		$body = DOMCompat::getBody( $doc );
 		$oldBody = DOMCompat::getBody( $this->selserData->oldDOM );
 
-		// Preprocess DOMs
-		$this->preprocessDOM( $oldBody );
-		$this->preprocessDOM( $body );
+		// Preprocess DOMs - this is specific to selser
+		$this->preprocessDOMForSelser( $oldBody );
+		$this->preprocessDOMForSelser( $body );
 
 		// Use provided diff-marked DOM (used during testing)
 		// or generate one (used in production)
@@ -218,7 +213,7 @@ class SelectiveSerializer {
 			$diff = [ 'isEmpty' => false ];
 			$body = DOMCompat::getBody( $this->env->getDOMDiff() );
 		} else {
-			$domDiffTiming = Timing::start( $this->metrics );
+			$domDiffTiming = Timing::start( $this->env->getSiteConfig()->metrics() );
 			$diff = ( new DOMDiff( $this->env ) )->diff( $oldBody, $body );
 			$domDiffTiming->end( 'html2wt.selser.domDiff' );
 		}
@@ -238,8 +233,6 @@ class SelectiveSerializer {
 			// Call the WikitextSerializer to do our bidding
 			$r = $this->wts->serializeDOM( $doc, true );
 		}
-
-		$timing->end( 'html2wt.selser.serialize' );
 
 		return $r;
 	}

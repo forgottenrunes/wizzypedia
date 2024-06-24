@@ -3,12 +3,13 @@
 namespace MediaWiki\Tests\Maintenance;
 
 use ContentHandler;
+use Exception;
 use FetchText;
-use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Title\Title;
 use MediaWikiIntegrationTestCase;
-use MWException;
 use PHPUnit\Framework\ExpectationFailedException;
-use Title;
+use RuntimeException;
 use WikiPage;
 
 /**
@@ -111,7 +112,6 @@ class FetchTextTest extends MediaWikiIntegrationTestCase {
 	 * @param string $text The revisions text
 	 * @param string $summary The revisions summare
 	 * @return string
-	 * @throws MWException
 	 */
 	private function addRevision( $page, $text, $summary ) {
 		$status = $page->doUserEditContent(
@@ -121,31 +121,29 @@ class FetchTextTest extends MediaWikiIntegrationTestCase {
 		);
 
 		if ( $status->isGood() ) {
-			$value = $status->getValue();
-
-			/** @var RevisionRecord $revision */
-			$revision = $value['revision-record'];
-			$address = $revision->getSlot( 'main' )->getAddress();
+			$revision = $status->getNewRevision();
+			$address = $revision->getSlot( SlotRecord::MAIN )->getAddress();
 			return $address;
 		}
 
-		throw new MWException( "Could not create revision" );
+		throw new RuntimeException( "Could not create revision" );
 	}
 
 	public function addDBDataOnce() {
 		$wikitextNamespace = $this->getDefaultWikitextNS();
+		$wikiPageFactory = $this->getServiceContainer()->getWikiPageFactory();
 
 		try {
-			$title = Title::newFromText( 'FetchTextTestPage1', $wikitextNamespace );
-			$page = WikiPage::factory( $title );
+			$title = Title::makeTitle( $wikitextNamespace, 'FetchTextTestPage1' );
+			$page = $wikiPageFactory->newFromTitle( $title );
 			self::$textId1 = $this->addRevision(
 				$page,
 				"FetchTextTestPage1Text1",
 				"FetchTextTestPage1Summary1"
 			);
 
-			$title = Title::newFromText( 'FetchTextTestPage2', $wikitextNamespace );
-			$page = WikiPage::factory( $title );
+			$title = Title::makeTitle( $wikitextNamespace, 'FetchTextTestPage2' );
+			$page = $wikiPageFactory->newFromTitle( $title );
 			self::$textId2 = $this->addRevision(
 				$page,
 				"FetchTextTestPage2Text1",

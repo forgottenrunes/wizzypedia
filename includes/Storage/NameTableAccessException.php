@@ -1,7 +1,5 @@
 <?php
 /**
- * Exception representing a failure to look up a row from a name table.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -39,7 +37,7 @@ class NameTableAccessException extends RuntimeException {
 	 * @return NameTableAccessException
 	 */
 	public static function newFromDetails( $tableName, $accessType, $accessValue ) {
-		$message = "Failed to access name from ${tableName} using ${accessType} = ${accessValue}";
+		$message = "Failed to access name from {$tableName} using {$accessType} = {$accessValue}";
 		return new self( $message );
 	}
 

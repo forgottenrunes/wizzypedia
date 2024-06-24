@@ -1,10 +1,8 @@
 <?php
 /** Northern Sotho (Sesotho sa Leboa)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Kaganer
  * @author Mohau
@@ -41,3 +39,5 @@ $magicWords = [
 	'currenttime'               => [ '1', 'NAKO_BJALE', 'CURRENTTIME' ],
 	'currentyear'               => [ '1', 'NGWAGA_BJALE', 'CURRENTYEAR' ],
 ];
+
+$linkTrail = '/^([A-Za-zŠÔÊšôê]+)(.*)$/sDu';

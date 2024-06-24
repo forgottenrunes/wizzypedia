@@ -1,10 +1,8 @@
 <?php
 /** Upper Franconian (Mainfränkisch)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Altaileopard
  * @author Bua333

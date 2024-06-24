@@ -11,10 +11,10 @@
  * @abstract
  * @extends ve.ui.ContextItem
  *
- * @param {ve.ui.Context} context Context item is in
+ * @param {ve.ui.TableLineContext} context Context the item is in
  * @param {ve.dm.Model} model Model the item is related to
  * @param {Function} tool Tool class the item is based on
- * @param {Object} config Configuration options
+ * @param {Object} [config] Configuration options
  */
 ve.ui.TableLineContextItem = function VeUiTableLineContextItem() {
 	// Parent constructor
@@ -92,7 +92,6 @@ ve.ui.TableLineContextItem.prototype.setup = function () {
 /* Specific tools */
 
 ( function () {
-
 	var modes = [ 'row', 'col' ],
 		sides = [ 'before', 'after' ],
 		modeNames = { row: 'Row', col: 'Column' },
@@ -209,7 +208,6 @@ ve.ui.TableLineContextItem.prototype.setup = function () {
 			return ve.msg( 'visualeditor-table-delete-' + mode, count );
 		};
 		ve.ui.contextItemFactory.register( ve.ui[ className ] );
-
 	} );
 
 	ve.ui.TablePropertiesContextItem = function VeUiTablePropertiesContextItem() {

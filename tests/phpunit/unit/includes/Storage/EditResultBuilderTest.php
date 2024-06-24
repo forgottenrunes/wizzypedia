@@ -4,13 +4,14 @@ namespace MediaWiki\Tests\Storage;
 
 use DummyContentForTesting;
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Revision\MutableRevisionRecord;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\RevisionStore;
+use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Storage\EditResult;
 use MediaWiki\Storage\EditResultBuilder;
 use MediaWiki\Storage\PageUpdateException;
-use MediaWiki\Storage\SlotRecord;
 use MediaWikiUnitTestCase;
 use MockTitleTrait;
 
@@ -43,7 +44,7 @@ class EditResultBuilderTest extends MediaWikiUnitTestCase {
 		$this->assertFalse( $er->isNew(), 'EditResult::isNew()' );
 	}
 
-	public function provideSetIsNew() {
+	public static function provideSetIsNew() {
 		return [
 			'not a new page' => [ false ],
 			'a new page' => [ true ]
@@ -377,7 +378,7 @@ class EditResultBuilderTest extends MediaWikiUnitTestCase {
 
 		$options = new ServiceOptions(
 			EditResultBuilder::CONSTRUCTOR_OPTIONS,
-			[ 'ManualRevertSearchRadius' => $manualRevertSearchRadius ]
+			[ MainConfigNames::ManualRevertSearchRadius => $manualRevertSearchRadius ]
 		);
 
 		return new EditResultBuilder(

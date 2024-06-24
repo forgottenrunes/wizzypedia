@@ -34,15 +34,13 @@
 		};
 	</script>
 	<script>
-		// Mock ResourceLoaderStartUpModule substitutions
+		// Mock StartUpModule substitutions
 		window.$VARS = {
 			baseModules: [],
-			storeDisabled: true,
+			storeEnabled: false,
 			maxQueryLength: 2000
 		};
 		window.$CODE = {
-			test: function () { return true; },
-			maybeRedefineFallbacksForTest: function () {}
 		};
 		// Mock startup.js
 		window.RLQ = [];

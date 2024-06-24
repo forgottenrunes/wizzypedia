@@ -1,5 +1,8 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\Title\Title;
+
 /**
  * @group Search
  * @group Database
@@ -53,9 +56,9 @@ class SearchEnginePrefixTest extends MediaWikiLangTestCase {
 		}
 
 		// Avoid special pages from extensions interferring with the tests
-		$this->setMwGlobals( [
-			'wgSpecialPages' => [],
-			'wgHooks' => [],
+		$this->overrideConfigValues( [
+			MainConfigNames::SpecialPages => [],
+			MainConfigNames::Hooks => [],
 		] );
 
 		$this->search = $this->getServiceContainer()->newSearchEngine();
@@ -64,16 +67,15 @@ class SearchEnginePrefixTest extends MediaWikiLangTestCase {
 
 	protected function searchProvision( array $results = null ) {
 		if ( $results === null ) {
-			$this->setMwGlobals( 'wgHooks', [] );
+			$this->overrideConfigValue( MainConfigNames::Hooks, [] );
 		} else {
-			$this->setMwGlobals( 'wgHooks', [
-				'PrefixSearchBackend' => [
-					static function ( $namespaces, $search, $limit, &$srchres ) use ( $results ) {
-						$srchres = $results;
-						return false;
-					}
-				],
-			] );
+			$this->setTemporaryHook(
+				'PrefixSearchBackend',
+				static function ( $namespaces, $search, $limit, &$srchres ) use ( $results ) {
+					$srchres = $results;
+					return false;
+				}
+			);
 		}
 	}
 
@@ -364,7 +366,7 @@ class SearchEnginePrefixTest extends MediaWikiLangTestCase {
 		);
 	}
 
-	public function paginationProvider() {
+	public static function paginationProvider() {
 		$res = [ 'Example', 'Example Bar', 'Example Foo', 'Example Foo/Bar' ];
 		return [
 			'With less than requested results no pagination' => [
@@ -391,7 +393,7 @@ class SearchEnginePrefixTest extends MediaWikiLangTestCase {
 	}
 
 	private function mockSearchWithResults( $titleStrings, $limit = 3 ) {
-		$search = $stub = $this->getMockBuilder( SearchEngine::class )
+		$search = $this->getMockBuilder( SearchEngine::class )
 			->onlyMethods( [ 'completionSearchBackend' ] )->getMock();
 
 		$return = SearchSuggestionSet::fromStrings( $titleStrings );

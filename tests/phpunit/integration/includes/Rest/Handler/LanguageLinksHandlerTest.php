@@ -5,12 +5,13 @@ namespace MediaWiki\Tests\Rest\Handler;
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\Interwiki\ClassicInterwikiLookup;
 use MediaWiki\Languages\LanguageNameUtils;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Rest\Handler\LanguageLinksHandler;
 use MediaWiki\Rest\LocalizedHttpException;
 use MediaWiki\Rest\RequestData;
 use MediaWiki\Tests\Unit\DummyServicesTrait;
-use Title;
+use MediaWiki\Title\Title;
 use Wikimedia\Message\MessageValue;
 
 /**
@@ -31,13 +32,14 @@ class LanguageLinksHandlerTest extends \MediaWikiIntegrationTestCase {
 
 		$base = 'https://wiki.test/';
 
-		$this->setMwGlobals( [
-			'wgInterwikiCache' => ClassicInterwikiLookup::buildCdbHash( [
+		$this->overrideConfigValue(
+			MainConfigNames::InterwikiCache,
+			ClassicInterwikiLookup::buildCdbHash( [
 				[ 'iw_prefix' => 'de', 'iw_url' => $base . '/de', 'iw_wikiid' => 'dewiki' ] + $defaults,
 				[ 'iw_prefix' => 'en', 'iw_url' => $base . '/en', 'iw_wikiid' => 'enwiki' ] + $defaults,
-				[ 'iw_prefix' => 'fr', 'iw_url' => $base . '/fr', 'iw_wikiid' => 'frwiki' ] + $defaults,
-			] ),
-		] );
+				[ 'iw_prefix' => 'fr', 'iw_url' => $base . '/fr', 'iw_wikiid' => 'frwiki' ] + $defaults
+			] )
+		);
 
 		$this->editPage( __CLASS__ . '_Foo', 'Foo [[fr:Fou baux]] [[de:Füh bär]]' );
 	}
@@ -46,7 +48,11 @@ class LanguageLinksHandlerTest extends \MediaWikiIntegrationTestCase {
 		$languageNameUtils = new LanguageNameUtils(
 			new ServiceOptions(
 				LanguageNameUtils::CONSTRUCTOR_OPTIONS,
-				[ 'ExtraLanguageNames' => [], 'UsePigLatinVariant' => false ]
+				[
+					'ExtraLanguageNames' => [],
+					'UsePigLatinVariant' => false,
+					'UseXssLanguage' => false,
+				]
 			),
 			$this->getServiceContainer()->getHookContainer()
 		);
@@ -55,11 +61,12 @@ class LanguageLinksHandlerTest extends \MediaWikiIntegrationTestCase {
 		$titleCodec = $this->getDummyMediaWikiTitleCodec();
 
 		return new LanguageLinksHandler(
-			$this->getServiceContainer()->getDBLoadBalancer(),
+			$this->getServiceContainer()->getDBLoadBalancerFactory(),
 			$languageNameUtils,
 			$titleCodec,
 			$titleCodec,
-			$this->getServiceContainer()->getPageStore()
+			$this->getServiceContainer()->getPageStore(),
+			$this->getServiceContainer()->getPageRestHelperFactory()
 		);
 	}
 
@@ -104,7 +111,7 @@ class LanguageLinksHandlerTest extends \MediaWikiIntegrationTestCase {
 
 	public function testCacheControl() {
 		$title = Title::newFromText( __METHOD__ );
-		$this->editPage( $title->getPrefixedDBkey(), 'First' );
+		$this->editPage( $title, 'First' );
 
 		$request = new RequestData( [ 'pathParams' => [ 'title' => $title->getPrefixedDBkey() ] ] );
 
@@ -117,7 +124,7 @@ class LanguageLinksHandlerTest extends \MediaWikiIntegrationTestCase {
 			$response->getHeaderLine( 'Last-Modified' )
 		);
 
-		$this->editPage( $title->getPrefixedDBkey(), 'Second' );
+		$this->editPage( $title, 'Second' );
 
 		Title::clearCaches();
 		$handler = $this->newHandler();

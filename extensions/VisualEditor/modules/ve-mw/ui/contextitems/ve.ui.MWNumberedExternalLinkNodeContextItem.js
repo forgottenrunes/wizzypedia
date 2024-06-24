@@ -11,9 +11,9 @@
  * @extends ve.ui.LinkContextItem
  *
  * @constructor
- * @param {ve.ui.Context} context Context item is in
- * @param {ve.dm.Model} model Model item is related to
- * @param {Object} config Configuration options
+ * @param {ve.ui.LinearContext} context Context the item is in
+ * @param {ve.dm.Model} model Model the item is related to
+ * @param {Object} [config]
  */
 ve.ui.MWNumberedExternalLinkNodeContextItem = function VeUiMWNumberedExternalLinkNodeContextItem() {
 	// Parent constructor
@@ -39,14 +39,7 @@ ve.ui.MWNumberedExternalLinkNodeContextItem.static.modelClasses = [ ve.dm.MWNumb
 
 ve.ui.MWNumberedExternalLinkNodeContextItem.static.clearable = false;
 
-ve.ui.MWNumberedExternalLinkNodeContextItem.static.deletable = true;
-
 /* Methods */
-
-ve.ui.MWNumberedExternalLinkNodeContextItem.prototype.isDeletable = function () {
-	// We don't care about whether the context wants to show delete buttons, so override the check.
-	return this.constructor.static.deletable && !this.isReadOnly();
-};
 
 /**
  * @inheritdoc

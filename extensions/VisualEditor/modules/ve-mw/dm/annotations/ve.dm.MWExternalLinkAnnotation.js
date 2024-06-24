@@ -35,6 +35,8 @@ OO.inheritClass( ve.dm.MWExternalLinkAnnotation, ve.dm.LinkAnnotation );
 
 ve.dm.MWExternalLinkAnnotation.static.name = 'link/mwExternal';
 
+// Allow additional 'rel' values in Parsoid output (T321437)
+// Allow all unknown types for external paste (handled in toDataElement)
 ve.dm.MWExternalLinkAnnotation.static.allowedRdfaTypes = null;
 
 ve.dm.MWExternalLinkAnnotation.static.toDataElement = function ( domElements, converter ) {
@@ -75,6 +77,7 @@ ve.dm.MWExternalLinkAnnotation.static.toDomElements = function ( dataElement, do
 		domElements[ 0 ].setAttribute( 'class', 'external' );
 	}
 
+	// we just created that link so the 'rel' attribute should be safe
 	domElements[ 0 ].setAttribute( 'rel', dataElement.attributes.rel || 'mw:ExtLink' );
 	return domElements;
 };

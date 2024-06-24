@@ -3,15 +3,13 @@
 namespace MediaWiki\Extension\Gadgets;
 
 use InvalidArgumentException;
-use ResourceLoaderContext;
-use ResourceLoaderModule;
-use ResourceLoaderWikiModule;
+use MediaWiki\ResourceLoader as RL;
 
 /**
  * Class representing a list of resources for one gadget, basically a wrapper
  * around the Gadget class.
  */
-class GadgetResourceLoaderModule extends ResourceLoaderWikiModule {
+class GadgetResourceLoaderModule extends RL\WikiModule {
 	/**
 	 * @var string
 	 */
@@ -46,11 +44,11 @@ class GadgetResourceLoaderModule extends ResourceLoaderWikiModule {
 	}
 
 	/**
-	 * Overrides the function from ResourceLoaderWikiModule class
-	 * @param ResourceLoaderContext $context
+	 * Overrides the function from RL\WikiModule class
+	 * @param RL\Context $context
 	 * @return array
 	 */
-	protected function getPages( ResourceLoaderContext $context ) {
+	protected function getPages( RL\Context $context ) {
 		$gadget = $this->getGadget();
 		$pages = [];
 
@@ -71,7 +69,7 @@ class GadgetResourceLoaderModule extends ResourceLoaderWikiModule {
 	}
 
 	/**
-	 * Overrides ResourceLoaderWikiModule::getRequireKey()
+	 * Overrides RL\WikiModule::getRequireKey()
 	 * @param string $titleText
 	 * @return string
 	 */
@@ -80,7 +78,22 @@ class GadgetResourceLoaderModule extends ResourceLoaderWikiModule {
 	}
 
 	/**
-	 * Overrides ResourceLoaderWikiModule::isPackaged()
+	 * @param string $fileName
+	 * @param string $contents
+	 * @return string
+	 */
+	protected function validateScriptFile( $fileName, $contents ) {
+		// Temporary solution to support gadgets in ES6 by disabling validation
+		// for them and putting them in a separate resource group to avoid a syntax error in them
+		// from corrupting core/extension-loaded scripts or other non-ES6 gadgets.
+		if ( $this->requiresES6() ) {
+			return $contents;
+		}
+		return parent::validateScriptFile( $fileName, $contents );
+	}
+
+	/**
+	 * Overrides RL\WikiModule::isPackaged()
 	 * Returns whether this gadget is packaged.
 	 * @return bool
 	 */
@@ -89,33 +102,37 @@ class GadgetResourceLoaderModule extends ResourceLoaderWikiModule {
 	}
 
 	/**
-	 * Overrides ResourceLoaderModule::getDependencies()
-	 * @param ResourceLoaderContext|null $context
+	 * Overrides RL\Module::getDependencies()
+	 * @param RL\Context|null $context
 	 * @return string[] Names of resources this module depends on
 	 */
-	public function getDependencies( ResourceLoaderContext $context = null ) {
+	public function getDependencies( RL\Context $context = null ) {
 		return $this->getGadget()->getDependencies();
 	}
 
 	/**
-	 * Overrides ResourceLoaderWikiModule::getType()
-	 * @return string ResourceLoaderModule::LOAD_STYLES or ResourceLoaderModule::LOAD_GENERAL
+	 * Overrides RL\WikiModule::getType()
+	 * @return string RL\Module::LOAD_STYLES or RL\Module::LOAD_GENERAL
 	 */
 	public function getType() {
 		return $this->getGadget()->getType() === 'styles'
-			? ResourceLoaderModule::LOAD_STYLES
-			: ResourceLoaderModule::LOAD_GENERAL;
+			? RL\Module::LOAD_STYLES
+			: RL\Module::LOAD_GENERAL;
 	}
 
 	public function getMessages() {
 		return $this->getGadget()->getMessages();
 	}
 
-	public function getTargets() {
-		return $this->getGadget()->getTargets();
+	public function getSkins(): ?array {
+		return $this->getGadget()->getRequiredSkins() ?: null;
+	}
+
+	public function requiresES6(): bool {
+		return $this->getGadget()->requiresES6();
 	}
 
 	public function getGroup() {
-		return 'site';
+		return $this->requiresES6() ? 'es6-gadget' : self::GROUP_SITE;
 	}
 }

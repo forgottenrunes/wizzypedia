@@ -2,11 +2,15 @@
 
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Permissions\Authority;
+use MediaWiki\Request\FauxRequest;
 use MediaWiki\Session\SessionManager;
-use PHPUnit\Framework\Assert;
-use PHPUnit\Util\Test;
+use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
+use PHPUnit\Framework\AssertionFailedError;
+use PHPUnit\Framework\Constraint\Constraint;
 
 abstract class ApiTestCase extends MediaWikiLangTestCase {
+	use MockAuthorityTrait;
+
 	protected static $apiUrl;
 
 	protected static $errorFormatter = null;
@@ -22,10 +26,45 @@ abstract class ApiTestCase extends MediaWikiLangTestCase {
 		parent::setUp();
 		self::$apiUrl = $wgServer . wfScript( 'api' );
 
-		self::$users = [
-			'sysop' => static::getTestSysop(),
-			'uploader' => static::getTestUser(),
+		// HACK: Avoid creating test users in the DB if the test may not need them.
+		$getters = [
+			'sysop' => fn () => $this->getTestSysop(),
+			'uploader' => fn () => $this->getTestUser(),
 		];
+		$fakeUserArray = new class ( $getters ) implements ArrayAccess {
+			private array $getters;
+			private array $extraUsers = [];
+
+			public function __construct( array $getters ) {
+				$this->getters = $getters;
+			}
+
+			public function offsetExists( $offset ): bool {
+				return isset( $this->getters[$offset] ) || isset( $this->extraUsers[$offset] );
+			}
+
+			#[\ReturnTypeWillChange]
+			public function offsetGet( $offset ) {
+				if ( isset( $this->getters[$offset] ) ) {
+					return ( $this->getters[$offset] )();
+				}
+				if ( isset( $this->extraUsers[$offset] ) ) {
+					return $this->extraUsers[$offset];
+				}
+				throw new LogicException( "Requested unknown user $offset" );
+			}
+
+			public function offsetSet( $offset, $value ): void {
+				$this->extraUsers[$offset] = $value;
+			}
+
+			public function offsetUnset( $offset ): void {
+				unset( $this->getters[$offset] );
+				unset( $this->extraUsers[$offset] );
+			}
+		};
+
+		self::$users = $fakeUserArray;
 
 		$this->setRequest( new FauxRequest( [] ) );
 
@@ -35,6 +74,8 @@ abstract class ApiTestCase extends MediaWikiLangTestCase {
 	protected function tearDown(): void {
 		// Avoid leaking session over tests
 		MediaWiki\Session\SessionManager::getGlobalSession()->clear();
+
+		ApiBase::clearCacheForTest();
 
 		parent::tearDown();
 	}
@@ -48,6 +89,7 @@ abstract class ApiTestCase extends MediaWikiLangTestCase {
 	 * @param Authority|null $performer
 	 * @param string|null $tokenType Set to a string like 'csrf' to send an
 	 *   appropriate token
+	 * @param string|null $paramPrefix Prefix to prepend to parameters
 	 * @return array List of:
 	 * - the result data (array)
 	 * - the request (WebRequest)
@@ -56,7 +98,8 @@ abstract class ApiTestCase extends MediaWikiLangTestCase {
 	 * @throws ApiUsageException
 	 */
 	protected function doApiRequest( array $params, array $session = null,
-		$appendModule = false, Authority $performer = null, $tokenType = null
+		$appendModule = false, Authority $performer = null, $tokenType = null,
+		$paramPrefix = null
 	) {
 		global $wgRequest;
 
@@ -74,15 +117,22 @@ abstract class ApiTestCase extends MediaWikiLangTestCase {
 		}
 
 		// set up global environment
+		if ( !$performer && !$this->needsDB() ) {
+			$performer = $this->mockRegisteredUltimateAuthority();
+		}
 		if ( $performer ) {
 			$legacyUser = $this->getServiceContainer()->getUserFactory()->newFromAuthority( $performer );
 			$contextUser = $legacyUser;
+			// Clone the user object, because something in Session code will replace its user with "Unknown user"
+			// if it doesn't exist. But that'll also change $contextUser, and the token won't match (T341953).
+			$sessionUser = clone $contextUser;
 		} else {
-			$contextUser = self::$users['sysop']->getUser();
+			$contextUser = $this->getTestSysop()->getUser();
 			$performer = $contextUser;
+			$sessionUser = $contextUser;
 		}
 
-		$sessionObj->setUser( $contextUser );
+		$sessionObj->setUser( $sessionUser );
 		if ( $tokenType !== null ) {
 			if ( $tokenType === 'auto' ) {
 				$tokenType = ( new ApiMain() )->getModuleManager()
@@ -95,6 +145,15 @@ abstract class ApiTestCase extends MediaWikiLangTestCase {
 					ApiQueryTokens::getTokenTypeSalts()[$tokenType]
 				)->toString();
 			}
+		}
+
+		// prepend parameters with prefix
+		if ( $paramPrefix !== null && $paramPrefix !== '' ) {
+			$prefixedParams = [];
+			foreach ( $params as $key => $value ) {
+				$prefixedParams[$paramPrefix . $key] = $value;
+			}
+			$params = $prefixedParams;
 		}
 
 		$wgRequest = $this->buildFauxRequest( $params, $sessionObj );
@@ -141,12 +200,13 @@ abstract class ApiTestCase extends MediaWikiLangTestCase {
 	 * @param array|null $session Session array
 	 * @param Authority|null $performer A User object for the context
 	 * @param string $tokenType Which token type to pass
+	 * @param string|null $paramPrefix Prefix to prepend to parameters
 	 * @return array Result of the API call
 	 */
 	protected function doApiRequestWithToken( array $params, array $session = null,
-		Authority $performer = null, $tokenType = 'auto'
+		Authority $performer = null, $tokenType = 'auto', $paramPrefix = null
 	) {
-		return $this->doApiRequest( $params, $session, false, $performer, $tokenType );
+		return $this->doApiRequest( $params, $session, false, $performer, $tokenType, $paramPrefix );
 	}
 
 	protected static function getErrorFormatter() {
@@ -170,24 +230,11 @@ abstract class ApiTestCase extends MediaWikiLangTestCase {
 	}
 
 	/**
-	 * @coversNothing
-	 */
-	public function testApiTestGroup() {
-		$groups = Test::getGroups( static::class );
-		$constraint = Assert::logicalOr(
-			$this->contains( 'medium' ),
-			$this->contains( 'large' )
-		);
-		$this->assertThat( $groups, $constraint,
-			'ApiTestCase::setUp can be slow, tests must be "medium" or "large"'
-		);
-	}
-
-	/**
 	 * Expect an ApiUsageException to be thrown with the given parameters, which are the same as
 	 * ApiUsageException::newWithMessage()'s parameters.  This allows checking for an exception
 	 * whose text is given by a message key instead of text, so as not to hard-code the message's
 	 * text into test code.
+	 * @deprecated Use expectApiErrorCode() instead, it's better to test error codes than messages
 	 * @param string|array|Message $msg
 	 * @param string|null $code
 	 * @param array|null $data
@@ -199,5 +246,100 @@ abstract class ApiTestCase extends MediaWikiLangTestCase {
 		$expected = ApiUsageException::newWithMessage( null, $msg, $code, $data, $httpCode );
 		$this->expectException( ApiUsageException::class );
 		$this->expectExceptionMessage( $expected->getMessage() );
+	}
+
+	private ?string $expectedApiErrorCode;
+
+	/**
+	 * Expect an ApiUsageException that results in the given API error code to be thrown.
+	 *
+	 * Note that you can't mix this method with standard PHPUnit expectException() methods,
+	 * as PHPUnit will catch the exception and prevent us from testing it.
+	 *
+	 * @since 1.41
+	 * @param string $expectedCode
+	 */
+	protected function expectApiErrorCode( string $expectedCode ) {
+		$this->expectedApiErrorCode = $expectedCode;
+	}
+
+	/**
+	 * Assert that an ApiUsageException will result in the given API error code being outputted.
+	 *
+	 * @since 1.41
+	 * @param string $expectedCode
+	 * @param ApiUsageException $exception
+	 * @param string $message
+	 */
+	protected function assertApiErrorCode( string $expectedCode, ApiUsageException $exception, string $message = '' ) {
+		$constraint = new class( $expectedCode ) extends Constraint {
+			private string $expectedApiErrorCode;
+
+			public function __construct( string $expected ) {
+				$this->expectedApiErrorCode = $expected;
+			}
+
+			public function toString(): string {
+				return 'API error code is ';
+			}
+
+			private function getApiErrorCode( $other ) {
+				if ( !$other instanceof ApiUsageException ) {
+					return null;
+				}
+				$errors = $other->getStatusValue()->getErrors();
+				if ( count( $errors ) === 0 ) {
+					return '(no error)';
+				} elseif ( count( $errors ) > 1 ) {
+					return '(multiple errors)';
+				}
+				return ApiMessage::create( $errors[0] )->getApiCode();
+			}
+
+			protected function matches( $other ): bool {
+				return $this->getApiErrorCode( $other ) === $this->expectedApiErrorCode;
+			}
+
+			protected function failureDescription( $other ): string {
+				return sprintf(
+					'%s is equal to expected API error code %s',
+					$this->exporter()->export( $this->getApiErrorCode( $other ) ),
+					$this->exporter()->export( $this->expectedApiErrorCode )
+				);
+			}
+		};
+
+		$this->assertThat( $exception, $constraint, $message );
+	}
+
+	/**
+	 * @inheritDoc
+	 *
+	 * Adds support for expectApiErrorCode().
+	 */
+	protected function runTest() {
+		try {
+			$testResult = parent::runTest();
+
+		} catch ( ApiUsageException $exception ) {
+			if ( !isset( $this->expectedApiErrorCode ) ) {
+				throw $exception;
+			}
+
+			$this->assertApiErrorCode( $this->expectedApiErrorCode, $exception );
+
+			return null;
+		}
+
+		if ( !isset( $this->expectedApiErrorCode ) ) {
+			return $testResult;
+		}
+
+		throw new AssertionFailedError(
+			sprintf(
+				'Failed asserting that exception with API error code "%s" is thrown',
+				$this->expectedApiErrorCode
+			)
+		);
 	}
 }

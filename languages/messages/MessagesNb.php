@@ -1,10 +1,8 @@
 <?php
 /** Norwegian Bokmål (norsk bokmål)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Audun
  * @author Boivie
@@ -47,7 +45,7 @@
  * @author לערי ריינהארט
  */
 
-$fallback = 'nn';
+$fallback = 'no, nn';
 
 $bookstoreList = [
 	'Antikvariat.net' => 'http://www.antikvariat.net/',
@@ -195,6 +193,7 @@ $specialPageAliases = [
 	'Recentchangeslinked'       => [ 'Relaterte_endringer' ],
 	'Redirect'                  => [ 'Omdirigering' ],
 	'RemoveCredentials'         => [ 'Fjern_akkreditiver' ],
+	'Renameuser'                => [ 'Gi_en_bruker_nytt_navn' ],
 	'Revisiondelete'            => [ 'Revisjonssletting' ],
 	'Search'                    => [ 'Søk' ],
 	'Shortpages'                => [ 'Korte_sider' ],

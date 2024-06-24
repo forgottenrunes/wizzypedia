@@ -3,7 +3,7 @@
  * Purge expired watchlist items, looping through 500 at a time.
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\MainConfigNames;
 
 require_once __DIR__ . '/Maintenance.php';
 
@@ -20,13 +20,13 @@ class PurgeExpiredWatchlistItems extends Maintenance {
 	 */
 	public function execute() {
 		// Make sure watchlist expiring is enabled.
-		if ( !MediaWikiServices::getInstance()->getMainConfig()->get( 'WatchlistExpiry' ) ) {
+		if ( !$this->getServiceContainer()->getMainConfig()->get( MainConfigNames::WatchlistExpiry ) ) {
 			$this->error( "Watchlist expiry is not enabled. Set `\$wgWatchlistExpiry = true;` to enable." );
 			return false;
 		}
 
 		// Loop through 500 entries at a time and delete them.
-		$watchedItemStore = MediaWikiServices::getInstance()->getWatchedItemStore();
+		$watchedItemStore = $this->getServiceContainer()->getWatchedItemStore();
 		$count = $watchedItemStore->countExpired();
 		$this->output( $count . " expired watchlist entries found.\n" );
 		if ( $count === 0 ) {

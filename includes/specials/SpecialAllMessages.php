@@ -21,7 +21,18 @@
  * @ingroup SpecialPage
  */
 
-use Wikimedia\Rdbms\ILoadBalancer;
+namespace MediaWiki\Specials;
+
+use HTMLForm;
+use LocalisationCache;
+use MediaWiki\Html\FormOptions;
+use MediaWiki\Html\Html;
+use MediaWiki\Languages\LanguageFactory;
+use MediaWiki\Languages\LanguageNameUtils;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Pager\AllMessagesTablePager;
+use MediaWiki\SpecialPage\SpecialPage;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * Use this special page to get a list of the MediaWiki system messages.
@@ -31,23 +42,28 @@ use Wikimedia\Rdbms\ILoadBalancer;
  */
 class SpecialAllMessages extends SpecialPage {
 
-	/** @var ILoadBalancer */
-	private $loadBalancer;
-
-	/** @var LocalisationCache */
-	private $localisationCache;
+	private LanguageFactory $languageFactory;
+	private LanguageNameUtils $languageNameUtils;
+	private IConnectionProvider $dbProvider;
+	private LocalisationCache $localisationCache;
 
 	/**
+	 * @param LanguageFactory $languageFactory
+	 * @param LanguageNameUtils $languageNameUtils
 	 * @param LocalisationCache $localisationCache
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 */
 	public function __construct(
+		LanguageFactory $languageFactory,
+		LanguageNameUtils $languageNameUtils,
 		LocalisationCache $localisationCache,
-		ILoadBalancer $loadBalancer
+		IConnectionProvider $dbProvider
 	) {
 		parent::__construct( 'Allmessages' );
+		$this->languageFactory = $languageFactory;
+		$this->languageNameUtils = $languageNameUtils;
 		$this->localisationCache = $localisationCache;
-		$this->loadBalancer = $loadBalancer;
+		$this->dbProvider = $dbProvider;
 	}
 
 	/**
@@ -58,7 +74,7 @@ class SpecialAllMessages extends SpecialPage {
 
 		$this->setHeaders();
 
-		if ( !$this->getConfig()->get( 'UseDatabaseMessages' ) ) {
+		if ( !$this->getConfig()->get( MainConfigNames::UseDatabaseMessages ) ) {
 			$out->addWikiMsg( 'allmessages-not-supported-database' );
 
 			return;
@@ -80,11 +96,24 @@ class SpecialAllMessages extends SpecialPage {
 		$opts->fetchValuesFromRequest( $this->getRequest() );
 		$opts->validateIntBounds( 'limit', 0, 5000 );
 
+		if ( !$this->languageNameUtils->isKnownLanguageTag( $opts->getValue( 'lang' ) ) ) {
+			// Show a warning message and fallback to content language
+			$out->addHTML(
+				Html::warningBox(
+					$this->msg( 'allmessages-unknown-language' )
+						->plaintextParams( $opts->getValue( 'lang' ) )
+						->parse()
+				)
+			);
+			$opts->setValue( 'lang', $contLangCode );
+		}
+
 		$pager = new AllMessagesTablePager(
 			$this->getContext(),
 			$this->getContentLanguage(),
+			$this->languageFactory,
 			$this->getLinkRenderer(),
-			$this->loadBalancer,
+			$this->dbProvider,
 			$this->localisationCache,
 			$opts
 		);
@@ -135,7 +164,7 @@ class SpecialAllMessages extends SpecialPage {
 		$htmlForm = HTMLForm::factory( 'ooui', $formDescriptor, $this->getContext() );
 		$htmlForm
 			->setMethod( 'get' )
-			->setIntro( $this->msg( 'allmessagestext' ) )
+			->setPreHtml( $this->msg( 'allmessagestext' )->parse() )
 			->setWrapperLegendMsg( 'allmessages' )
 			->setSubmitTextMsg( 'allmessages-filter-submit' )
 			->prepareForm()
@@ -148,3 +177,8 @@ class SpecialAllMessages extends SpecialPage {
 		return 'wiki';
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialAllMessages::class, 'SpecialAllMessages' );

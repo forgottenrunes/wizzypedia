@@ -21,26 +21,30 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
 use MediaWiki\Cache\LinkBatchFactory;
-use Wikimedia\Rdbms\ILoadBalancer;
+use MediaWiki\MainConfigNames;
+use MediaWiki\SpecialPage\WantedQueryPage;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * A special page that lists most linked pages that does not exist
  *
  * @ingroup SpecialPage
  */
-class WantedPagesPage extends WantedQueryPage {
+class SpecialWantedPages extends WantedQueryPage {
 
 	/**
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param LinkBatchFactory $linkBatchFactory
 	 */
 	public function __construct(
-		ILoadBalancer $loadBalancer,
+		IConnectionProvider $dbProvider,
 		LinkBatchFactory $linkBatchFactory
 	) {
 		parent::__construct( 'Wantedpages' );
-		$this->setDBLoadBalancer( $loadBalancer );
+		$this->setDatabaseProvider( $dbProvider );
 		$this->setLinkBatchFactory( $linkBatchFactory );
 	}
 
@@ -55,14 +59,13 @@ class WantedPagesPage extends WantedQueryPage {
 			$this->limit = (int)$par;
 			$this->offset = 0;
 		}
-		$this->setListoutput( $inc );
 		$this->shownavigation = !$inc;
 		parent::execute( $par );
 	}
 
 	public function getQueryInfo() {
-		$dbr = $this->getDBLoadBalancer()->getConnectionRef( ILoadBalancer::DB_REPLICA );
-		$count = $this->getConfig()->get( 'WantedPagesThreshold' ) - 1;
+		$dbr = $this->getDatabaseProvider()->getReplicaDatabase();
+		$count = $this->getConfig()->get( MainConfigNames::WantedPagesThreshold ) - 1;
 		$query = [
 			'tables' => [
 				'pagelinks',
@@ -75,7 +78,7 @@ class WantedPagesPage extends WantedQueryPage {
 				'value' => 'COUNT(*)'
 			],
 			'conds' => [
-				'pg1.page_namespace IS NULL',
+				'pg1.page_namespace' => null,
 				'pl_namespace NOT IN (' . $dbr->makeList( [ NS_USER, NS_USER_TALK ] ) . ')',
 				'pg2.page_namespace != ' . $dbr->addQuotes( NS_MEDIAWIKI ),
 			],
@@ -106,3 +109,9 @@ class WantedPagesPage extends WantedQueryPage {
 		return 'maintenance';
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.40
+ */
+class_alias( SpecialWantedPages::class, 'WantedPagesPage' );

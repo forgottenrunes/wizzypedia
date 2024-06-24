@@ -1,7 +1,17 @@
 <?php
 
+use MediaWiki\Language\RawMessage;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Output\OutputPage;
+use MediaWiki\Permissions\PermissionManager;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\Status\Status;
 use MediaWiki\Tests\Unit\DummyServicesTrait;
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleValue;
+use MediaWiki\User\User;
+use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserIdentityValue;
 use PHPUnit\Framework\MockObject\MockObject;
 use Wikimedia\TestingAccessWrapper;
@@ -33,9 +43,13 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		$this->overrideConfigValues( [
+			MainConfigNames::LanguageCode => 'en',
+		] );
 
-		$testTitle = Title::newFromText( 'UTTest' );
-		$this->testWikiPage = new WikiPage( $testTitle );
+		$this->setService( 'ReadOnlyMode', $this->getDummyReadOnlyMode( false ) );
+		$testTitle = Title::makeTitle( NS_MAIN, 'UTTest' );
+		$this->testWikiPage = $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( $testTitle );
 		$testContext = new DerivativeContext( RequestContext::getMain() );
 		$testContext->setTitle( $testTitle );
 		$this->context = $testContext;
@@ -43,17 +57,6 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 			Article::newFromWikiPage( $this->testWikiPage, $testContext ),
 			$testContext
 		);
-	}
-
-	/**
-	 * @throws MWException
-	 */
-	protected function tearDown(): void {
-		$this->hideDeprecated( 'Hooks::clear' );
-		Hooks::clear( 'WatchArticle' );
-		Hooks::clear( 'UnwatchArticle' );
-
-		parent::tearDown();
 	}
 
 	private function getWatchAction( Article $article, IContextSource $context ) {
@@ -94,7 +97,7 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 		/** @var Status $actual */
 		$actual = $this->watchAction->onSubmit( [] );
 
-		$this->assertTrue( $actual->isGood() );
+		$this->assertStatusGood( $actual );
 	}
 
 	/**
@@ -102,7 +105,7 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 	 */
 	public function testOnSubmitHookAborted() {
 		// WatchlistExpiry feature flag.
-		$this->setMwGlobals( 'wgWatchlistExpiry', true );
+		$this->overrideConfigValue( MainConfigNames::WatchlistExpiry, true );
 
 		$testContext = $this->getMockBuilder( DerivativeContext::class )
 			->onlyMethods( [ 'getRequest' ] )
@@ -113,6 +116,9 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 		$user = new UserIdentityValue( 100, 'User Name' );
 		$performer = $this->mockUserAuthorityWithPermissions( $user, [ 'editmywatchlist' ] );
 		$testContext->setAuthority( $performer );
+		$userFactory = $this->createMock( UserFactory::class );
+		$userFactory->method( 'newFromUserIdentity' )->willReturn( $this->createMock( User::class ) );
+		$this->setService( 'UserFactory', $userFactory );
 
 		/** @var MockObject|WebRequest $testRequest */
 		$testRequest = $this->createMock( WebRequest::class );
@@ -121,12 +127,14 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 			->willReturn( '6 months' );
 		$testContext->method( 'getRequest' )->willReturn( $testRequest );
 
+		$this->setService( 'WatchedItemStore', $this->getDummyWatchedItemStore() );
+
 		$this->watchAction = $this->getWatchAction(
 			Article::newFromWikiPage( $this->testWikiPage, $testContext ),
 			$testContext
 		);
 
-		Hooks::register( 'WatchArticle', static function () {
+		$this->setTemporaryHook( 'WatchArticle', static function () {
 			return false;
 		} );
 
@@ -134,7 +142,7 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 		$actual = $this->watchAction->onSubmit( [] );
 
 		$this->assertInstanceOf( Status::class, $actual );
-		$this->assertTrue( $actual->hasMessage( 'hookaborted' ) );
+		$this->assertStatusError( 'hookaborted', $actual );
 	}
 
 	/**
@@ -157,8 +165,10 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 	 * @covers WatchAction::checkCanExecute()
 	 */
 	public function testShowUserLoggedInNoException() {
+		$this->setService( 'PermissionManager', $this->createMock( PermissionManager::class ) );
 		$registeredUser = $this->createMock( User::class );
 		$registeredUser->method( 'isRegistered' )->willReturn( true );
+		$registeredUser->method( 'isNamed' )->willReturn( true );
 		$testContext = new DerivativeContext( $this->watchAction->getContext() );
 		$testContext->setUser( $registeredUser );
 		$watchAction = $this->getWatchAction(
@@ -215,7 +225,7 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 		$testContext->method( 'msg' )->willReturnCallback( static function ( $msgKey ) {
 			return new RawMessage( $msgKey );
 		} );
-		$talkPageTitle = Title::newFromText( 'Talk:UTTest' );
+		$talkPageTitle = Title::makeTitle( NS_TALK, 'UTTest' );
 		$testContext->setTitle( $talkPageTitle );
 		$watchAction = $this->getWatchAction(
 			Article::newFromTitle( $talkPageTitle, $testContext ),
@@ -238,7 +248,7 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 		ConvertibleTimestamp::setFakeTime( '20200917120000' );
 
 		// WatchlistExpiry feature flag.
-		$this->setMwGlobals( 'wgWatchlistExpiry', $watchlistExpiry );
+		$this->overrideConfigValue( MainConfigNames::WatchlistExpiry, $watchlistExpiry );
 
 		// Set up context, request, and output.
 		/** @var MockObject|IContextSource $testContext */
@@ -273,7 +283,7 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 		$watchAction->onSuccess();
 	}
 
-	public function provideOnSuccessDifferentMessages() {
+	public static function provideOnSuccessDifferentMessages() {
 		return [
 			[
 				'wgWatchlistExpiry' => false,
@@ -350,7 +360,8 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 				'1 week' => '1 week',
 				'1 month' => '1 month',
 				'3 months' => '3 months',
-				'6 months' => '6 months'
+				'6 months' => '6 months',
+				'1 year' => '1 year',
 			],
 			'default' => 'infinite'
 		];
@@ -367,7 +378,8 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 				'1 week' => '1 week',
 				'1 month' => '1 month',
 				'3 months' => '3 months',
-				'6 months' => '6 months'
+				'6 months' => '6 months',
+				'1 year' => '1 year',
 			],
 			'default' => '2020-07-10T00:00:00Z'
 		];
@@ -384,7 +396,8 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 				'1 week' => '1 week',
 				'1 month' => '1 month',
 				'3 months' => '3 months',
-				'6 months' => '6 months'
+				'6 months' => '6 months',
+				'1 year' => '1 year',
 			],
 			'default' => '2020-06-17T00:00:00Z'
 		];
@@ -399,7 +412,8 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 				'1 week' => '1 week',
 				'1 month' => '1 month',
 				'3 months' => '3 months',
-				'6 months' => '6 months'
+				'6 months' => '6 months',
+				'1 year' => '1 year',
 			],
 			'default' => 'infinite'
 		];
@@ -419,12 +433,10 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 
 		$mockMessageLocalizer->expects( $this->exactly( 2 ) )
 			->method( 'msg' )
-			->will(
-				$this->onConsecutiveCalls(
+			->willReturnOnConsecutiveCalls(
 					$mockMessage,
 					new Message( 'watchlist-expiry-options' )
-				)
-			);
+				);
 
 		$expected = WatchAction::getExpiryOptions( new MockMessageLocalizer( 'en' ), false );
 		$expiryOptions = WatchAction::getExpiryOptions( $mockMessageLocalizer, false );
@@ -450,13 +462,5 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 		];
 		$expiryOptions = WatchAction::getExpiryOptions( $mockMessageLocalizer, false );
 		$this->assertSame( $expected, $expiryOptions );
-	}
-
-	private function setWatchedItemStore() {
-		$this->overrideMwServices();
-		// DummyServicesTrait::getDummyWatchedItemStore has all of the handling needed
-		$mock = $this->getDummyWatchedItemStore();
-		$this->setService( 'WatchedItemStore', $mock );
-		return $mock;
 	}
 }

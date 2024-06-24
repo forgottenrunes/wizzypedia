@@ -20,7 +20,10 @@
  * @file
  */
 
-use MediaWiki\Config\IterableConfig;
+namespace MediaWiki\Config;
+
+use ArrayIterator;
+use Traversable;
 
 /**
  * A Config instance which stores all settings as a member variable
@@ -95,4 +98,18 @@ class HashConfig implements Config, MutableConfig, IterableConfig {
 	public function getNames(): array {
 		return array_keys( $this->settings );
 	}
+
+	/**
+	 * Clears all config variables.
+	 * @since 1.39
+	 */
+	public function clear() {
+		$this->settings = [];
+	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( HashConfig::class, 'HashConfig' );

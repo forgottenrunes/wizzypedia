@@ -19,10 +19,20 @@
  * @ingroup Pager
  */
 
+namespace MediaWiki\Pager;
+
+use IContextSource;
+use ImageGalleryBase;
+use ImageGalleryClassNotFoundException;
 use MediaWiki\Cache\LinkBatchFactory;
+use MediaWiki\Html\FormOptions;
 use MediaWiki\Linker\LinkRenderer;
 use MediaWiki\Permissions\GroupPermissionsLookup;
-use Wikimedia\Rdbms\ILoadBalancer;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleValue;
+use MediaWiki\User\ExternalUserNames;
+use RecentChange;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * @ingroup Pager
@@ -39,18 +49,15 @@ class NewFilesPager extends RangeChronologicalPager {
 	 */
 	protected $opts;
 
-	/** @var GroupPermissionsLookup */
-	private $groupPermissionsLookup;
-
-	/** @var LinkBatchFactory */
-	private $linkBatchFactory;
+	private GroupPermissionsLookup $groupPermissionsLookup;
+	private LinkBatchFactory $linkBatchFactory;
 
 	/**
 	 * @param IContextSource $context
 	 * @param GroupPermissionsLookup $groupPermissionsLookup
 	 * @param LinkBatchFactory $linkBatchFactory
 	 * @param LinkRenderer $linkRenderer
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param FormOptions $opts
 	 */
 	public function __construct(
@@ -58,11 +65,11 @@ class NewFilesPager extends RangeChronologicalPager {
 		GroupPermissionsLookup $groupPermissionsLookup,
 		LinkBatchFactory $linkBatchFactory,
 		LinkRenderer $linkRenderer,
-		ILoadBalancer $loadBalancer,
+		IConnectionProvider $dbProvider,
 		FormOptions $opts
 	) {
 		// Set database before parent constructor to avoid setting it there with wfGetDB
-		$this->mDb = $loadBalancer->getConnectionRef( ILoadBalancer::DB_REPLICA );
+		$this->mDb = $dbProvider->getReplicaDatabase();
 
 		parent::__construct( $context, $linkRenderer );
 
@@ -101,7 +108,7 @@ class NewFilesPager extends RangeChronologicalPager {
 
 			if ( count( $groupsWithBotPermission ) ) {
 				$tables[] = 'user_groups';
-				$conds[] = 'ug_group IS NULL';
+				$conds['ug_group'] = null;
 				$jconds['user_groups'] = [
 					'LEFT JOIN',
 					[
@@ -154,7 +161,7 @@ class NewFilesPager extends RangeChronologicalPager {
 	}
 
 	public function getIndexField() {
-		return 'img_timestamp';
+		return [ [ 'img_timestamp', 'img_name' ] ];
 	}
 
 	protected function getStartBody() {
@@ -214,3 +221,9 @@ class NewFilesPager extends RangeChronologicalPager {
 		return '';
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( NewFilesPager::class, 'NewFilesPager' );

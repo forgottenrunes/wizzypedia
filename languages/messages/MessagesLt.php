@@ -1,10 +1,8 @@
 <?php
 /** Lithuanian (lietuvių)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Audriusa
  * @author Auwris

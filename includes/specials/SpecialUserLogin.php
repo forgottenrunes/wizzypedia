@@ -21,8 +21,15 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use LoginHelper;
 use MediaWiki\Auth\AuthManager;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\MainConfigNames;
+use MediaWiki\SpecialPage\LoginSignupSpecialPage;
+use MediaWiki\SpecialPage\SpecialPage;
+use StatusValue;
 
 /**
  * Implements Special:UserLogin
@@ -53,6 +60,10 @@ class SpecialUserLogin extends LoginSignupSpecialPage {
 		return true;
 	}
 
+	public function isListed() {
+		return $this->getAuthManager()->canAuthenticateNow();
+	}
+
 	protected function getLoginSecurityLevel() {
 		return false;
 	}
@@ -62,14 +73,14 @@ class SpecialUserLogin extends LoginSignupSpecialPage {
 	}
 
 	public function getDescription() {
-		return $this->msg( 'login' )->text();
+		return $this->msg( 'login' );
 	}
 
 	public function setHeaders() {
 		// override the page title if we are doing a forced reauthentication
 		parent::setHeaders();
 		if ( $this->securityLevel && $this->getUser()->isRegistered() ) {
-			$this->getOutput()->setPageTitle( $this->msg( 'login-security' ) );
+			$this->getOutput()->setPageTitleMsg( $this->msg( 'login-security' ) );
 		}
 	}
 
@@ -102,7 +113,7 @@ class SpecialUserLogin extends LoginSignupSpecialPage {
 	 * @param StatusValue|null $extraMessages
 	 */
 	protected function successfulAction( $direct = false, $extraMessages = null ) {
-		$secureLogin = $this->getConfig()->get( 'SecureLogin' );
+		$secureLogin = $this->getConfig()->get( MainConfigNames::SecureLogin );
 
 		$user = $this->targetUser ?: $this->getUser();
 		$session = $this->getRequest()->getSession();
@@ -146,7 +157,7 @@ class SpecialUserLogin extends LoginSignupSpecialPage {
 	}
 
 	protected function clearToken() {
-		return $this->getRequest()->getSession()->resetToken( 'login' );
+		$this->getRequest()->getSession()->resetToken( 'login' );
 	}
 
 	protected function getTokenName() {
@@ -165,3 +176,9 @@ class SpecialUserLogin extends LoginSignupSpecialPage {
 		] );
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialUserLogin::class, 'SpecialUserLogin' );

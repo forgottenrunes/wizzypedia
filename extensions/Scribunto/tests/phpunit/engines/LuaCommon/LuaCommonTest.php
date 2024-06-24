@@ -1,15 +1,22 @@
 <?php
 
+namespace MediaWiki\Extension\Scribunto\Tests\Engines\LuaCommon;
+
+use MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaError;
+use MediaWiki\Extension\Scribunto\ScribuntoException;
+use MediaWiki\Title\Title;
+
 /**
- * @covers ScribuntoEngineBase
- * @covers Scribunto_LuaEngine
- * @covers Scribunto_LuaStandaloneEngine
- * @covers Scribunto_LuaSandboxEngine
- * @covers Scribunto_LuaInterpreter
- * @covers Scribunto_LuaStandaloneInterpreter
- * @covers Scribunto_LuaSandboxInterpreter
+ * @covers \MediaWiki\Extension\Scribunto\ScribuntoEngineBase
+ * @covers \MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaEngine
+ * @covers \MediaWiki\Extension\Scribunto\Engines\LuaStandalone\LuaStandaloneEngine
+ * @covers \MediaWiki\Extension\Scribunto\Engines\LuaSandbox\LuaSandboxEngine
+ * @covers \MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaInterpreter
+ * @covers \MediaWiki\Extension\Scribunto\Engines\LuaStandalone\LuaStandaloneInterpreter
+ * @covers \MediaWiki\Extension\Scribunto\Engines\LuaSandbox\LuaSandboxInterpreter
+ * @group Database
  */
-class Scribunto_LuaCommonTest extends Scribunto_LuaEngineTestBase {
+class LuaCommonTest extends LuaEngineTestBase {
 	/** @inheritDoc */
 	protected static $moduleName = 'CommonTests';
 
@@ -55,22 +62,37 @@ class Scribunto_LuaCommonTest extends Scribunto_LuaEngineTestBase {
 		parent::setUp();
 
 		// Register libraries for self::testPHPLibrary()
-		$this->mergeMwGlobalArrayValue( 'wgHooks', [
-			'ScribuntoExternalLibraries' => [
-				static function ( $engine, &$libs ) {
-					$libs += [
-						'CommonTestsLib' => [
-							'class' => Scribunto_LuaCommonTestsLibrary::class,
-							'deferLoad' => true,
-						],
-						'CommonTestsFailLib' => [
-							'class' => Scribunto_LuaCommonTestsFailLibrary::class,
-							'deferLoad' => true,
-						],
-					];
-				}
-			]
-		] );
+		$this->setTemporaryHook(
+			'ScribuntoExternalLibraries',
+			static function ( $engine, &$libs ) {
+				$libs += [
+					'CommonTestsLib' => [
+						'class' => LuaCommonTestsLibrary::class,
+						'deferLoad' => true,
+					],
+					'CommonTestsFailLib' => [
+						'class' => LuaCommonTestsFailLibrary::class,
+						'deferLoad' => true,
+					],
+				];
+			}
+		);
+
+		$status = $this->editPage(
+			Title::makeTitle( NS_MODULE, 'CommonTests-data.json' ),
+			file_get_contents( __DIR__ . '/CommonTests-data.json' )
+		);
+		if ( !$status->isOK() ) {
+			throw new \Exception( "Failed to create Module:CommonTests-data.json: " . $status->getWikitext() );
+		}
+		// Create a non-JSON/Module page for loadJsonData()
+		$status = $this->editPage(
+			Title::makeTitle( NS_HELP, 'Foo' ),
+			'help'
+		);
+		if ( !$status->isOK() ) {
+			throw new \Exception( "Failed to create Help:Foo: " . $status->getWikitext() );
+		}
 
 		// Note this depends on every iteration of the data provider running with a clean parser
 		$this->getEngine()->getParser()->getOptions()->setExpensiveParserFunctionLimit( 10 );
@@ -105,7 +127,7 @@ class Scribunto_LuaCommonTest extends Scribunto_LuaEngineTestBase {
 		);
 
 		$leakedGlobals = array_diff( $actualGlobals, self::$allowedGlobals );
-		$this->assertEmpty( $leakedGlobals,
+		$this->assertCount( 0, $leakedGlobals,
 			'The following globals are leaked: ' . implode( ' ', $leakedGlobals )
 		);
 	}
@@ -326,6 +348,31 @@ class Scribunto_LuaCommonTest extends Scribunto_LuaEngineTestBase {
 		);
 	}
 
+	public function testLoadJsonDataLoadedOnce() {
+		$this->extraModules['Module:TestLoadDataLoadedOnce'] = '
+			local data = mw.loadJsonData( "Module:CommonTests-data.json" )
+			return {
+				foo = function() end,
+			}
+		';
+
+		$engine = $this->getEngine();
+		$interpreter = $engine->getInterpreter();
+		$frame = $engine->getParser()->getPreprocessor()->newFrame();
+
+		// Make sure JSON data isn't parsed twice. Simulate several {{#invoke:}}s
+		$title = Title::makeTitle( NS_MODULE, 'TestLoadDataLoadedOnce' );
+		for ( $i = 0; $i < 10; $i++ ) {
+			$module = $engine->fetchModuleFromParser( $title );
+			$module->invoke( 'foo', $frame->newChild() );
+		}
+
+		$this->assertSame(
+			1, $this->templateLoadCounts['Module:CommonTests-data.json'],
+			'JSON data was loaded more than once'
+		);
+	}
+
 	public function testFrames() {
 		$engine = $this->getEngine();
 
@@ -469,13 +516,13 @@ class Scribunto_LuaCommonTest extends Scribunto_LuaEngineTestBase {
 
 		// Test calling a non-existent function
 		try {
-			$ret = $engine->runConsole( [
+			$engine->runConsole( [
 				'question' => '=mw.getCurrentFrame():callParserFunction{
 					name = "thisDoesNotExist", args = { "" }
 				}',
 			] + $args );
 			$this->fail( "Expected LuaError not thrown for nonexistent parser function" );
-		} catch ( Scribunto_LuaError $err ) {
+		} catch ( LuaError $err ) {
 			$this->assertSame(
 				'Lua error: callParserFunction: function "thisDoesNotExist" was not found.',
 				$err->getMessage(),
@@ -655,7 +702,7 @@ class Scribunto_LuaCommonTest extends Scribunto_LuaEngineTestBase {
 		$this->assertEquals( '1 2', $text, "Volatile wikitext was not cached" );
 	}
 
-	public function provideVolatileCaching() {
+	public static function provideVolatileCaching() {
 		return [
 			[ 'preprocess' ],
 			[ 'extensionTag' ],

@@ -23,6 +23,12 @@
  * @since 1.24
  */
 
+use MediaWiki\Linker\LinksMigration;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Title\Title;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\IntegerDef;
+
 /**
  * This implements prop=redirects, prop=linkshere, prop=catmembers,
  * prop=transcludedin, and prop=fileusage
@@ -59,7 +65,6 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 			'code' => 'ti',
 			'prefix' => 'tl',
 			'linktable' => 'templatelinks',
-			'indexes' => [ 'tl_namespace', 'tl_backlinks_namespace' ],
 			'from_namespace' => true,
 			'showredirects' => true,
 		],
@@ -75,12 +80,20 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 		],
 	];
 
+	private LinksMigration $linksMigration;
+
 	/**
 	 * @param ApiQuery $query
 	 * @param string $moduleName
+	 * @param LinksMigration $linksMigration
 	 */
-	public function __construct( ApiQuery $query, $moduleName ) {
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		LinksMigration $linksMigration
+	) {
 		parent::__construct( $query, $moduleName, self::$settings[$moduleName]['code'] );
+		$this->linksMigration = $linksMigration;
 	}
 
 	public function execute() {
@@ -100,7 +113,6 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 		$db = $this->getDB();
 		$params = $this->extractRequestParams();
 		$prop = array_fill_keys( $params['prop'], true );
-		$emptyString = $db->addQuotes( '' );
 
 		$pageSet = $this->getPageSet();
 		$titles = $pageSet->getGoodAndMissingPages();
@@ -117,9 +129,14 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 		$p = $settings['prefix'];
 		$hasNS = !isset( $settings['to_namespace'] );
 		if ( $hasNS ) {
-			$bl_namespace = "{$p}_namespace";
-			$bl_title = "{$p}_title";
+			if ( isset( $this->linksMigration::$mapping[$settings['linktable']] ) ) {
+				[ $bl_namespace, $bl_title ] = $this->linksMigration->getTitleFields( $settings['linktable'] );
+			} else {
+				$bl_namespace = "{$p}_namespace";
+				$bl_title = "{$p}_title";
+			}
 		} else {
+			// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
 			$bl_namespace = $settings['to_namespace'];
 			$bl_title = "{$p}_to";
 
@@ -142,24 +159,21 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 		// when it's constant in WHERE, so we have to test that for each field.
 		$sortby = [];
 		if ( $hasNS && count( $map ) > 1 ) {
-			$sortby[$bl_namespace] = 'ns';
+			$sortby[$bl_namespace] = 'int';
 		}
 		$theTitle = null;
 		foreach ( $map as $nsTitles ) {
-			reset( $nsTitles );
-			$key = key( $nsTitles );
-			if ( $theTitle === null ) {
-				$theTitle = $key;
-			}
+			$key = array_key_first( $nsTitles );
+			$theTitle ??= $key;
 			if ( count( $nsTitles ) > 1 || $key !== $theTitle ) {
-				$sortby[$bl_title] = 'title';
+				$sortby[$bl_title] = 'string';
 				break;
 			}
 		}
 		$miser_ns = null;
 		if ( $params['namespace'] !== null ) {
 			if ( empty( $settings['from_namespace'] ) ) {
-				if ( $this->getConfig()->get( 'MiserMode' ) ) {
+				if ( $this->getConfig()->get( MainConfigNames::MiserMode ) ) {
 					$miser_ns = $params['namespace'];
 				} else {
 					$this->addWhereFld( 'page_namespace', $params['namespace'] );
@@ -176,41 +190,34 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 		$sortby[$bl_from] = 'int';
 
 		// Now use the $sortby to figure out the continuation
+		$continueFields = array_keys( $sortby );
+		$continueTypes = array_values( $sortby );
 		if ( $params['continue'] !== null ) {
-			$cont = explode( '|', $params['continue'] );
-			$this->dieContinueUsageIf( count( $cont ) != count( $sortby ) );
-			$where = '';
-			$i = count( $sortby ) - 1;
-			foreach ( array_reverse( $sortby, true ) as $field => $type ) {
-				$v = $cont[$i];
-				switch ( $type ) {
-					case 'ns':
-					case 'int':
-						$v = (int)$v;
-						$this->dieContinueUsageIf( $v != $cont[$i] );
-						break;
-					default:
-						$v = $db->addQuotes( $v );
-						break;
-				}
-
-				if ( $where === '' ) {
-					$where = "$field >= $v";
-				} else {
-					$where = "$field > $v OR ($field = $v AND ($where))";
-				}
-
-				$i--;
-			}
-			$this->addWhere( $where );
+			$continueValues = $this->parseContinueParamOrDie( $params['continue'], $continueTypes );
+			$conds = array_combine( $continueFields, $continueValues );
+			$this->addWhere( $db->buildComparison( '>=', $conds ) );
 		}
 
 		// Populate the rest of the query
-		$this->addTables( [ $settings['linktable'], 'page' ] );
+		[ $idxNoFromNS, $idxWithFromNS ] = $settings['indexes'] ?? [ '', '' ];
+		// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
+		if ( isset( $this->linksMigration::$mapping[$settings['linktable']] ) ) {
+			// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
+			$queryInfo = $this->linksMigration->getQueryInfo( $settings['linktable'] );
+			$this->addTables( array_merge( [ 'page' ], $queryInfo['tables'] ) );
+			$this->addJoinConds( $queryInfo['joins'] );
+			// TODO: Move to links migration
+			if ( in_array( 'linktarget', $queryInfo['tables'] ) ) {
+				$idxWithFromNS .= '_target_id';
+			}
+		} else {
+			// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
+			$this->addTables( [ $settings['linktable'], 'page' ] );
+		}
 		$this->addWhere( "$bl_from = page_id" );
 
 		if ( $this->getModuleName() === 'redirects' ) {
-			$this->addWhere( "rd_interwiki = $emptyString OR rd_interwiki IS NULL" );
+			$this->addWhereFld( 'rd_interwiki', [ '', null ] );
 		}
 
 		$this->addFields( array_keys( $sortby ) );
@@ -233,7 +240,7 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 
 		$this->addFieldsIf( 'page_namespace', $miser_ns !== null );
 
-		if ( $hasNS ) {
+		if ( $hasNS && $map ) {
 			// Can't use LinkBatch because it throws away Special titles.
 			// And we already have the needed data structure anyway.
 			$this->addWhere( $db->makeWhereFrom2d( $map, $bl_namespace, $bl_title ) );
@@ -255,9 +262,9 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 			) {
 				$this->dieWithError( 'apierror-show' );
 			}
-			$this->addWhereIf( "rd_fragment != $emptyString", isset( $show['fragment'] ) );
+			$this->addWhereIf( "rd_fragment != " . $db->addQuotes( '' ), isset( $show['fragment'] ) );
 			$this->addWhereIf(
-				"rd_fragment = $emptyString OR rd_fragment IS NULL",
+				[ 'rd_fragment' => [ '', null ] ],
 				isset( $show['!fragment'] )
 			);
 			$this->addWhereIf( [ 'page_is_redirect' => 1 ], isset( $show['redirect'] ) );
@@ -271,25 +278,22 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 		// (...)" and chooses the wrong index, so specify the correct index to
 		// use for the query. See T139056 for details.
 		if ( !empty( $settings['indexes'] ) ) {
-			list( $idxNoFromNS, $idxWithFromNS ) = $settings['indexes'];
 			if ( $params['namespace'] !== null && !empty( $settings['from_namespace'] ) ) {
+				// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
 				$this->addOption( 'USE INDEX', [ $settings['linktable'] => $idxWithFromNS ] );
-			} else {
+				// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
+			} elseif ( !isset( $this->linksMigration::$mapping[$settings['linktable']] ) ) {
+				// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
 				$this->addOption( 'USE INDEX', [ $settings['linktable'] => $idxNoFromNS ] );
 			}
 		}
-
-		// MySQL (or at least 5.5.5-10.0.23-MariaDB) chooses a really bad query
-		// plan if it thinks there will be more matching rows in the linktable
-		// than are in page. Use STRAIGHT_JOIN here to force it to use the
-		// intended, fast plan. See T145079 for details.
-		$this->addOption( 'STRAIGHT_JOIN' );
 
 		$this->addOption( 'LIMIT', $params['limit'] + 1 );
 
 		$res = $this->select( __METHOD__ );
 
 		if ( $resultPageSet === null ) {
+			// @phan-suppress-next-line PhanPossiblyUndeclaredVariable set when used
 			if ( $fld_title ) {
 				$this->executeGenderCacheFromResultWrapper( $res, __METHOD__ );
 			}
@@ -312,6 +316,7 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 				$id = $map[$row->bl_namespace][$row->bl_title];
 
 				$vals = [];
+				// @phan-suppress-next-line PhanPossiblyUndeclaredVariable set when used
 				if ( $fld_pageid ) {
 					$vals['pageid'] = (int)$row->page_id;
 				}
@@ -320,9 +325,11 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 						Title::makeTitle( $row->page_namespace, $row->page_title )
 					);
 				}
+				// @phan-suppress-next-line PhanPossiblyUndeclaredVariable set when used
 				if ( $fld_fragment && $row->rd_fragment !== null && $row->rd_fragment !== '' ) {
 					$vals['fragment'] = $row->rd_fragment;
 				}
+				// @phan-suppress-next-line PhanPossiblyUndeclaredVariable set when used
 				if ( $fld_redirect ) {
 					$vals['redirect'] = (bool)$row->page_is_redirect;
 				}
@@ -371,44 +378,45 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 
 		$ret = [
 			'prop' => [
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_TYPE => [
 					'pageid',
 					'title',
 				],
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_DFLT => 'pageid|title',
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_DEFAULT => 'pageid|title',
 				ApiBase::PARAM_HELP_MSG_PER_VALUE => [],
 			],
 			'namespace' => [
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_TYPE => 'namespace',
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'namespace',
 			],
 			'show' => null, // Will be filled/removed below
 			'limit' => [
-				ApiBase::PARAM_DFLT => 10,
-				ApiBase::PARAM_TYPE => 'limit',
-				ApiBase::PARAM_MIN => 1,
-				ApiBase::PARAM_MAX => ApiBase::LIMIT_BIG1,
-				ApiBase::PARAM_MAX2 => ApiBase::LIMIT_BIG2
+				ParamValidator::PARAM_DEFAULT => 10,
+				ParamValidator::PARAM_TYPE => 'limit',
+				IntegerDef::PARAM_MIN => 1,
+				IntegerDef::PARAM_MAX => ApiBase::LIMIT_BIG1,
+				IntegerDef::PARAM_MAX2 => ApiBase::LIMIT_BIG2
 			],
 			'continue' => [
 				ApiBase::PARAM_HELP_MSG => 'api-help-param-continue',
 			],
 		];
 
-		if ( empty( $settings['from_namespace'] ) && $this->getConfig()->get( 'MiserMode' ) ) {
+		if ( empty( $settings['from_namespace'] ) &&
+		$this->getConfig()->get( MainConfigNames::MiserMode ) ) {
 			$ret['namespace'][ApiBase::PARAM_HELP_MSG_APPEND] = [
 				'api-help-param-limited-in-miser-mode',
 			];
 		}
 
 		if ( !empty( $settings['showredirects'] ) ) {
-			$ret['prop'][ApiBase::PARAM_TYPE][] = 'redirect';
-			$ret['prop'][ApiBase::PARAM_DFLT] .= '|redirect';
+			$ret['prop'][ParamValidator::PARAM_TYPE][] = 'redirect';
+			$ret['prop'][ParamValidator::PARAM_DEFAULT] .= '|redirect';
 		}
 		if ( isset( $settings['props'] ) ) {
-			$ret['prop'][ApiBase::PARAM_TYPE] = array_merge(
-				$ret['prop'][ApiBase::PARAM_TYPE], $settings['props']
+			$ret['prop'][ParamValidator::PARAM_TYPE] = array_merge(
+				$ret['prop'][ParamValidator::PARAM_TYPE], $settings['props']
 			);
 		}
 
@@ -422,8 +430,9 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 		}
 		if ( $show ) {
 			$ret['show'] = [
-				ApiBase::PARAM_TYPE => $show,
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => $show,
+				ParamValidator::PARAM_ISMULTI => true,
+				ApiBase::PARAM_HELP_MSG_PER_VALUE => [],
 			];
 		} else {
 			unset( $ret['show'] );
@@ -436,7 +445,7 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 		$settings = self::$settings[$this->getModuleName()];
 		$name = $this->getModuleName();
 		$path = $this->getModulePath();
-		$title = $settings['exampletitle'] ?? 'Main Page';
+		$title = $settings['exampletitle'] ?? Title::newMainPage()->getPrefixedText();
 		$etitle = rawurlencode( $title );
 
 		return [

@@ -21,9 +21,18 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use HTMLForm;
+use IContextSource;
+use MediaWiki\Html\Html;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Preferences\PreferencesFactory;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\User\User;
 use MediaWiki\User\UserOptionsManager;
+use PermissionsError;
+use PreferencesFormOOUI;
 
 /**
  * A special page that allows users to change their preferences
@@ -32,11 +41,8 @@ use MediaWiki\User\UserOptionsManager;
  */
 class SpecialPreferences extends SpecialPage {
 
-	/** @var PreferencesFactory */
-	private $preferencesFactory;
-
-	/** @var UserOptionsManager */
-	private $userOptionsManager;
+	private PreferencesFactory $preferencesFactory;
+	private UserOptionsManager $userOptionsManager;
 
 	/**
 	 * @param PreferencesFactory|null $preferencesFactory
@@ -63,7 +69,7 @@ class SpecialPreferences extends SpecialPage {
 		$out = $this->getOutput();
 		$out->disallowUserJs(); # Prevent hijacked user scripts from sniffing passwords etc.
 
-		$this->requireLogin( 'prefsnologintext2' );
+		$this->requireNamedUser( 'prefsnologintext2' );
 		$this->checkReadOnly();
 
 		if ( $par == 'reset' ) {
@@ -75,9 +81,8 @@ class SpecialPreferences extends SpecialPage {
 		$out->addModules( 'mediawiki.special.preferences.ooui' );
 		$out->addModuleStyles( [
 			'mediawiki.special.preferences.styles.ooui',
-			'mediawiki.widgets.TagMultiselectWidget.styles',
+			'oojs-ui-widgets.styles',
 		] );
-		$out->addModuleStyles( 'oojs-ui-widgets.styles' );
 
 		$session = $this->getRequest()->getSession();
 		if ( $session->get( 'specialPreferencesSaveSuccess' ) ) {
@@ -86,14 +91,13 @@ class SpecialPreferences extends SpecialPage {
 			$out->addModuleStyles( 'mediawiki.notification.convertmessagebox.styles' );
 
 			$out->addHTML(
-				Html::rawElement(
-					'div',
-					[
-						'class' => 'mw-preferences-messagebox mw-notify-success successbox',
-						'id' => 'mw-preferences-success',
-						'data-mw-autohide' => 'false',
-					],
-					Html::element( 'p', [], $this->msg( 'savedprefs' )->text() )
+				Html::successBox(
+					Html::element(
+						'p',
+						[],
+						$this->msg( 'savedprefs' )->text()
+					),
+					'mw-preferences-messagebox mw-notify-success'
 				)
 			);
 		}
@@ -119,6 +123,17 @@ class SpecialPreferences extends SpecialPage {
 		}
 		$out->addJsConfigVars( 'wgPreferencesTabs', $prefTabs );
 
+		$out->addHTML( new \OOUI\FieldLayout(
+			new \OOUI\SearchInputWidget( [
+				'placeholder' => $this->msg( 'searchprefs' )->text(),
+			] ),
+			[
+				'classes' => [ 'mw-prefs-search' ],
+				'label' => $this->msg( 'searchprefs' )->text(),
+				'invisibleLabel' => true,
+				'infusable' => true,
+			]
+		) );
 		$htmlForm->show();
 	}
 
@@ -140,13 +155,22 @@ class SpecialPreferences extends SpecialPage {
 
 		$this->getOutput()->addWikiMsg( 'prefs-reset-intro' );
 
-		$context = new DerivativeContext( $this->getContext() );
-		$context->setTitle( $this->getPageTitle( 'reset' ) ); // Reset subpage
-		HTMLForm::factory( 'ooui', [], $context, 'prefs-restore' )
+		$desc = [
+			'confirm' => [
+				'type' => 'check',
+				'label-message' => 'prefs-reset-confirm',
+				'required' => true,
+			],
+		];
+		// TODO: disable the submit button if the checkbox is not checked
+		HTMLForm::factory( 'ooui', $desc, $this->getContext(), 'prefs-restore' )
+			->setTitle( $this->getPageTitle( 'reset' ) ) // Reset subpage
 			->setSubmitTextMsg( 'restoreprefs' )
 			->setSubmitDestructive()
 			->setSubmitCallback( [ $this, 'submitReset' ] )
 			->suppressReset()
+			->showCancel()
+			->setCancelTarget( $this->getPageTitle() )
 			->show();
 	}
 
@@ -169,6 +193,12 @@ class SpecialPreferences extends SpecialPage {
 	}
 
 	protected function getGroupName() {
-		return 'users';
+		return 'login';
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialPreferences::class, 'SpecialPreferences' );

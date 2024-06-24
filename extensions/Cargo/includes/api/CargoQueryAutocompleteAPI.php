@@ -81,17 +81,16 @@ class CargoQueryAutocompleteAPI extends ApiBase {
 		$lb = MediaWikiServices::getInstance()->getDBLoadBalancer();
 		$dbr = $lb->getConnectionRef( DB_REPLICA );
 		$tables = [];
-		if ( $substr === null || $substr == '' ) {
-			$res = $dbr->select(
-				'cargo_tables',
-				[ 'main_table' ],
-				"main_table NOT LIKE '%__NEXT'"
-				);
+		$conds = [
+			'main_table NOT' . $dbr->buildLike( $dbr->anyString(), '__NEXT' ),
+		];
+		if ( $substr !== null && $substr !== '' ) {
+			$conds[] = 'main_table' . $dbr->buildLike( $dbr->anyString(), $substr, $dbr->anyString() );
 		}
 		$res = $dbr->select(
 			'cargo_tables',
 			[ 'main_table' ],
-			[ "main_table LIKE '%$substr%'","main_table NOT LIKE '%__NEXT'" ]
+			$conds
 		);
 		foreach ( $res as $row ) {
 			array_push( $tables, $row );
@@ -103,7 +102,7 @@ class CargoQueryAutocompleteAPI extends ApiBase {
 	public function getFields( $tableNames, $substr ) {
 		$tables = explode( ",", $tableNames );
 		$fields = [];
-		foreach ( $tables as &$table ) {
+		foreach ( $tables as $table ) {
 			$tableSchemas = [];
 			$lb = MediaWikiServices::getInstance()->getDBLoadBalancer();
 			$dbr = $lb->getConnectionRef( DB_REPLICA );
@@ -116,7 +115,7 @@ class CargoQueryAutocompleteAPI extends ApiBase {
 				$mFieldDescriptions = array_column( $tableSchemas, 'mFieldDescriptions' );
 				$tempfields = array_keys( call_user_func_array( 'array_merge', $mFieldDescriptions ) );
 				array_push( $tempfields, "_pageName", "_pageTitle", "_pageNamespace", "_pageID", "_ID" );
-				foreach ( $tempfields as $key => $value ) {
+				foreach ( $tempfields as $value ) {
 					if ( ( $substr === null || $substr == '' || stripos( $tableName, $substr ) === 0 ) ||
 						stristr( $value, $substr ) ||
 						stristr( $tableName . '.' . $value, $substr )

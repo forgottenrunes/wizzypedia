@@ -47,41 +47,40 @@ header( 'X-Content-Type-Options: nosniff' );
 # its purpose.
 define( 'MEDIAWIKI', true );
 
-# Full path to the installation directory.
-$IP = getenv( 'MW_INSTALL_PATH' );
-if ( $IP === false ) {
-	$IP = dirname( __DIR__ );
-}
-
 /**
  * @param SettingsBuilder $settings
- *
  * @return never
  */
 function wfWebStartNoLocalSettings( SettingsBuilder $settings ) {
 	# LocalSettings.php is the per-site customization file. If it does not exist
 	# the wiki installer needs to be launched or the generated file uploaded to
 	# the root wiki directory. Give a hint, if it is not readable by the server.
-	require_once MW_INSTALL_PATH . '/includes/NoLocalSettings.php';
+	require_once __DIR__ . '/Output/NoLocalSettings.php';
 	die();
 }
 
-require_once "$IP/includes/BootstrapHelperFunctions.php";
+require_once __DIR__ . '/BootstrapHelperFunctions.php';
 
 // If no LocalSettings file exists, try to display an error page
 // (use a callback because it depends on TemplateParser)
 if ( !defined( 'MW_CONFIG_CALLBACK' ) ) {
-	wfDetectLocalSettingsFile( $IP );
+	wfDetectLocalSettingsFile();
 	if ( !is_readable( MW_CONFIG_FILE ) ) {
 		define( 'MW_CONFIG_CALLBACK', 'wfWebStartNoLocalSettings' );
 	}
 }
 
 function wfWebStartSetup( SettingsBuilder $settings ) {
-	// Initialise output buffering
-	// Check for previously set up buffers, to avoid a mix of gzip and non-gzip output.
+	// Initialize the default MediaWiki output buffering if no buffer is already active.
+	// This avoids clashes with existing buffers in order to avoid problems,
+	// like mixing gzip and non-gzip output.
 	if ( ob_get_level() == 0 ) {
-		ob_start( 'MediaWiki\\OutputHandler::handle' );
+		// During HTTP requests, MediaWiki normally buffers the response body in a string
+		// within OutputPage and prints it when ready. PHP buffers provide protection against
+		// premature sending of HTTP headers due to output from PHP warnings and notices.
+		// They also can be used to implement gzip support in PHP without the webserver knowing
+		// which requests yield HTML and which yield large files that can be streamed.
+		ob_start( [ MediaWiki\Output\OutputHandler::class, 'handle' ] );
 	}
 }
 
@@ -90,7 +89,7 @@ if ( !defined( 'MW_SETUP_CALLBACK' ) ) {
 	define( 'MW_SETUP_CALLBACK', 'wfWebStartSetup' );
 }
 
-require_once "$IP/includes/Setup.php";
+require_once __DIR__ . '/Setup.php';
 
 # Multiple DBs or commits might be used; keep the request as transactional as possible
 if ( isset( $_SERVER['REQUEST_METHOD'] ) && $_SERVER['REQUEST_METHOD'] === 'POST' ) {

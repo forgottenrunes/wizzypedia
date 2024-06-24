@@ -23,19 +23,34 @@
 
 namespace MediaWiki\Extension\MultimediaViewer;
 
-use Category;
 use CategoryPage;
+use Config;
 use ExtensionRegistry;
+use MediaWiki\Category\Category;
+use MediaWiki\Hook\BeforePageDisplayHook;
 use MediaWiki\Hook\MakeGlobalVariablesScriptHook;
+use MediaWiki\Hook\ThumbnailBeforeProduceHTMLHook;
 use MediaWiki\MediaWikiServices;
-use MediaWiki\User\UserIdentity;
+use MediaWiki\Page\Hook\CategoryPageViewHook;
+use MediaWiki\Preferences\Hook\GetPreferencesHook;
+use MediaWiki\ResourceLoader\Hook\ResourceLoaderGetConfigVarsHook;
+use MediaWiki\SpecialPage\SpecialPageFactory;
+use MediaWiki\User\Hook\UserGetDefaultOptionsHook;
 use MediaWiki\User\UserOptionsLookup;
 use OutputPage;
 use Skin;
 use ThumbnailImage;
 use User;
 
-class Hooks implements MakeGlobalVariablesScriptHook {
+class Hooks implements
+	MakeGlobalVariablesScriptHook,
+	UserGetDefaultOptionsHook,
+	GetPreferencesHook,
+	BeforePageDisplayHook,
+	CategoryPageViewHook,
+	ResourceLoaderGetConfigVarsHook,
+	ThumbnailBeforeProduceHTMLHook
+{
 	/** Link to more information about this module */
 	protected static $infoLink =
 		'https://mediawiki.org/wiki/Special:MyLanguage/Extension:Media_Viewer/About';
@@ -52,19 +67,25 @@ class Hooks implements MakeGlobalVariablesScriptHook {
 	 * @var UserOptionsLookup
 	 */
 	private $userOptionsLookup;
+	private SpecialPageFactory $specialPageFactory;
 
 	/**
 	 * @param UserOptionsLookup $userOptionsLookup
+	 * @param SpecialPageFactory $specialPageFactory
 	 */
-	public function __construct( UserOptionsLookup $userOptionsLookup ) {
+	public function __construct(
+		UserOptionsLookup $userOptionsLookup,
+		SpecialPageFactory $specialPageFactory
+	) {
 		$this->userOptionsLookup = $userOptionsLookup;
+		$this->specialPageFactory = $specialPageFactory;
 	}
 
 	/**
 	 * @see https://www.mediawiki.org/wiki/Manual:Hooks/UserGetDefaultOptions
 	 * @param array &$defaultOptions
 	 */
-	public static function onUserGetDefaultOptions( array &$defaultOptions ) {
+	public function onUserGetDefaultOptions( &$defaultOptions ) {
 		global $wgMediaViewerEnableByDefault;
 
 		if ( $wgMediaViewerEnableByDefault ) {
@@ -74,24 +95,18 @@ class Hooks implements MakeGlobalVariablesScriptHook {
 
 	/**
 	 * Checks the context for whether to load the viewer.
-	 * @param UserIdentity $performer
+	 * @param User $performer
 	 * @return bool
 	 */
-	protected function shouldHandleClicks( UserIdentity $performer ) {
+	protected function shouldHandleClicks( User $performer ): bool {
 		global $wgMediaViewerEnableByDefaultForAnonymous,
 			$wgMediaViewerEnableByDefault;
 
-		if ( $wgMediaViewerEnableByDefaultForAnonymous === null ) {
-			$enableByDefaultForAnons = $wgMediaViewerEnableByDefault;
-		} else {
-			$enableByDefaultForAnons = $wgMediaViewerEnableByDefaultForAnonymous;
-		}
-
-		if ( !$performer->isRegistered() ) {
-			return (bool)$enableByDefaultForAnons;
-		} else {
+		if ( $performer->isNamed() ) {
 			return (bool)$this->userOptionsLookup->getOption( $performer, 'multimediaviewer-enable' );
 		}
+
+		return (bool)( $wgMediaViewerEnableByDefaultForAnonymous ?? $wgMediaViewerEnableByDefault );
 	}
 
 	/**
@@ -118,17 +133,18 @@ class Hooks implements MakeGlobalVariablesScriptHook {
 	 * @param OutputPage $out
 	 * @param Skin $skin
 	 */
-	public static function onBeforePageDisplay( OutputPage $out, $skin ) {
+	public function onBeforePageDisplay( $out, $skin ): void {
 		$pageHasThumbnails = count( $out->getFileSearchOptions() ) > 0;
 		$pageIsFilePage = $out->getTitle()->inNamespace( NS_FILE );
 		// TODO: Have Flow work out if there are any images on the page
 		$pageIsFlowPage = ExtensionRegistry::getInstance()->isLoaded( 'Flow' ) &&
 			// CONTENT_MODEL_FLOW_BOARD
 			$out->getTitle()->getContentModel() === 'flow-board';
-		$fileRelatedSpecialPages = [ 'NewFiles', 'ListFiles', 'MostLinkedFiles',
-			'MostGloballyLinkedFiles', 'UncategorizedFiles', 'UnusedFiles', 'Search' ];
+		$fileRelatedSpecialPages = [ 'Newimages', 'Listfiles', 'Mostimages',
+			'MostGloballyLinkedFiles', 'Uncategorizedimages', 'Unusedimages', 'Search' ];
 		$pageIsFileRelatedSpecialPage = $out->getTitle()->inNamespace( NS_SPECIAL )
-			&& in_array( $out->getTitle()->getText(), $fileRelatedSpecialPages );
+			&& in_array( $this->specialPageFactory->resolveAlias( $out->getTitle()->getDBkey() )[0],
+				$fileRelatedSpecialPages );
 
 		if ( $pageHasThumbnails || $pageIsFilePage || $pageIsFileRelatedSpecialPage || $pageIsFlowPage ) {
 			self::getModules( $out );
@@ -140,7 +156,7 @@ class Hooks implements MakeGlobalVariablesScriptHook {
 	 * Add JavaScript to the page if there are images in the category
 	 * @param CategoryPage $catPage
 	 */
-	public static function onCategoryPageView( CategoryPage $catPage ) {
+	public function onCategoryPageView( $catPage ) {
 		$title = $catPage->getTitle();
 		$cat = Category::newFromTitle( $title );
 		if ( $cat->getFileCount() > 0 ) {
@@ -155,7 +171,7 @@ class Hooks implements MakeGlobalVariablesScriptHook {
 	 * @param User $user
 	 * @param array &$prefs
 	 */
-	public static function onGetPreferences( $user, &$prefs ) {
+	public function onGetPreferences( $user, &$prefs ) {
 		$prefs['multimediaviewer-enable'] = [
 			'type' => 'toggle',
 			'label-message' => 'multimediaviewer-optin-pref',
@@ -167,15 +183,11 @@ class Hooks implements MakeGlobalVariablesScriptHook {
 	 * @see https://www.mediawiki.org/wiki/Manual:Hooks/ResourceLoaderGetConfigVars
 	 * Export variables used in both PHP and JS to keep DRY
 	 * @param array &$vars
+	 * @param string $skin
+	 * @param Config $config
 	 */
-	public static function onResourceLoaderGetConfigVars( array &$vars ) {
-		global $wgMediaViewerActionLoggingSamplingFactorMap,
-			$wgMediaViewerNetworkPerformanceSamplingFactor,
-			$wgMediaViewerDurationLoggingSamplingFactor,
-			$wgMediaViewerDurationLoggingLoggedinSamplingFactor,
-			$wgMediaViewerAttributionLoggingSamplingFactor,
-			$wgMediaViewerDimensionLoggingSamplingFactor,
-			$wgMediaViewerUseThumbnailGuessing, $wgMediaViewerExtensions,
+	public function onResourceLoaderGetConfigVars( array &$vars, $skin, Config $config ): void {
+		global $wgMediaViewerUseThumbnailGuessing, $wgMediaViewerExtensions,
 			$wgMediaViewerImageQueryParameter, $wgMediaViewerRecordVirtualViewBeaconURI;
 
 		$vars['wgMultimediaViewer'] = [
@@ -183,15 +195,8 @@ class Hooks implements MakeGlobalVariablesScriptHook {
 			'discussionLink' => self::$discussionLink,
 			'helpLink' => self::$helpLink,
 			'useThumbnailGuessing' => (bool)$wgMediaViewerUseThumbnailGuessing,
-			'durationSamplingFactor' => $wgMediaViewerDurationLoggingSamplingFactor,
-			'durationSamplingFactorLoggedin' => $wgMediaViewerDurationLoggingLoggedinSamplingFactor,
-			'networkPerformanceSamplingFactor' => $wgMediaViewerNetworkPerformanceSamplingFactor,
-			'actionLoggingSamplingFactorMap' => $wgMediaViewerActionLoggingSamplingFactorMap,
-			'attributionSamplingFactor' => $wgMediaViewerAttributionLoggingSamplingFactor,
-			'dimensionSamplingFactor' => $wgMediaViewerDimensionLoggingSamplingFactor,
 			'imageQueryParameter' => $wgMediaViewerImageQueryParameter,
 			'recordVirtualViewBeaconURI' => $wgMediaViewerRecordVirtualViewBeaconURI,
-			'tooltipDelay' => 1000,
 			'extensions' => $wgMediaViewerExtensions,
 		];
 		$vars['wgMediaViewer'] = true;
@@ -220,9 +225,9 @@ class Hooks implements MakeGlobalVariablesScriptHook {
 	 * @param array &$attribs Attributes of the <img> element
 	 * @param array|bool &$linkAttribs Attributes of the wrapping <a> element
 	 */
-	public static function onThumbnailBeforeProduceHTML(
-		ThumbnailImage $thumbnail,
-		array &$attribs,
+	public function onThumbnailBeforeProduceHTML(
+		$thumbnail,
+		&$attribs,
 		&$linkAttribs
 	) {
 		$file = $thumbnail->getFile();

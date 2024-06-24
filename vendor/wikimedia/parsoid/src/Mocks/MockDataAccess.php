@@ -8,6 +8,7 @@ use Wikimedia\Parsoid\Config\DataAccess;
 use Wikimedia\Parsoid\Config\PageConfig;
 use Wikimedia\Parsoid\Config\PageContent;
 use Wikimedia\Parsoid\Core\ContentMetadataCollector;
+use Wikimedia\Parsoid\ParserTests\MockApiHelper;
 use Wikimedia\Parsoid\Utils\PHPUtils;
 
 /**
@@ -264,7 +265,8 @@ class MockDataAccess extends DataAccess {
 		'File:Thumb.png' => 'Thumb.png',
 		'File:LoremIpsum.djvu' => 'LoremIpsum.djvu',
 		'File:Video.ogv' => 'Video.ogv',
-		'File:Audio.oga' => 'Audio.oga'
+		'File:Audio.oga' => 'Audio.oga',
+		'File:Bad.jpg' => 'Bad.jpg',
 	];
 
 	private const PNAMES = [
@@ -300,6 +302,13 @@ class MockDataAccess extends DataAccess {
 			'bits' => 24,
 			'mime' => 'image/svg+xml'
 		],
+		'Bad.jpg' => [
+			'size' => 12345,
+			'width' => 320,
+			'height' => 240,
+			'bits' => 24,
+			'mime' => 'image/jpeg',
+		],
 		'LoremIpsum.djvu' => [
 			'size' => 3249,
 			'width' => 2480,
@@ -332,8 +341,6 @@ class MockDataAccess extends DataAccess {
 			'duration' => 0.99875,
 			'mime' => 'audio/ogg; codecs="vorbis"',
 			'mediatype' => 'AUDIO',
-			'title' => 'Original Ogg file (41 kbps)',
-			'shorttitle' => 'Ogg source',
 		]
 	];
 
@@ -406,7 +413,8 @@ class MockDataAccess extends DataAccess {
 				'url' => $baseurl,
 				'descriptionurl' => $durl,
 				'mediatype' => $mediatype,
-				'mime' => $props['mime']
+				'mime' => $props['mime'],
+				'badFile' => ( $normFileName === 'Bad.jpg' ),
 			];
 
 			if ( isset( $props['duration'] ) ) {
@@ -441,26 +449,11 @@ class MockDataAccess extends DataAccess {
 			}
 
 			if ( !empty( $txopts['height'] ) || !empty( $txopts['width'] ) ) {
-				if ( $txopts['height'] === null ) {
-					// File::scaleHeight in PHP
-					$txopts['height'] = round( $height * $txopts['width'] / $width );
-				} elseif ( $txopts['width'] === null ) {
-					// MediaHandler::fitBoxWidth in PHP
-					// This is crazy!
-					$idealWidth = $width * $txopts['height'] / $height;
-					$roundedUp = ceil( $idealWidth );
-					if ( round( $roundedUp * $height / $width ) > $txopts['height'] ) {
-						$txopts['width'] = floor( $idealWidth );
-					} else {
-						$txopts['width'] = $roundedUp;
-					}
-				} else {
-					if ( round( $height * $txopts['width'] / $width ) > $txopts['height'] ) {
-						$txopts['width'] = ceil( $width * $txopts['height'] / $height );
-					} else {
-						$txopts['height'] = round( $height * $txopts['width'] / $width );
-					}
-				}
+
+				// Set $txopts['width'] and $txopts['height']
+				$rtwidth = &$txopts['width'];
+				$rtheight = &$txopts['height'];
+				MockApiHelper::transformHelper( $width, $height, $rtwidth, $rtheight );
 
 				$urlWidth = $txopts['width'];
 				if ( $txopts['width'] > $width ) {
@@ -499,23 +492,6 @@ class MockDataAccess extends DataAccess {
 				$info['thumbheight'] = $txopts['height'];
 				$info['thumburl'] = $turl;
 			}
-			// Make this look like a TMH response
-			if ( isset( $props['title'] ) || isset( $props['shorttitle'] ) ) {
-				$info['derivatives'] = [
-					[
-						'src' => $info['url'],
-						'type' => $info['mime'],
-						'width' => strval( $info['width'] ),
-						'height' => strval( $info['height'] ),
-					]
-				];
-				if ( isset( $props['title'] ) ) {
-					$info['derivatives'][0]['title'] = $props['title'];
-				}
-				if ( isset( $props['shorttitle'] ) ) {
-					$info['derivatives'][0]['shorttitle'] = $props['shorttitle'];
-				}
-			}
 
 			$ret[] = $info;
 		}
@@ -550,7 +526,7 @@ class MockDataAccess extends DataAccess {
 
 			case 'indicator':
 			case 'section':
-				$html = "\n";
+				$html = "";
 				break;
 
 			default:
@@ -569,10 +545,13 @@ class MockDataAccess extends DataAccess {
 		$revid = $pageConfig->getRevisionId();
 
 		$expanded = str_replace( '{{!}}', '|', $wikitext );
-		preg_match( '/{{1x\|(.*?)}}/s', $expanded, $match );
+		preg_match( '/{{1x\|(.*?)}}/s', $expanded, $match1 );
+		preg_match( '/{{#tag:ref\|(.*?)\|(.*?)}}/s', $expanded, $match2 );
 
-		if ( $match ) {
-			$ret = $match[1];
+		if ( $match1 ) {
+			$ret = $match1[1];
+		} elseif ( $match2 ) {
+			$ret = "<ref {$match2[2]}>{$match2[1]}</ref>";
 		} elseif ( $wikitext === '{{colours of the rainbow}}' ) {
 			$ret = 'purple';
 		} elseif ( $wikitext === '{{REVISIONID}}' ) {

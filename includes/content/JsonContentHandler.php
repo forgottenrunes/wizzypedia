@@ -20,11 +20,12 @@
 
 use MediaWiki\Content\Renderer\ContentParseParams;
 use MediaWiki\Content\Transform\PreSaveTransformParams;
+use MediaWiki\Content\ValidationParams;
 
 /**
  * Content handler for JSON text.
  *
- * Useful for maintaining JSON that can be viewed and edit directly by users.
+ * Useful for maintaining JSON that can be viewed and edited directly by users.
  *
  * @author Ori Livneh <ori@wikimedia.org>
  * @author Kunal Mehta <legoktm@gmail.com>
@@ -44,7 +45,7 @@ class JsonContentHandler extends CodeContentHandler {
 	}
 
 	/**
-	 * @return string
+	 * @return class-string<JsonContent>
 	 */
 	protected function getContentClass() {
 		return JsonContent::class;
@@ -53,6 +54,35 @@ class JsonContentHandler extends CodeContentHandler {
 	public function makeEmptyContent() {
 		$class = $this->getContentClass();
 		return new $class( '{}' );
+	}
+
+	/**
+	 * Enables EditPage's preload feature on .json pages as well as for extensions like MassMessage
+	 * that subclass {@see JsonContentHandler}.
+	 *
+	 * @return true
+	 */
+	public function supportsPreloadContent(): bool {
+		return true;
+	}
+
+	/**
+	 * @param Content $content
+	 * @param ValidationParams $validationParams
+	 * @return StatusValue
+	 */
+	public function validateSave( Content $content, ValidationParams $validationParams ) {
+		$status = parent::validateSave( $content, $validationParams );
+		'@phan-var JsonContent $content';
+		if ( !$status->isOK() ) {
+			if ( !$content->getData()->isGood() ) {
+				return StatusValue::newFatal( $content->getData()->getMessage( 'invalid-json-data' ) );
+			} else {
+				return $status;
+			}
+		}
+		$this->getHookRunner()->onJsonValidateSave( $content, $validationParams->getPageIdentity(), $status );
+		return $status;
 	}
 
 	public function preSaveTransform(
@@ -73,8 +103,8 @@ class JsonContentHandler extends CodeContentHandler {
 
 		'@phan-var JsonContent $content';
 
-		// FIXME: WikiPage::doEditContent invokes PST before validation. As such, native data
-		// may be invalid (though PST result is discarded later in that case).
+		// FIXME: WikiPage::doUserEditContent invokes PST before validation. As such, native
+		// data may be invalid (though PST result is discarded later in that case).
 		if ( !$content->isValid() ) {
 			return $content;
 		}
@@ -97,13 +127,19 @@ class JsonContentHandler extends CodeContentHandler {
 		ParserOutput &$parserOutput
 	) {
 		'@phan-var JsonContent $content';
-		// FIXME: WikiPage::doEditContent generates parser output before validation.
+		// FIXME: WikiPage::doUserEditContent generates parser output before validation.
 		// As such, native data may be invalid (though output is discarded later in that case).
-		if ( $cpoParams->getGenerateHtml() && $content->isValid() ) {
-			$parserOutput->setText( $content->rootValueTable( $content->getData()->getValue() ) );
+		if ( $cpoParams->getGenerateHtml() ) {
+			if ( $content->isValid() ) {
+				$parserOutput->setText( $content->rootValueTable( $content->getData()->getValue() ) );
+			} else {
+				$error = wfMessage( 'invalid-json-data' )->parse();
+				$parserOutput->setText( $error );
+			}
+
 			$parserOutput->addModuleStyles( [ 'mediawiki.content.json' ] );
 		} else {
-			$parserOutput->setText( '' );
+			$parserOutput->setText( null );
 		}
 	}
 }

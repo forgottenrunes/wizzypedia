@@ -10,6 +10,7 @@ declare( strict_types = 1 );
 namespace Wikimedia\Parsoid\Utils;
 
 use Wikimedia\Assert\Assert;
+use Wikimedia\Assert\UnreachableException;
 use Wikimedia\Parsoid\Config\Env;
 use Wikimedia\Parsoid\Core\DomSourceRange;
 use Wikimedia\Parsoid\Tokens\CommentTk;
@@ -89,8 +90,8 @@ class TokenUtils {
 			( $token instanceof TagTk ||
 			$token instanceof EndTagTk ||
 			$token instanceof SelfClosingTagTk ) &&
-			isset( $token->dataAttribs->stx ) &&
-			$token->dataAttribs->stx === 'html';
+			isset( $token->dataParsoid->stx ) &&
+			$token->dataParsoid->stx === 'html';
 	}
 
 	/**
@@ -170,7 +171,7 @@ class TokenUtils {
 		} elseif ( !$token instanceof SelfclosingTagTk || $token->getName() !== 'meta' ) {
 			return false;
 		} else {  // only metas left
-			return !( isset( $token->dataAttribs->stx ) && $token->dataAttribs->stx === 'html' );
+			return !( isset( $token->dataParsoid->stx ) && $token->dataParsoid->stx === 'html' );
 		}
 	}
 
@@ -271,7 +272,7 @@ class TokenUtils {
 				case NlTk::class:
 				case CommentTk::class:
 				case EndTagTk::class:
-					$da = $t->dataAttribs;
+					$da = $t->dataParsoid;
 					$tsr = $da->tsr;
 					if ( $tsr ) {
 						if ( $offset ) {
@@ -496,7 +497,6 @@ class TokenUtils {
 			if ( $sr instanceof DomSourceRange ) {
 				// Adjust widths back from being character offsets
 				if ( $sr->openWidth !== null ) {
-					// @phan-suppress-next-line PhanPluginDuplicateExpressionAssignmentOperation; consistency
 					$sr->openWidth = $sr->openWidth - $sr->start;
 				}
 				if ( $sr->closeWidth !== null ) {
@@ -522,17 +522,17 @@ class TokenUtils {
 				self::collectOffsets( $input->srcOffsets, $offsetFunc );
 			}
 		} elseif ( $input instanceof Token ) {
-			if ( isset( $input->dataAttribs->tsr ) ) {
-				self::collectOffsets( $input->dataAttribs->tsr, $offsetFunc );
+			if ( isset( $input->dataParsoid->tsr ) ) {
+				self::collectOffsets( $input->dataParsoid->tsr, $offsetFunc );
 			}
-			if ( isset( $input->dataAttribs->extLinkContentOffsets ) ) {
-				self::collectOffsets( $input->dataAttribs->extLinkContentOffsets, $offsetFunc );
+			if ( isset( $input->dataParsoid->extLinkContentOffsets ) ) {
+				self::collectOffsets( $input->dataParsoid->extLinkContentOffsets, $offsetFunc );
 			}
-			if ( isset( $input->dataAttribs->tokens ) ) {
-				self::collectOffsets( $input->dataAttribs->tokens, $offsetFunc );
+			if ( isset( $input->dataParsoid->tokens ) ) {
+				self::collectOffsets( $input->dataParsoid->tokens, $offsetFunc );
 			}
-			if ( isset( $input->dataAttribs->extTagOffsets ) ) {
-				self::collectOffsets( $input->dataAttribs->extTagOffsets, $offsetFunc );
+			if ( isset( $input->dataParsoid->extTagOffsets ) ) {
+				self::collectOffsets( $input->dataParsoid->extTagOffsets, $offsetFunc );
 			}
 			self::collectOffsets( $input->attribs, $offsetFunc );
 		} elseif ( $input instanceof KVSourceRange ) {
@@ -601,14 +601,14 @@ class TokenUtils {
 		for ( $i = 0, $l = count( $tokens ); $i < $l; $i++ ) {
 			$token = $tokens[$i];
 			if ( $token === null ) {
-				PHPUtils::unreachable( "No nulls expected." );
+				throw new UnreachableException( "No nulls expected." );
 			} elseif ( $token instanceof KV ) {
 				// Since this function is occasionally called on KV->v,
 				// whose signature recursively includes KV[], a mismatch with
 				// this function, we assert that those values are only
 				// included in safe places that don't intend to stringify
 				// their tokens.
-				PHPUtils::unreachable( "No KVs expected." );
+				throw new UnreachableException( "No KVs expected." );
 			} elseif ( is_string( $token ) ) {
 				$out .= $token;
 			} elseif ( is_array( $token ) ) {
@@ -622,7 +622,7 @@ class TokenUtils {
 			} elseif ( !empty( $opts['stripEmptyLineMeta'] ) && self::isEmptyLineMetaToken( $token ) ) {
 				// If requested, strip empty line meta tokens too.
 			} elseif ( !empty( $opts['includeEntities'] ) && self::isEntitySpanToken( $token ) ) {
-				$out .= $token->dataAttribs->src;
+				$out .= $token->dataParsoid->src;
 				$i += 2; // Skip child and end tag.
 			} elseif ( $strict ) {
 				// If strict, return accumulated string on encountering first non-text token
@@ -636,7 +636,7 @@ class TokenUtils {
 			) {
 				// Handle dom fragments
 				$domFragment = $opts['env']->getDOMFragment(
-					$token->dataAttribs->html
+					$token->dataParsoid->html
 				);
 				// Calling `env->removeDOMFragment()` here is case dependent
 				// but should be rare enough when permissible that it can be

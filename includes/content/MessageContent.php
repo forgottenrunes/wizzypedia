@@ -119,7 +119,7 @@ class MessageContent extends AbstractContent {
 	 * @see Content::getTextForSummary
 	 */
 	public function getTextForSummary( $maxlength = 250 ) {
-		return substr( $this->mMessage->plain(), 0, $maxlength );
+		return mb_strcut( $this->mMessage->plain(), 0, $maxlength );
 	}
 
 	/**

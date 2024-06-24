@@ -1,6 +1,10 @@
 <?php
 
-class UstringLibraryNormalizationTestProvider extends Scribunto_LuaDataProvider {
+namespace MediaWiki\Extension\Scribunto\Tests\Engines\LuaCommon;
+
+use MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaEngine;
+
+class UstringLibraryNormalizationTestProvider extends LuaDataProvider {
 	/** @var resource|null */
 	protected $file = null;
 	/** @var string[]|null */
@@ -27,7 +31,7 @@ class UstringLibraryNormalizationTestProvider extends Scribunto_LuaDataProvider 
 	}
 
 	/**
-	 * @param Scribunto_LuaEngine $engine
+	 * @param LuaEngine $engine
 	 */
 	public function __construct( $engine ) {
 		parent::__construct( $engine, 'UstringLibraryNormalizationTests' );
@@ -37,15 +41,15 @@ class UstringLibraryNormalizationTestProvider extends Scribunto_LuaDataProvider 
 		$this->rewind();
 	}
 
-	public function destory() {
+	public function destroy() {
 		if ( $this->file ) {
 			fclose( $this->file );
 			$this->file = null;
 		}
-		parent::destory();
+		parent::destroy();
 	}
 
-	public function rewind() {
+	public function rewind(): void {
 		if ( $this->file ) {
 			rewind( $this->file );
 		}
@@ -53,7 +57,7 @@ class UstringLibraryNormalizationTestProvider extends Scribunto_LuaDataProvider 
 		$this->next();
 	}
 
-	public function valid() {
+	public function valid(): bool {
 		if ( $this->file ) {
 			$v = !feof( $this->file );
 		} else {
@@ -62,11 +66,12 @@ class UstringLibraryNormalizationTestProvider extends Scribunto_LuaDataProvider 
 		return $v;
 	}
 
+	#[\ReturnTypeWillChange]
 	public function current() {
 		return $this->current;
 	}
 
-	public function next() {
+	public function next(): void {
 		$this->current = [ null, null, null, null, null, null ];
 		while ( $this->valid() ) {
 			if ( $this->file ) {

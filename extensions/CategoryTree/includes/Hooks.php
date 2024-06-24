@@ -24,27 +24,26 @@
 
 namespace MediaWiki\Extension\CategoryTree;
 
-use Article;
-use Category;
-use Config;
-use Html;
-use IContextSource;
+use MediaWiki\Config\Config;
+use MediaWiki\Hook\CategoryViewer__doCategoryQueryHook;
+use MediaWiki\Hook\CategoryViewer__generateLinkHook;
 use MediaWiki\Hook\OutputPageMakeCategoryLinksHook;
-use MediaWiki\Hook\OutputPageParserOutputHook;
 use MediaWiki\Hook\ParserFirstCallInitHook;
 use MediaWiki\Hook\SkinBuildSidebarHook;
 use MediaWiki\Hook\SpecialTrackingCategories__generateCatLinkHook;
 use MediaWiki\Hook\SpecialTrackingCategories__preprocessHook;
-use MediaWiki\Page\Hook\ArticleFromTitleHook;
-use OutputPage;
+use MediaWiki\Html\Html;
+use MediaWiki\Linker\LinkTarget;
+use MediaWiki\Output\OutputPage;
+use MediaWiki\Parser\Sanitizer;
+use MediaWiki\ResourceLoader as RL;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
 use Parser;
-use ParserOutput;
 use PPFrame;
-use Sanitizer;
+use RequestContext;
 use Skin;
-use SpecialPage;
-use Title;
-use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\IResultWrapper;
 
 /**
  * Hooks for the CategoryTree extension, an AJAX based gadget
@@ -53,31 +52,27 @@ use Wikimedia\Rdbms\ILoadBalancer;
  * @phpcs:disable MediaWiki.NamingConventions.LowerCamelFunctionsName.FunctionName
  */
 class Hooks implements
-	ArticleFromTitleHook,
 	SpecialTrackingCategories__preprocessHook,
 	SpecialTrackingCategories__generateCatLinkHook,
-	OutputPageParserOutputHook,
 	SkinBuildSidebarHook,
 	ParserFirstCallInitHook,
-	OutputPageMakeCategoryLinksHook
+	OutputPageMakeCategoryLinksHook,
+	CategoryViewer__doCategoryQueryHook,
+	CategoryViewer__generateLinkHook
 {
 
-	private const EXTENSION_DATA_FLAG = 'CategoryTree';
+	/** @var CategoryCache */
+	private $categoryCache;
 
-	/** @var ILoadBalancer */
-	private $loadBalancer;
-
-	/**
-	 * @var Config
-	 */
+	/** @var Config */
 	private $config;
 
 	/**
-	 * @param ILoadBalancer $loadBalancer
+	 * @param CategoryCache $categoryCache
 	 * @param Config $config
 	 */
-	public function __construct( ILoadBalancer $loadBalancer, Config $config ) {
-		$this->loadBalancer = $loadBalancer;
+	public function __construct( CategoryCache $categoryCache, Config $config ) {
+		$this->categoryCache = $categoryCache;
 		$this->config = $config;
 	}
 
@@ -193,8 +188,9 @@ class Hooks implements
 		$allowMissing = false
 	) {
 		if ( $parser ) {
-			# flag for use by Hooks::parserOutput
-			$parser->getOutput()->setExtensionData( self::EXTENSION_DATA_FLAG, true );
+			$parserOutput = $parser->getOutput();
+			$parserOutput->addModuleStyles( [ 'ext.categoryTree.styles' ] );
+			$parserOutput->addModules( [ 'ext.categoryTree' ] );
 		}
 
 		$ct = new CategoryTree( $argv );
@@ -213,33 +209,6 @@ class Hooks implements
 		}
 
 		return $ct->getTag( $parser, $cat, $hideroot, $attr, $depth, $allowMissing );
-	}
-
-	/**
-	 * Hook callback that injects messages and things into the <head> tag,
-	 * if needed in the current page.
-	 * Does nothing if self::EXTENSION_DATA_FLAG is not set on $parserOutput extension data.
-	 * @param OutputPage $outputPage
-	 * @param ParserOutput $parserOutput
-	 */
-	public function onOutputPageParserOutput( $outputPage, $parserOutput ): void {
-		if ( $parserOutput->getExtensionData( self::EXTENSION_DATA_FLAG ) ) {
-			CategoryTree::setHeaders( $outputPage );
-		}
-	}
-
-	/**
-	 * ArticleFromTitle hook, override category page handling
-	 *
-	 * @param Title $title
-	 * @param Article|null &$article Article (object) that will be returned
-	 * @param IContextSource $context
-	 * @return bool|void True or no return value to continue or false to abort
-	 */
-	public function onArticleFromTitle( $title, &$article, $context ) {
-		if ( $title->getNamespace() === NS_CATEGORY ) {
-			$article = new CategoryTreeCategoryPage( $title );
-		}
 	}
 
 	/**
@@ -268,13 +237,13 @@ class Hooks implements
 	 * Get exported data for the "ext.categoryTree" ResourceLoader module.
 	 *
 	 * @internal For use in extension.json only.
+	 * @param RL\Context $context
+	 * @param Config $config
 	 * @return array Data to be serialised as data.json
 	 */
-	public static function getDataForJs() {
-		global $wgCategoryTreeCategoryPageOptions;
-
+	public static function getDataForJs( RL\Context $context, Config $config ) {
 		// Look, this is pretty bad but CategoryTree is just whacky, it needs to be rewritten
-		$ct = new CategoryTree( $wgCategoryTreeCategoryPageOptions );
+		$ct = new CategoryTree( $config->get( 'CategoryTreeCategoryPageOptions' ) );
 
 		return [
 			'defaultCtOptions' => $ct->getOptionsAsJsStructure(),
@@ -283,53 +252,75 @@ class Hooks implements
 
 	/**
 	 * Hook handler for the SpecialTrackingCategories::preprocess hook
-	 * @suppress PhanUndeclaredProperty SpecialPage->categoryTreeCategories
 	 * @param SpecialPage $specialPage SpecialTrackingCategories object
-	 * @param array $trackingCategories [ 'msg' => Title, 'cats' => Title[] ]
-	 * @phan-param array<string,array{msg:Title,cats:Title[]}> $trackingCategories
+	 * @param array $trackingCategories [ 'msg' => LinkTarget, 'cats' => LinkTarget[] ]
+	 * @phan-param array<string,array{msg:LinkTarget,cats:LinkTarget[]}> $trackingCategories
 	 */
 	public function onSpecialTrackingCategories__preprocess(
 		$specialPage,
 		$trackingCategories
 	) {
-		$categoryDbKeys = [];
-		foreach ( $trackingCategories as $catMsg => $data ) {
+		$categoryTargets = [];
+		foreach ( $trackingCategories as $data ) {
 			foreach ( $data['cats'] as $catTitle ) {
-				$categoryDbKeys[] = $catTitle->getDbKey();
+				$categoryTargets[] = $catTitle;
 			}
 		}
-		$categories = [];
-		if ( $categoryDbKeys ) {
-			$dbr = $this->loadBalancer->getConnectionRef( DB_REPLICA );
-			$res = $dbr->select(
-				'category',
-				[ 'cat_id', 'cat_title', 'cat_pages', 'cat_subcats', 'cat_files' ],
-				[ 'cat_title' => array_unique( $categoryDbKeys ) ],
-				__METHOD__
-			);
-			foreach ( $res as $row ) {
-				$categories[$row->cat_title] = Category::newFromRow( $row );
-			}
-		}
-		$specialPage->categoryTreeCategories = $categories;
+		$this->categoryCache->doQuery( $categoryTargets );
 	}
 
 	/**
 	 * Hook handler for the SpecialTrackingCategories::generateCatLink hook
-	 * @suppress PhanUndeclaredProperty SpecialPage->categoryTreeCategories
 	 * @param SpecialPage $specialPage SpecialTrackingCategories object
-	 * @param Title $catTitle Title object of the linked category
+	 * @param LinkTarget $catTitle LinkTarget object of the linked category
 	 * @param string &$html Result html
 	 */
 	public function onSpecialTrackingCategories__generateCatLink( $specialPage,
 		$catTitle, &$html
 	) {
-		if ( !isset( $specialPage->categoryTreeCategories ) ) {
-			return;
-		}
-
-		$cat = $specialPage->categoryTreeCategories[$catTitle->getDBkey()] ?? null;
+		$cat = $this->categoryCache->getCategory( $catTitle );
 
 		$html .= CategoryTree::createCountString( $specialPage->getContext(), $cat, 0 );
+	}
+
+	/**
+	 * @param string $type
+	 * @param IResultWrapper $res
+	 */
+	public function onCategoryViewer__doCategoryQuery( $type, $res ) {
+		if ( $type === 'subcat' && $res ) {
+			$this->categoryCache->fillFromQuery( $res );
+			CategoryTree::setHeaders( RequestContext::getMain()->getOutput() );
+		}
+	}
+
+	/**
+	 * @param string $type
+	 * @param Title $title
+	 * @param string $html
+	 * @param string &$link
+	 * @return bool
+	 */
+	public function onCategoryViewer__generateLink( $type, $title, $html, &$link ) {
+		if ( $type !== 'subcat' || $link !== null ) {
+			return true;
+		}
+
+		$request = RequestContext::getMain()->getRequest();
+		if ( $request->getCheck( 'notree' ) ) {
+			return true;
+		}
+
+		$options = $this->config->get( 'CategoryTreeCategoryPageOptions' );
+		$mode = $request->getRawVal( 'mode' );
+		if ( $mode !== null ) {
+			$options['mode'] = $mode;
+		}
+		$tree = new CategoryTree( $options );
+
+		$cat = $this->categoryCache->getCategory( $title );
+
+		$link = $tree->renderNodeInfo( $title, $cat );
+		return false;
 	}
 }

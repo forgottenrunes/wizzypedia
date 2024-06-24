@@ -20,6 +20,13 @@
  * @file
  */
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\Permissions\RestrictionStore;
+use MediaWiki\Title\NamespaceInfo;
+use MediaWiki\Title\Title;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\IntegerDef;
+
 /**
  * Query module to enumerate all available pages.
  *
@@ -27,27 +34,28 @@
  */
 class ApiQueryAllPages extends ApiQueryGeneratorBase {
 
-	/** @var NamespaceInfo */
-	private $namespaceInfo;
-
-	/** @var GenderCache */
-	private $genderCache;
+	private NamespaceInfo $namespaceInfo;
+	private GenderCache $genderCache;
+	private RestrictionStore $restrictionStore;
 
 	/**
 	 * @param ApiQuery $query
 	 * @param string $moduleName
 	 * @param NamespaceInfo $namespaceInfo
 	 * @param GenderCache $genderCache
+	 * @param RestrictionStore $restrictionStore
 	 */
 	public function __construct(
 		ApiQuery $query,
 		$moduleName,
 		NamespaceInfo $namespaceInfo,
-		GenderCache $genderCache
+		GenderCache $genderCache,
+		RestrictionStore $restrictionStore
 	) {
 		parent::__construct( $query, $moduleName, 'ap' );
 		$this->namespaceInfo = $namespaceInfo;
 		$this->genderCache = $genderCache;
+		$this->restrictionStore = $restrictionStore;
 	}
 
 	public function execute() {
@@ -83,14 +91,12 @@ class ApiQueryAllPages extends ApiQueryGeneratorBase {
 		$this->addTables( 'page' );
 
 		if ( $params['continue'] !== null ) {
-			$cont = explode( '|', $params['continue'] );
-			$this->dieContinueUsageIf( count( $cont ) != 1 );
-			$op = $params['dir'] == 'descending' ? '<' : '>';
-			$cont_from = $db->addQuotes( $cont[0] );
-			$this->addWhere( "page_title $op= $cont_from" );
+			$cont = $this->parseContinueParamOrDie( $params['continue'], [ 'string' ] );
+			$op = $params['dir'] == 'descending' ? '<=' : '>=';
+			$this->addWhere( $db->buildComparison( $op, [ 'page_title' => $cont[0] ] ) );
 		}
 
-		$miserMode = $this->getConfig()->get( 'MiserMode' );
+		$miserMode = $this->getConfig()->get( MainConfigNames::MiserMode );
 		if ( !$miserMode ) {
 			if ( $params['filterredir'] == 'redirects' ) {
 				$this->addWhereFld( 'page_is_redirect', 1 );
@@ -175,7 +181,7 @@ class ApiQueryAllPages extends ApiQueryGeneratorBase {
 			$forceNameTitleIndex = false;
 
 			if ( $params['prexpiry'] == 'indefinite' ) {
-				$this->addWhere( "pr_expiry = {$db->addQuotes( $db->getInfinity() )} OR pr_expiry IS NULL" );
+				$this->addWhereFld( 'pr_expiry', [ $db->getInfinity(), null ] );
 			} elseif ( $params['prexpiry'] == 'definite' ) {
 				$this->addWhere( "pr_expiry != {$db->addQuotes( $db->getInfinity() )}" );
 			}
@@ -190,7 +196,7 @@ class ApiQueryAllPages extends ApiQueryGeneratorBase {
 		if ( $params['filterlanglinks'] == 'withoutlanglinks' ) {
 			$this->addTables( 'langlinks' );
 			$this->addJoinConds( [ 'langlinks' => [ 'LEFT JOIN', 'page_id=ll_from' ] ] );
-			$this->addWhere( 'll_from IS NULL' );
+			$this->addWhere( [ 'll_from' => null ] );
 			$forceNameTitleIndex = false;
 		} elseif ( $params['filterlanglinks'] == 'withlanglinks' ) {
 			$this->addTables( 'langlinks' );
@@ -284,72 +290,74 @@ class ApiQueryAllPages extends ApiQueryGeneratorBase {
 			'to' => null,
 			'prefix' => null,
 			'namespace' => [
-				ApiBase::PARAM_DFLT => NS_MAIN,
-				ApiBase::PARAM_TYPE => 'namespace',
+				ParamValidator::PARAM_DEFAULT => NS_MAIN,
+				ParamValidator::PARAM_TYPE => 'namespace',
 			],
 			'filterredir' => [
-				ApiBase::PARAM_DFLT => 'all',
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_DEFAULT => 'all',
+				ParamValidator::PARAM_TYPE => [
 					'all',
 					'redirects',
 					'nonredirects'
 				]
 			],
+			'filterlanglinks' => [
+				ParamValidator::PARAM_TYPE => [
+					'withlanglinks',
+					'withoutlanglinks',
+					'all'
+				],
+				ParamValidator::PARAM_DEFAULT => 'all'
+			],
 			'minsize' => [
-				ApiBase::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_TYPE => 'integer',
 			],
 			'maxsize' => [
-				ApiBase::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_TYPE => 'integer',
 			],
 			'prtype' => [
-				ApiBase::PARAM_TYPE => Title::getFilteredRestrictionTypes( true ),
-				ApiBase::PARAM_ISMULTI => true
+				ParamValidator::PARAM_TYPE => $this->restrictionStore->listAllRestrictionTypes( true ),
+				ParamValidator::PARAM_ISMULTI => true
 			],
 			'prlevel' => [
-				ApiBase::PARAM_TYPE => $this->getConfig()->get( 'RestrictionLevels' ),
-				ApiBase::PARAM_ISMULTI => true
+				ParamValidator::PARAM_TYPE =>
+					$this->getConfig()->get( MainConfigNames::RestrictionLevels ),
+				ParamValidator::PARAM_ISMULTI => true
 			],
 			'prfiltercascade' => [
-				ApiBase::PARAM_DFLT => 'all',
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_DEFAULT => 'all',
+				ParamValidator::PARAM_TYPE => [
 					'cascading',
 					'noncascading',
 					'all'
 				],
 			],
-			'limit' => [
-				ApiBase::PARAM_DFLT => 10,
-				ApiBase::PARAM_TYPE => 'limit',
-				ApiBase::PARAM_MIN => 1,
-				ApiBase::PARAM_MAX => ApiBase::LIMIT_BIG1,
-				ApiBase::PARAM_MAX2 => ApiBase::LIMIT_BIG2
-			],
-			'dir' => [
-				ApiBase::PARAM_DFLT => 'ascending',
-				ApiBase::PARAM_TYPE => [
-					'ascending',
-					'descending'
-				]
-			],
-			'filterlanglinks' => [
-				ApiBase::PARAM_TYPE => [
-					'withlanglinks',
-					'withoutlanglinks',
-					'all'
-				],
-				ApiBase::PARAM_DFLT => 'all'
-			],
 			'prexpiry' => [
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_TYPE => [
 					'indefinite',
 					'definite',
 					'all'
 				],
-				ApiBase::PARAM_DFLT => 'all'
+				ParamValidator::PARAM_DEFAULT => 'all',
+				ApiBase::PARAM_HELP_MSG_PER_VALUE => [],
+			],
+			'limit' => [
+				ParamValidator::PARAM_DEFAULT => 10,
+				ParamValidator::PARAM_TYPE => 'limit',
+				IntegerDef::PARAM_MIN => 1,
+				IntegerDef::PARAM_MAX => ApiBase::LIMIT_BIG1,
+				IntegerDef::PARAM_MAX2 => ApiBase::LIMIT_BIG2
+			],
+			'dir' => [
+				ParamValidator::PARAM_DEFAULT => 'ascending',
+				ParamValidator::PARAM_TYPE => [
+					'ascending',
+					'descending'
+				]
 			],
 		];
 
-		if ( $this->getConfig()->get( 'MiserMode' ) ) {
+		if ( $this->getConfig()->get( MainConfigNames::MiserMode ) ) {
 			$ret['filterredir'][ApiBase::PARAM_HELP_MSG_APPEND] = [ 'api-help-param-limited-in-miser-mode' ];
 		}
 

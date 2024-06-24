@@ -22,80 +22,74 @@
  * @ingroup Testing
  */
 
-if ( PHP_SAPI !== 'cli' ) {
-	die( 'This file is only meant to be executed indirectly by PHPUnit\'s bootstrap process!' );
-}
+use MediaWiki\MainConfigSchema;
 
-/**
- * PHPUnit includes the bootstrap file inside a method body, while most MediaWiki startup files
- * assume to be included in the global scope.
- * This utility provides a way to include these files: it makes all globals available in the
- * inclusion scope before including the file, then exports all new or changed globals.
- *
- * @param string $fileName the file to include
- */
-function wfRequireOnceInGlobalScope( $fileName ) {
-	// phpcs:disable MediaWiki.Usage.ForbiddenFunctions.extract
-	extract( $GLOBALS, EXTR_REFS | EXTR_SKIP );
-	// phpcs:enable
+require_once __DIR__ . '/bootstrap.common.php';
 
-	require_once $fileName;
-
-	foreach ( get_defined_vars() as $varName => $value ) {
-		$GLOBALS[$varName] = $value;
-	}
-}
-
-define( 'MEDIAWIKI', true );
-define( 'MW_PHPUNIT_TEST', true );
-define( 'MW_ENTRY_POINT', 'cli' );
-
-$IP = realpath( __DIR__ . '/../../' );
-// We don't use a settings file here but some code still assumes that one exists
-wfRequireOnceInGlobalScope( "$IP/includes/BootstrapHelperFunctions.php" );
-wfDetectLocalSettingsFile( $IP );
-define( 'MW_INSTALL_PATH', $IP );
-
-// these variables must be defined before setup runs
-$GLOBALS['IP'] = $IP;
-
-require_once "$IP/tests/common/TestSetup.php";
-TestSetup::snapshotGlobals();
+/** @internal Should only be used in MediaWikiIntegrationTestCase::initializeForStandardPhpunitEntrypointIfNeeded() */
+define( 'MW_PHPUNIT_UNIT', true );
 
 // Faking in lieu of Setup.php
-$GLOBALS['wgScopeTest'] = 'MediaWiki Setup.php scope test';
-$GLOBALS['wgCommandLineMode'] = true;
 $GLOBALS['wgAutoloadClasses'] = [];
+$GLOBALS['wgBaseDirectory'] = MW_INSTALL_PATH;
 
-wfRequireOnceInGlobalScope( "$IP/includes/AutoLoader.php" );
-wfRequireOnceInGlobalScope( "$IP/tests/common/TestsAutoLoader.php" );
-wfRequireOnceInGlobalScope( "$IP/includes/Defines.php" );
-wfRequireOnceInGlobalScope( "$IP/includes/DefaultSettings.php" );
-wfRequireOnceInGlobalScope( "$IP/includes/DevelopmentSettings.php" );
-wfRequireOnceInGlobalScope( "$IP/includes/GlobalFunctions.php" );
+TestSetup::requireOnceInGlobalScope( MW_INSTALL_PATH . "/includes/AutoLoader.php" );
+TestSetup::requireOnceInGlobalScope( MW_INSTALL_PATH . "/tests/common/TestsAutoLoader.php" );
+TestSetup::requireOnceInGlobalScope( MW_INSTALL_PATH . "/includes/Defines.php" );
+TestSetup::requireOnceInGlobalScope( MW_INSTALL_PATH . "/includes/GlobalFunctions.php" );
+
+// Extract the defaults into global variables.
+// NOTE: this does not apply any dynamic defaults.
+foreach ( MainConfigSchema::listDefaultValues( 'wg' ) as $var => $value ) {
+	$GLOBALS[$var] = $value;
+}
+
+TestSetup::requireOnceInGlobalScope( MW_INSTALL_PATH . "/includes/DevelopmentSettings.php" );
 
 TestSetup::applyInitialConfig();
-MediaWikiCliOptions::initialize();
 
-// Since we do not load settings, expect to find extensions and skins
-// in their respective default locations.
-$GLOBALS['wgExtensionDirectory'] = "$IP/extensions";
-$GLOBALS['wgStyleDirectory'] = "$IP/skins";
+// Shell out to another script that will give us a list of loaded extensions and skins. We need to do that in another
+// process, not in this one, because loading setting files may have non-trivial side effects that could be hard
+// to undo. This sucks, but there doesn't seem to be a way to get a list of extensions and skins without loading
+// all of MediaWiki, which we don't want to do for unit tests.
+// phpcs:ignore MediaWiki.Usage.ForbiddenFunctions.proc_open
+$process = proc_open(
+	__DIR__ . '/getPHPUnitExtensionsAndSkins.php',
+	[
+		0 => [ 'pipe', 'r' ],
+		1 => [ 'pipe', 'w' ],
+		2 => [ 'pipe', 'w' ]
+	],
+	$pipes
+);
 
-// Populate classes and namespaces from extensions and skins present in filesystem.
-$directoryToJsonMap = [
-	$GLOBALS['wgExtensionDirectory'] => 'extension*.json',
-	$GLOBALS['wgStyleDirectory'] => 'skin*.json'
-];
-foreach ( $directoryToJsonMap as $directory => $jsonFilePattern ) {
-	foreach ( new GlobIterator( $directory . '/*/' . $jsonFilePattern ) as $iterator ) {
-		$jsonPath = $iterator->getPathname();
-		// ExtensionRegistry->readFromQueue is not used as it checks extension/skin
-		// dependencies, which we don't need or want for unit tests.
-		$json = file_get_contents( $jsonPath );
-		$info = json_decode( $json, true );
-		$dir = dirname( $jsonPath );
-		ExtensionRegistry::exportAutoloadClassesAndNamespaces( $dir, $info );
-		ExtensionRegistry::exportTestAutoloadClassesAndNamespaces( $dir, $info );
-	}
+$pathsToJsonFilesStr = stream_get_contents( $pipes[1] );
+fclose( $pipes[1] );
+$cmdErr = stream_get_contents( $pipes[2] );
+fclose( $pipes[2] );
+$exitCode = proc_close( $process );
+if ( $exitCode !== 0 ) {
+	echo "Cannot load list of extensions and skins. Output:\n$cmdErr\n";
+	exit( 1 );
 }
+
+$pathsToJsonFiles = explode( "\n", $pathsToJsonFilesStr );
+
+/** @internal For use in ExtensionsUnitTestSuite and SkinsUnitTestSuite only */
+define( 'MW_PHPUNIT_EXTENSIONS_PATHS', array_map( 'dirname', $pathsToJsonFiles ) );
+
+$extensionProcessor = new ExtensionProcessor();
+
+foreach ( $pathsToJsonFiles as $filePath ) {
+	$extensionProcessor->extractInfoFromFile( $filePath );
+}
+
+$autoload = $extensionProcessor->getExtractedAutoloadInfo( true );
+AutoLoader::loadFiles( $autoload['files'] );
+AutoLoader::registerClasses( $autoload['classes'] );
+AutoLoader::registerNamespaces( $autoload['namespaces'] );
+
+// More faking in lieu of Setup.php
+Profiler::init( [] );
+
+TestSetup::maybeCheckComposerLockUpToDate();

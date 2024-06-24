@@ -1,10 +1,8 @@
 <?php
 /** Simplified Chinese (中文（简体）)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author A911504820
  * @author Alebcay
@@ -67,6 +65,7 @@
  * @author User670839245
  * @author Waihorace
  * @author Wilsonmess
+ * @author Winston Sung
  * @author Wmr89502270
  * @author Wong128hk
  * @author Wrightbus
@@ -80,10 +79,12 @@
  * @author 阿pp
  */
 
+$fallback = 'zh-cn, zh, zh-hant';
+
 $fallback8bitEncoding = 'windows-936';
 
 $namespaceNames = [
-	NS_MEDIA            => '媒体文件',
+	NS_MEDIA            => '媒体',
 	NS_SPECIAL          => '特殊',
 	NS_TALK             => '讨论',
 	NS_USER             => '用户',
@@ -103,32 +104,51 @@ $namespaceNames = [
 
 $namespaceAliases = [
 	'媒体'	=> NS_MEDIA,
+	'媒体文件'	=> NS_MEDIA,
+	'媒体档案'	=> NS_MEDIA,
 	'特殊'  => NS_SPECIAL,
-	'对话'  => NS_TALK,
 	'讨论'	=> NS_TALK,
+	'对话'  => NS_TALK,
 	'用户'  => NS_USER,
-	'用户对话' => NS_USER_TALK,
 	'用户讨论' => NS_USER_TALK,
-	'图像' => NS_FILE,
-	'档案' => NS_FILE,
-	'文件' => NS_FILE,
+	'用户对话' => NS_USER_TALK,
+	'使用者讨论' => NS_USER_TALK,
+	'使用者对话' => NS_USER_TALK,
+	# '项目' conflicted with WB_NS_ITEM
+	'专案' => NS_PROJECT,
+	"$1讨论" => NS_PROJECT_TALK,
+	"$1对话" => NS_PROJECT_TALK,
+	# "项目讨论" conflicted with WB_NS_ITEM_TALK
+	'专案讨论' => NS_PROJECT_TALK,
 	'Image' => NS_FILE,
+	'文件' => NS_FILE,
+	'档案' => NS_FILE,
+	'图像' => NS_FILE,
+	'图片' => NS_FILE,
 	'Image_talk' => NS_FILE_TALK,
-	'图像对话' => NS_FILE_TALK,
-	'图像讨论' => NS_FILE_TALK,
-	'档案对话' => NS_FILE_TALK,
-	'档案讨论' => NS_FILE_TALK,
-	'文件对话' => NS_FILE_TALK,
 	'文件讨论' => NS_FILE_TALK,
-	'模板'	=> NS_TEMPLATE,
-	'模板对话' => NS_TEMPLATE_TALK,
+	'文件对话' => NS_FILE_TALK,
+	'档案讨论' => NS_FILE_TALK,
+	'档案对话' => NS_FILE_TALK,
+	'图像讨论' => NS_FILE_TALK,
+	'图像对话' => NS_FILE_TALK,
+	'图片讨论' => NS_FILE_TALK,
+	'模板' => NS_TEMPLATE,
+	'样板' => NS_TEMPLATE,
 	'模板讨论' => NS_TEMPLATE_TALK,
-	'帮助'	=> NS_HELP,
-	'帮助对话' => NS_HELP_TALK,
+	'模板对话' => NS_TEMPLATE_TALK,
+	'样板讨论' => NS_TEMPLATE_TALK,
+	'样板对话' => NS_TEMPLATE_TALK,
+	'帮助' => NS_HELP,
+	'说明' => NS_HELP,
+	'使用说明' => NS_HELP,
 	'帮助讨论' => NS_HELP_TALK,
-	'分类'	=> NS_CATEGORY,
-	'分类对话' => NS_CATEGORY_TALK,
+	'帮助对话' => NS_HELP_TALK,
+	'说明讨论' => NS_HELP_TALK,
+	'使用说明讨论' => NS_HELP_TALK,
+	'分类' => NS_CATEGORY,
 	'分类讨论' => NS_CATEGORY_TALK,
+	'分类对话' => NS_CATEGORY_TALK,
 ];
 
 /** @phpcs-require-sorted-array */
@@ -211,6 +231,7 @@ $specialPageAliases = [
 	'Recentchanges'             => [ '最近更改' ],
 	'Recentchangeslinked'       => [ '最近链出更改', '相关更改' ],
 	'Redirect'                  => [ '重定向' ],
+	'Renameuser'                => [ '重命名用户' ],
 	'ResetTokens'               => [ '重置权标' ],
 	'Revisiondelete'            => [ '删除修订', '恢复修订' ],
 	'RunJobs'                   => [ '运行工作' ],
@@ -426,12 +447,10 @@ $dateFormats = [
 
 $bookstoreList = [
 	'AddALL' => 'http://www.addall.com/New/Partner.cgi?query=$1&type=ISBN',
-	'Barnes & Noble' => 'http://search.barnesandnoble.com/bookSearch/isbnInquiry.asp?isbn=$1',
+	'Barnes & Noble' => 'https://www.barnesandnoble.com/w/?ean=$1',
 	'亚马逊' => 'https://www.amazon.com/exec/obidos/ISBN=$1',
-	'卓越亚马逊' => 'https://www.amazon.cn/mn/advancedSearchApp?isbn=$1',
-	'当当网' => 'http://search.dangdang.com/search.aspx?key=$1',
-	'博客来书店' => 'http://www.books.com.tw/exep/prod/booksfile.php?item=$1',
-	'三民书店' => 'http://www.sanmin.com.tw/page-qsearch.asp?ct=search_isbn&qu=$1',
-	'天下书店' => 'http://www.cwbook.com.tw/search/result1.jsp?field=2&keyWord=$1',
-	'新丝路书店' => 'http://www.silkbook.com/function/Search_list_book_data.asp?item=5&text=$1'
+	'亚马逊中国' => 'https://www.amazon.cn/s?i=stripbooks&k=$1',
+	'当当网' => 'https://search.dangdang.com/?key=$1',
+	'博客来书店' => 'https://search.books.com.tw/search/query/key/$1',
+	'三民书店' => 'https://www.sanmin.com.tw/Search/Index/?ct=ISBN&qu=$1',
 ];

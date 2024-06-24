@@ -2,8 +2,8 @@
 
 @import '../minerva.less/minerva.mixins.less';
 @import '../minerva.less/minerva.variables.less';
-@import 'mediawiki.ui/variables.less';
 @import 'mediawiki.ui/mixins.buttons.less';
+@import 'mediawiki.mixins.less';
 
 .action-history {
 	#mw-content-text > form {
@@ -24,15 +24,14 @@
 	// The large "Compare selected revisions" button container
 	.mw-history-compareselectedversions {
 		background: @background-color-base;
-		position: sticky;
-		position: -webkit-sticky;
+		.position-sticky();
 		top: 0;
 		z-index: @z-indexAboveContent;
 
 		// "Compare selected revisions" button
 		.mw-history-compareselectedversions-button {
 			.mw-ui-button();
-			.mw-ui-button-colors-primary( @colorProgressive, @colorProgressiveHighlight, @colorProgressiveActive );
+			.mw-ui-button-colors-primary( @color-progressive, @color-progressive--hover, @color-progressive--active );
 			width: 100%;
 			max-width: 100%;
 			-webkit-appearance: unset;
@@ -41,8 +40,12 @@
 			margin: 10px 0;
 		}
 
+		.mw-history-revisionactions {
+			margin-bottom: 2%;
+			white-space: pre-wrap;
+		}
+
 		// Admin specific "change visibility of selected revisions" buttons.
-		.mw-history-revisionactions,
 		.mw-checkbox-toggle-controls {
 			display: none;
 		}
@@ -62,11 +65,21 @@
 		}
 	}
 
+	.mw-thanks-thank-link {
+		margin-right: 1em;
+	}
+
+	.jquery-confirmable-text {
+		display: flex;
+		align-items: center;
+		padding-right: 8px;
+	}
+
 	// "Change visibility of selected revisions" button (for admins only)
 	.mw-history-revisiondelete-button {
 		.mw-ui-button();
 		.mw-ui-button-states();
-		background-color: @colorGray15;
+		background-color: @background-color-lightest;
 		margin-bottom: 1em;
 	}
 
@@ -76,13 +89,13 @@
 
 		li {
 			.changeslist-row();
-			.box-sizing( border-box );
+			box-sizing: border-box;
 			position: relative;
 			min-height: inherit;
 			padding: 12px 0 10px 60px;
 		}
 
-		li:after {
+		li::after {
 			.clearfix();
 		}
 
@@ -135,15 +148,14 @@
 	.mw-history-legend,
 	.history-size.mw-diff-bytes,
 	.mw-changeslist-separator,
-	.mw-thanks-thank-link,
 	abbr {
 		display: none;
 	}
 
 	// Disable the parentheseses around the undo and rollback link.
 	.mw-changeslist-links:not( .mw-usertoollinks ):not( .mw-history-histlinks ) {
-		& > span:after,
-		& > span:before {
+		& > span::after,
+		& > span::before {
 			content: '';
 		}
 	}

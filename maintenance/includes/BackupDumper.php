@@ -28,8 +28,9 @@
 require_once __DIR__ . '/../Maintenance.php';
 require_once __DIR__ . '/../../includes/export/WikiExporter.php';
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Settings\SettingsBuilder;
+use MediaWiki\WikiMap\WikiMap;
 use Wikimedia\Rdbms\IMaintainableDatabase;
 use Wikimedia\Rdbms\LoadBalancer;
 
@@ -179,7 +180,7 @@ abstract class BackupDumper extends Maintenance {
 		parent::finalSetup( $settingsBuilder );
 		// re-declare the --schema-version option to include the default schema version
 		// in the description.
-		$schemaVersion = $settingsBuilder->getConfig()->get( 'XmlDumpSchemaVersion' );
+		$schemaVersion = $settingsBuilder->getConfig()->get( MainConfigNames::XmlDumpSchemaVersion );
 		$this->addOption( 'schema-version', 'Schema version to use for output. ' .
 			'Default: ' . $schemaVersion, false, true );
 	}
@@ -215,10 +216,6 @@ abstract class BackupDumper extends Maintenance {
 		$register( $this );
 	}
 
-	public function execute() {
-		throw new MWException( 'execute() must be overridden in subclasses' );
-	}
-
 	/**
 	 * Processes arguments and sets $this->$sink accordingly
 	 */
@@ -246,7 +243,7 @@ abstract class BackupDumper extends Maintenance {
 					if ( count( $split ) !== 2 ) {
 						$this->fatalError( 'Invalid output parameter' );
 					}
-					list( $type, $file ) = $split;
+					[ $type, $file ] = $split;
 					if ( $sink !== null ) {
 						$sinks[] = $sink;
 					}
@@ -275,10 +272,10 @@ abstract class BackupDumper extends Maintenance {
 
 					$type = $this->filterTypes[$key];
 
-					if ( count( $split ) === 1 ) {
-						$filter = new $type( $sink );
-					} elseif ( count( $split ) === 2 ) {
+					if ( count( $split ) === 2 ) {
 						$filter = new $type( $sink, $split[1] );
+					} else {
+						$filter = new $type( $sink );
 					}
 
 					// references are lame in php...
@@ -328,7 +325,7 @@ abstract class BackupDumper extends Maintenance {
 		$this->initProgress( $history );
 
 		$db = $this->backupDb();
-		$services = MediaWikiServices::getInstance();
+		$services = $this->getServiceContainer();
 		$exporter = $services->getWikiExporterFactory()->getWikiExporter(
 			$db,
 			$history,
@@ -375,7 +372,7 @@ abstract class BackupDumper extends Maintenance {
 
 	/**
 	 * Initialise starting time and maximum revision count.
-	 * We'll make ETA calculations based an progress, assuming relatively
+	 * We'll make ETA calculations based on progress, assuming relatively
 	 * constant per-revision rate.
 	 * @param int $history WikiExporter::CURRENT or WikiExporter::FULL
 	 */
@@ -387,7 +384,10 @@ abstract class BackupDumper extends Maintenance {
 		if ( $this->forcedDb === null ) {
 			$dbr = $this->getDB( DB_REPLICA, [ 'dump' ] );
 		}
-		$this->maxCount = $dbr->selectField( $table, "MAX($field)", '', __METHOD__ );
+		$this->maxCount = $dbr->newSelectQueryBuilder()
+			->select( "MAX($field)" )
+			->from( $table )
+			->caller( __METHOD__ )->fetchField();
 		$this->startTime = microtime( true );
 		$this->lastTime = $this->startTime;
 		$this->ID = getmypid();
@@ -404,7 +404,7 @@ abstract class BackupDumper extends Maintenance {
 			return $this->forcedDb;
 		}
 
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
+		$lbFactory = $this->getServiceContainer()->getDBLoadBalancerFactory();
 		$this->lb = $lbFactory->newMainLB();
 		$db = $this->lb->getMaintenanceConnectionRef( DB_REPLICA, 'dump' );
 

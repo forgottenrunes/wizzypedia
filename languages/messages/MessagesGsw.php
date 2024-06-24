@@ -1,11 +1,8 @@
 <?php
 /** Swiss German (Alemannisch)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
- *
+ * @ingroup Languages
  */
 
 $fallback = 'de';
@@ -78,6 +75,7 @@ $specialPageAliases = [
 	'Randomredirect'            => [ 'Zuefelligi_Wyterleitig' ],
 	'Recentchanges'             => [ 'Letschti_Änderige' ],
 	'Recentchangeslinked'       => [ 'Änderige_an_verlinkte_Syte' ],
+	'Renameuser'                => [ 'Benutzer_e_andre_Name_gee' ],
 	'Revisiondelete'            => [ 'Versionsleschig' ],
 	'Search'                    => [ 'Suech' ],
 	'Shortpages'                => [ 'Churzi_Syte' ],

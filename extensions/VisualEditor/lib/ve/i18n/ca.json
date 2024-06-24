@@ -25,7 +25,6 @@
 		]
 	},
 	"visualeditor": "Editor visual",
-	"visualeditor-aliencontextitem-title": "Element",
 	"visualeditor-aliennode-tooltip": "Disculpeu, actualment aquest element només es pot modificar amb l'editor de codi font.",
 	"visualeditor-align-desc-center": "centre",
 	"visualeditor-align-desc-default": "per defecte",
@@ -64,7 +63,6 @@
 	"visualeditor-clipboard-paste-special": "Enganxa com a text pla",
 	"visualeditor-command-dialog-cancel": "Tanca / anul·la el canvi",
 	"visualeditor-command-dialog-confirm": "Confirma el canvi",
-	"visualeditor-commentinspector-edit": "Modifica el comentari",
 	"visualeditor-commentinspector-title": "Comentari",
 	"visualeditor-commentinspector-tooltip": "Comentari",
 	"visualeditor-content-select-all": "Selecciona-ho tot",
@@ -89,7 +87,6 @@
 	"visualeditor-dialog-table-title": "Propietats de la taula",
 	"visualeditor-diff-no-changes": "Sense canvis",
 	"visualeditor-find-and-replace-diacritic": "Insensible als diacrítics",
-	"visualeditor-find-and-replace-diacritic-unavailable": "Cerca insensible als diacrítics no disponible en aquest navegador",
 	"visualeditor-find-and-replace-done": "Fet",
 	"visualeditor-find-and-replace-find-text": "Cerca",
 	"visualeditor-find-and-replace-invalid-regex": "Expressió regular no vàlida",

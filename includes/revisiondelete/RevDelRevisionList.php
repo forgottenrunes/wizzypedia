@@ -25,8 +25,10 @@ use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\RevisionStore;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
 use Wikimedia\Rdbms\FakeResultWrapper;
-use Wikimedia\Rdbms\IDatabase;
+use Wikimedia\Rdbms\IResultWrapper;
 use Wikimedia\Rdbms\LBFactory;
 
 /**
@@ -52,9 +54,6 @@ class RevDelRevisionList extends RevDelList {
 	/** @var RevisionStore */
 	private $revisionStore;
 
-	/** @var WANObjectCache */
-	private $wanObjectCache;
-
 	/** @var int */
 	public $currentRevId;
 
@@ -66,7 +65,6 @@ class RevDelRevisionList extends RevDelList {
 	 * @param HookContainer $hookContainer
 	 * @param HtmlCacheUpdater $htmlCacheUpdater
 	 * @param RevisionStore $revisionStore
-	 * @param WANObjectCache $wanObjectCache
 	 */
 	public function __construct(
 		IContextSource $context,
@@ -75,15 +73,13 @@ class RevDelRevisionList extends RevDelList {
 		LBFactory $lbFactory,
 		HookContainer $hookContainer,
 		HtmlCacheUpdater $htmlCacheUpdater,
-		RevisionStore $revisionStore,
-		WANObjectCache $wanObjectCache
+		RevisionStore $revisionStore
 	) {
 		parent::__construct( $context, $page, $ids, $lbFactory );
 		$this->lbFactory = $lbFactory;
 		$this->hookRunner = new HookRunner( $hookContainer );
 		$this->htmlCacheUpdater = $htmlCacheUpdater;
 		$this->revisionStore = $revisionStore;
-		$this->wanObjectCache = $wanObjectCache;
 	}
 
 	public function getType() {
@@ -114,76 +110,37 @@ class RevDelRevisionList extends RevDelList {
 	}
 
 	/**
-	 * @param IDatabase $db
-	 * @return mixed
+	 * @param \Wikimedia\Rdbms\IReadableDatabase $db
+	 * @return IResultWrapper
 	 */
 	public function doQuery( $db ) {
 		$ids = array_map( 'intval', $this->ids );
-		$revQuery = $this->revisionStore->getQueryInfo( [ 'page', 'user' ] );
-		$queryInfo = [
-			'tables' => $revQuery['tables'],
-			'fields' => $revQuery['fields'],
-			'conds' => [
-				'rev_page' => $this->title->getArticleID(),
-				'rev_id' => $ids,
-			],
-			'options' => [
-				'ORDER BY' => 'rev_id DESC',
-				'USE INDEX' => [ 'revision' => 'PRIMARY' ] // workaround for MySQL bug (T104313)
-			],
-			'join_conds' => $revQuery['joins'],
-		];
-		ChangeTags::modifyDisplayQuery(
-			$queryInfo['tables'],
-			$queryInfo['fields'],
-			$queryInfo['conds'],
-			$queryInfo['join_conds'],
-			$queryInfo['options'],
-			''
-		);
+		$queryBuilder = $this->revisionStore->newSelectQueryBuilder( $db )
+			->joinComment()
+			->joinUser()
+			->joinPage()
+			->where( [ 'rev_page' => $this->page->getId(), 'rev_id' => $ids ] )
+			->orderBy( 'rev_id', \Wikimedia\Rdbms\SelectQueryBuilder::SORT_DESC )
+			// workaround for MySQL bug (T104313)
+			->useIndex( [ 'revision' => 'PRIMARY' ] );
 
-		$live = $db->select(
-			$queryInfo['tables'],
-			$queryInfo['fields'],
-			$queryInfo['conds'],
-			__METHOD__,
-			$queryInfo['options'],
-			$queryInfo['join_conds']
-		);
+		MediaWikiServices::getInstance()->getChangeTagsStore()->modifyDisplayQueryBuilder( $queryBuilder, 'revision' );
+
+		$live = $queryBuilder->caller( __METHOD__ )->fetchResultSet();
 		if ( $live->numRows() >= count( $ids ) ) {
 			// All requested revisions are live, keeps things simple!
 			return $live;
 		}
 
-		$arQuery = $this->revisionStore->getArchiveQueryInfo();
-		$archiveQueryInfo = [
-			'tables' => $arQuery['tables'],
-			'fields' => $arQuery['fields'],
-			'conds' => [
-				'ar_rev_id' => $ids,
-			],
-			'options' => [ 'ORDER BY' => 'ar_rev_id DESC' ],
-			'join_conds' => $arQuery['joins'],
-		];
+		$queryBuilder = $this->revisionStore->newArchiveSelectQueryBuilder( $db )
+			->joinComment()
+			->where( [ 'ar_rev_id' => $ids ] )
+			->orderBy( 'ar_rev_id', \Wikimedia\Rdbms\SelectQueryBuilder::SORT_DESC );
 
-		ChangeTags::modifyDisplayQuery(
-			$archiveQueryInfo['tables'],
-			$archiveQueryInfo['fields'],
-			$archiveQueryInfo['conds'],
-			$archiveQueryInfo['join_conds'],
-			$archiveQueryInfo['options'],
-			''
-		);
+		MediaWikiServices::getInstance()->getChangeTagsStore()->modifyDisplayQueryBuilder( $queryBuilder, 'archive' );
 
 		// Check if any requested revisions are available fully deleted.
-		$archived = $db->select(
-			$archiveQueryInfo['tables'],
-			$archiveQueryInfo['fields'],
-			$archiveQueryInfo['conds'],
-			__METHOD__,
-			$archiveQueryInfo['options'],
-			$archiveQueryInfo['join_conds']
-		);
+		$archived = $queryBuilder->caller( __METHOD__ )->fetchResultSet();
 
 		if ( $archived->numRows() == 0 ) {
 			return $live;
@@ -210,41 +167,37 @@ class RevDelRevisionList extends RevDelList {
 			return new RevDelArchivedRevisionItem( $this, $row );
 		} else {
 			// This shouldn't happen. :)
-			throw new MWException( 'Invalid row type in RevDelRevisionList' );
+			throw new InvalidArgumentException( 'Invalid row type in RevDelRevisionList' );
 		}
 	}
 
 	public function getCurrent() {
 		if ( $this->currentRevId === null ) {
-			$dbw = $this->lbFactory->getMainLB()->getConnectionRef( DB_PRIMARY );
-			$this->currentRevId = $dbw->selectField(
-				'page', 'page_latest', $this->title->pageCond(), __METHOD__ );
+			$dbw = $this->lbFactory->getPrimaryDatabase();
+			$this->currentRevId = $dbw->newSelectQueryBuilder()
+				->select( 'page_latest' )
+				->from( 'page' )
+				->where( [ 'page_namespace' => $this->page->getNamespace(), 'page_title' => $this->page->getDBkey() ] )
+				->caller( __METHOD__ )->fetchField();
 		}
 		return $this->currentRevId;
 	}
 
-	public function getSuppressBit() {
-		return RevisionRecord::DELETED_RESTRICTED;
-	}
-
 	public function doPreCommitUpdates() {
-		$this->title->invalidateCache();
+		Title::newFromPageIdentity( $this->page )->invalidateCache();
 		return Status::newGood();
 	}
 
 	public function doPostCommitUpdates( array $visibilityChangeMap ) {
 		$this->htmlCacheUpdater->purgeTitleUrls(
-			$this->title,
+			$this->page,
 			HtmlCacheUpdater::PURGE_INTENT_TXROUND_REFLECTED
 		);
 		// Extensions that require referencing previous revisions may need this
 		$this->hookRunner->onArticleRevisionVisibilitySet(
-			$this->title,
+			Title::newFromPageIdentity( $this->page ),
 			$this->ids,
 			$visibilityChangeMap
-		);
-		$this->wanObjectCache->touchCheckKey(
-			"RevDelRevisionList:page:{$this->title->getArticleID()}}"
 		);
 
 		return Status::newGood();

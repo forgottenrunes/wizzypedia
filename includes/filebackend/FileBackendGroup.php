@@ -25,7 +25,11 @@ use MediaWiki\Config\ServiceOptions;
 use MediaWiki\FileBackend\FSFile\TempFSFileFactory;
 use MediaWiki\FileBackend\LockManager\LockManagerGroupFactory;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Output\StreamFile;
+use MediaWiki\Status\Status;
 use Wikimedia\ObjectFactory\ObjectFactory;
+use Wikimedia\Rdbms\ReadOnlyMode;
 
 /**
  * Class to handle file backend registration
@@ -65,16 +69,16 @@ class FileBackendGroup {
 	 * @internal For use by ServiceWiring
 	 */
 	public const CONSTRUCTOR_OPTIONS = [
-		'DirectoryMode',
-		'FileBackends',
-		'ForeignFileRepos',
-		'LocalFileRepo',
+		MainConfigNames::DirectoryMode,
+		MainConfigNames::FileBackends,
+		MainConfigNames::ForeignFileRepos,
+		MainConfigNames::LocalFileRepo,
 		'fallbackWikiId',
 	];
 
 	/**
 	 * @param ServiceOptions $options
-	 * @param ConfiguredReadOnlyMode $configuredReadOnlyMode
+	 * @param ReadOnlyMode $readOnlyMode
 	 * @param BagOStuff $srvCache
 	 * @param WANObjectCache $wanCache
 	 * @param MimeAnalyzer $mimeAnalyzer
@@ -84,7 +88,7 @@ class FileBackendGroup {
 	 */
 	public function __construct(
 		ServiceOptions $options,
-		ConfiguredReadOnlyMode $configuredReadOnlyMode,
+		ReadOnlyMode $readOnlyMode,
 		BagOStuff $srvCache,
 		WANObjectCache $wanCache,
 		MimeAnalyzer $mimeAnalyzer,
@@ -101,12 +105,12 @@ class FileBackendGroup {
 		$this->objectFactory = $objectFactory;
 
 		// Register explicitly defined backends
-		$this->register( $options->get( 'FileBackends' ), $configuredReadOnlyMode->getReason() );
+		$this->register( $options->get( MainConfigNames::FileBackends ), $readOnlyMode->getConfiguredReason() );
 
 		$autoBackends = [];
 		// Automatically create b/c backends for file repos...
 		$repos = array_merge(
-			$options->get( 'ForeignFileRepos' ), [ $options->get( 'LocalFileRepo' ) ] );
+			$options->get( MainConfigNames::ForeignFileRepos ), [ $options->get( MainConfigNames::LocalFileRepo ) ] );
 		foreach ( $repos as $info ) {
 			$backendName = $info['backend'];
 			if ( is_object( $backendName ) || isset( $this->backends[$backendName] ) ) {
@@ -132,12 +136,12 @@ class FileBackendGroup {
 					"{$repoName}-temp" => "{$directory}/temp"
 				],
 				'fileMode' => $info['fileMode'] ?? 0644,
-				'directoryMode' => $options->get( 'DirectoryMode' ),
+				'directoryMode' => $options->get( MainConfigNames::DirectoryMode ),
 			];
 		}
 
 		// Register implicitly defined backends
-		$this->register( $autoBackends, $configuredReadOnlyMode->getReason() );
+		$this->register( $autoBackends, $readOnlyMode->getConfiguredReason() );
 	}
 
 	/**
@@ -160,9 +164,8 @@ class FileBackendGroup {
 			}
 			$class = $config['class'];
 
-			$config['domainId'] =
-				$config['domainId'] ?? $config['wikiId'] ?? $this->options->get( 'fallbackWikiId' );
-			$config['readOnly'] = $config['readOnly'] ?? $readOnlyReason;
+			$config['domainId'] ??= $config['wikiId'] ?? $this->options->get( 'fallbackWikiId' );
+			$config['readOnly'] ??= $readOnlyReason;
 
 			unset( $config['class'] ); // backend won't need this
 			$this->backends[$name] = [
@@ -251,7 +254,7 @@ class FileBackendGroup {
 	 * @return FileBackend|null Backend or null on failure
 	 */
 	public function backendFromPath( $storagePath ) {
-		list( $backend, , ) = FileBackend::splitStoragePath( $storagePath );
+		[ $backend, , ] = FileBackend::splitStoragePath( $storagePath );
 		if ( $backend !== null && isset( $this->backends[$backend] ) ) {
 			return $this->get( $backend );
 		}
@@ -273,7 +276,7 @@ class FileBackendGroup {
 		// For files without a valid extension (or one at all), inspect the contents
 		if ( !$type && $fsPath ) {
 			$type = $this->mimeAnalyzer->guessMimeType( $fsPath, false );
-		} elseif ( !$type && strlen( $content ) ) {
+		} elseif ( !$type && $content !== null && $content !== '' ) {
 			$tmpFile = $this->tmpFileFactory->newTempFSFile( 'mime_', '' );
 			file_put_contents( $tmpFile->getPath(), $content );
 			$type = $this->mimeAnalyzer->guessMimeType( $tmpFile->getPath(), false );

@@ -1,5 +1,13 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\MainConfigSchema;
+
+/**
+ * @covers ObjectCache
+ * @group BagOStuff
+ * @group Database
+ */
 class ObjectCacheTest extends MediaWikiIntegrationTestCase {
 
 	protected function setUp(): void {
@@ -7,11 +15,15 @@ class ObjectCacheTest extends MediaWikiIntegrationTestCase {
 		parent::setUp();
 
 		$this->setCacheConfig();
-		$this->setMwGlobals( [
-			'wgMainCacheType' => CACHE_NONE,
-			'wgMessageCacheType' => CACHE_NONE,
-			'wgParserCacheType' => CACHE_NONE,
+		$this->setMainCache( CACHE_NONE );
+		$this->overrideConfigValues( [
+			MainConfigNames::MessageCacheType => CACHE_NONE,
+			MainConfigNames::ParserCacheType => CACHE_NONE,
 		] );
+	}
+
+	protected function tearDown(): void {
+		ObjectCache::$localServerCacheClass = null;
 	}
 
 	private function setCacheConfig( $arr = [] ) {
@@ -19,15 +31,15 @@ class ObjectCacheTest extends MediaWikiIntegrationTestCase {
 			CACHE_NONE => [ 'class' => EmptyBagOStuff::class ],
 			CACHE_DB => [ 'class' => SqlBagOStuff::class ],
 			CACHE_ANYTHING => [ 'factory' => 'ObjectCache::newAnything' ],
-			// Mock ACCEL with 'hash' as being installed.
-			// This makes tests deterministic regardless of APC.
-			CACHE_ACCEL => [ 'class' => HashBagOStuff::class ],
+			CACHE_ACCEL => [ 'factory' => 'ObjectCache::getLocalServerInstance' ],
 			'hash' => [ 'class' => HashBagOStuff::class ],
 		];
-		$this->setMwGlobals( 'wgObjectCaches', $arr + $defaults );
+		$this->overrideConfigValue( MainConfigNames::ObjectCaches, $arr + $defaults );
+		// Mock ACCEL with 'hash' as being installed.
+		// This makes tests deterministic regardless of APC.
+		ObjectCache::$localServerCacheClass = 'HashBagOStuff';
 	}
 
-	/** @covers ObjectCache::newAnything */
 	public function testNewAnythingNothing() {
 		$this->assertInstanceOf(
 			SqlBagOStuff::class,
@@ -36,11 +48,8 @@ class ObjectCacheTest extends MediaWikiIntegrationTestCase {
 		);
 	}
 
-	/** @covers ObjectCache::newAnything */
 	public function testNewAnythingHash() {
-		$this->setMwGlobals( [
-			'wgMainCacheType' => 'hash'
-		] );
+		$this->setMainCache( CACHE_HASH );
 
 		$this->assertInstanceOf(
 			HashBagOStuff::class,
@@ -49,11 +58,8 @@ class ObjectCacheTest extends MediaWikiIntegrationTestCase {
 		);
 	}
 
-	/** @covers ObjectCache::newAnything */
 	public function testNewAnythingAccel() {
-		$this->setMwGlobals( [
-			'wgMainCacheType' => CACHE_ACCEL
-		] );
+		$this->setMainCache( CACHE_ACCEL );
 
 		$this->assertInstanceOf(
 			HashBagOStuff::class,
@@ -62,16 +68,10 @@ class ObjectCacheTest extends MediaWikiIntegrationTestCase {
 		);
 	}
 
-	/** @covers ObjectCache::newAnything */
 	public function testNewAnythingNoAccel() {
-		$this->setMwGlobals( [
-			'wgMainCacheType' => CACHE_ACCEL
-		] );
-
-		$this->setCacheConfig( [
-			// Mock APC not being installed (T160519, T147161)
-			CACHE_ACCEL => [ 'class' => EmptyBagOStuff::class ]
-		] );
+		// Mock APC not being installed (T160519, T147161)
+		ObjectCache::$localServerCacheClass = EmptyBagOStuff::class;
+		$this->setMainCache( CACHE_ACCEL );
 
 		$this->assertInstanceOf(
 			SqlBagOStuff::class,
@@ -80,18 +80,14 @@ class ObjectCacheTest extends MediaWikiIntegrationTestCase {
 		);
 	}
 
-	/** @covers ObjectCache::newAnything */
 	public function testNewAnythingNoAccelNoDb() {
-		$this->setMwGlobals( [
-			'wgMainCacheType' => CACHE_ACCEL
-		] );
-
 		$this->setCacheConfig( [
 			// Mock APC not being installed (T160519, T147161)
 			CACHE_ACCEL => [ 'class' => EmptyBagOStuff::class ]
 		] );
+		$this->setMainCache( CACHE_ACCEL );
 
-		MediaWiki\MediaWikiServices::disableStorageBackend();
+		$this->getServiceContainer()->disableStorage();
 
 		$this->assertInstanceOf(
 			EmptyBagOStuff::class,
@@ -100,14 +96,39 @@ class ObjectCacheTest extends MediaWikiIntegrationTestCase {
 		);
 	}
 
-	/** @covers ObjectCache::newAnything */
 	public function testNewAnythingNothingNoDb() {
-		MediaWiki\MediaWikiServices::disableStorageBackend();
+		$this->getServiceContainer()->disableStorage();
 
 		$this->assertInstanceOf(
 			EmptyBagOStuff::class,
 			ObjectCache::newAnything( [] ),
 			'No available types or DB. Fallback to none.'
 		);
+	}
+
+	public static function provideIsDatabaseId() {
+		return [
+			[ CACHE_DB, CACHE_NONE, true ],
+			[ 'db-replicated', CACHE_NONE, true ],
+			[ CACHE_ANYTHING, CACHE_DB, true ],
+			[ CACHE_ANYTHING, 'hash', false ],
+			[ CACHE_ANYTHING, CACHE_ANYTHING, true ]
+		];
+	}
+
+	/**
+	 * @dataProvider provideIsDatabaseId
+	 * @param string|int $id
+	 * @param string|int $mainCacheType
+	 * @param bool $expected
+	 */
+	public function testIsDatabaseId( $id, $mainCacheType, $expected ) {
+		$this->setCacheConfig( [
+			'db-replicated' => MainConfigSchema::ObjectCaches['default']['db-replicated']
+		] );
+		$this->overrideConfigValues( [
+			MainConfigNames::MainCacheType => $mainCacheType
+		] );
+		$this->assertSame( $expected, ObjectCache::isDatabaseId( $id ) );
 	}
 }

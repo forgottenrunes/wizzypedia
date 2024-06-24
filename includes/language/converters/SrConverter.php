@@ -1,7 +1,5 @@
 <?php
 /**
- * Serbian (Српски / Srpski) specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,17 +16,18 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
 
 /**
+ * Serbian (Српски / Srpski) specific code.
+ *
  * There are two levels of conversion for Serbian: the script level
  * (Cyrillics <-> Latin), and the variant level (ekavian
  * <->iyekavian). The two are orthogonal. So we really only need two
  * dictionaries: one for Cyrillics and Latin, and one for ekavian and
  * iyekavian.
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class SrConverter extends LanguageConverterSpecific {
 
@@ -74,32 +73,14 @@ class SrConverter extends LanguageConverterSpecific {
 		'Nj' => 'Њ', 'n!j' => 'нј', 'N!j' => 'Нј', 'N!J' => 'НЈ'
 	];
 
-	/**
-	 * Get Main language code.
-	 * @since 1.36
-	 *
-	 * @return string
-	 */
 	public function getMainCode(): string {
 		return 'sr';
 	}
 
-	/**
-	 * Get supported variants of the language.
-	 * @since 1.36
-	 *
-	 * @return array
-	 */
 	public function getLanguageVariants(): array {
 		return [ 'sr', 'sr-ec', 'sr-el' ];
 	}
 
-	/**
-	 * Get language variants fallbacks.
-	 * @since 1.36
-	 *
-	 * @return array
-	 */
 	public function getVariantsFallbacks(): array {
 		return [
 			'sr' => 'sr-ec',
@@ -108,12 +89,6 @@ class SrConverter extends LanguageConverterSpecific {
 		];
 	}
 
-	/**
-	 * Get strings that maps to the flags.
-	 * @since 1.36
-	 *
-	 * @return array
-	 */
 	protected function getAdditionalFlags(): array {
 		return [
 			'S' => 'S',
@@ -127,8 +102,8 @@ class SrConverter extends LanguageConverterSpecific {
 		];
 	}
 
-	protected function loadDefaultTables() {
-		$this->mTables = [
+	protected function loadDefaultTables(): array {
+		return [
 			'sr-ec' => new ReplacementArray( $this->mToCyrillics ),
 			'sr-el' => new ReplacementArray( $this->mToLatin ),
 			'sr' => new ReplacementArray()
@@ -136,55 +111,14 @@ class SrConverter extends LanguageConverterSpecific {
 	}
 
 	/**
-	 *  It translates text into variant, specials:
-	 *    - ommiting roman numbers
+	 * Omits roman numbers
 	 *
-	 * @param string $text
-	 * @param string $toVariant
-	 *
-	 * @throws MWException
-	 * @return string
+	 * @inheritDoc
 	 */
-	public function translate( $text, $toVariant ) {
-		$breaks = '[^\w\x80-\xff]';
-
-		// regexp for roman numbers
-		// Lookahead assertion ensures $roman doesn't match the empty string
-		$roman = '(?=[MDCLXVI])M{0,4}(C[DM]|D?C{0,3})(X[LC]|L?X{0,3})(I[VX]|V?I{0,3})';
-
-		$reg = '/^' . $roman . '$|^' . $roman . $breaks . '|' . $breaks
-			. $roman . '$|' . $breaks . $roman . $breaks . '/';
-
-		$matches = preg_split( $reg, $text, -1, PREG_SPLIT_OFFSET_CAPTURE );
-
-		$m = array_shift( $matches );
-		$this->loadTables();
-		if ( !isset( $this->mTables[$toVariant] ) ) {
-			throw new MWException( "Broken variant table: "
-				. implode( ',', array_keys( $this->mTables ) ) );
-		}
-		$ret = $this->mTables[$toVariant]->replace( $m[0] );
-		$mstart = (int)$m[1] + strlen( $m[0] );
-		foreach ( $matches as $m ) {
-			$ret .= substr( $text, $mstart, (int)$m[1] - $mstart );
-			$ret .= parent::translate( $m[0], $toVariant );
-			$mstart = (int)$m[1] + strlen( $m[0] );
-		}
-
-		return $ret;
+	public function translate( $text, $variant ) {
+		return $this->translateWithoutRomanNumbers( $text, $variant );
 	}
 
-	/**
-	 * Guess if a text is written in Cyrillic or Latin.
-	 * Overrides LanguageConverter::guessVariant()
-	 *
-	 * @param string $text The text to be checked
-	 * @param string $variant Language code of the variant to be checked for
-	 * @return bool True if $text appears to be written in $variant
-	 *
-	 * @author Nikola Smolenski <smolensk@eunet.rs>
-	 * @since 1.19
-	 */
 	public function guessVariant( $text, $variant ) {
 		$numCyrillic = preg_match_all( "/[шђчћжШЂЧЋЖ]/u", $text, $dummy );
 		$numLatin = preg_match_all( "/[šđčćžŠĐČĆŽ]/u", $text, $dummy );

@@ -1,8 +1,24 @@
 <?php
 
+namespace MediaWiki\Extension\ConfirmEdit\FancyCaptcha;
+
+use Exception;
+use FileBackend;
+use FSFileBackend;
+use Html;
 use MediaWiki\Auth\AuthenticationRequest;
 use MediaWiki\Auth\AuthManager;
+use MediaWiki\Extension\ConfirmEdit\Auth\CaptchaAuthenticationRequest;
+use MediaWiki\Extension\ConfirmEdit\SimpleCaptcha\SimpleCaptcha;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\WikiMap\WikiMap;
+use MWTimestamp;
+use NullLockManager;
+use ObjectCache;
+use RequestContext;
+use SpecialPage;
+use StatusValue;
+use UnderflowException;
 
 /**
  * FancyCaptcha for displaying captchas precomputed by captcha.py
@@ -112,6 +128,8 @@ class FancyCaptcha extends SimpleCaptcha {
 
 		// Loaded only for clients with JS enabled
 		$modules[] = 'ext.confirmEdit.fancyCaptcha';
+		// FIXME: This should be removed (works around T341525)
+		$modules[] = 'mediawiki.ui.input';
 
 		$captchaReload = Html::element(
 			'small',
@@ -136,6 +154,7 @@ class FancyCaptcha extends SimpleCaptcha {
 					'alt'    => ''
 				]
 			) . $captchaReload . Html::closeElement( 'div' ) . Html::closeElement( 'div' ) . "\n" .
+			// FIXME: This should use CodexHTMLForm rather than Html::element
 			Html::element( 'input', [
 					'name' => 'wpCaptchaWord',
 					'class' => 'mw-ui-input',
@@ -367,11 +386,10 @@ class FancyCaptcha extends SimpleCaptcha {
 	 * @return bool|StatusValue
 	 */
 	public function showImage() {
-		global $wgOut, $wgRequest;
+		$context = RequestContext::getMain();
+		$context->getOutput()->disable();
 
-		$wgOut->disable();
-
-		$index = $wgRequest->getVal( 'wpCaptchaId' );
+		$index = $context->getRequest()->getVal( 'wpCaptchaId' );
 		$info = $this->retrieveCaptcha( $index );
 		if ( $info ) {
 			$timestamp = new MWTimestamp();
@@ -496,3 +514,5 @@ class FancyCaptcha extends SimpleCaptcha {
 		] + $formDescriptor['captchaWord'];
 	}
 }
+
+class_alias( FancyCaptcha::class, 'FancyCaptcha' );

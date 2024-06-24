@@ -21,6 +21,7 @@
  * @ingroup Media
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Shell\Shell;
 
@@ -50,9 +51,8 @@ class JpegHandler extends ExifBitmapHandler {
 	public function validateParam( $name, $value ) {
 		if ( $name === 'quality' ) {
 			return self::validateQuality( $value );
-		} else {
-			return parent::validateParam( $name, $value );
 		}
+		return parent::validateParam( $name, $value );
 	}
 
 	/** Validate and normalize quality value to be between 1 and 100 (inclusive).
@@ -106,7 +106,7 @@ class JpegHandler extends ExifBitmapHandler {
 			$meta = BitmapMetadataHandler::Jpeg( $filename );
 			if ( !is_array( $meta ) ) {
 				// This should never happen, but doesn't hurt to be paranoid.
-				throw new MWException( 'Metadata array is not an array' );
+				throw new InvalidJpegException( 'Metadata array is not an array' );
 			}
 			$meta['MEDIAWIKI_EXIF_VERSION'] = Exif::version();
 
@@ -121,9 +121,7 @@ class JpegHandler extends ExifBitmapHandler {
 			unset( $meta['SOF'] );
 			$info['metadata'] = $meta;
 			return $info;
-		} catch ( MWException $e ) {
-			// BitmapMetadataHandler throws an exception in certain exceptional
-			// cases like if file does not exist.
+		} catch ( InvalidJpegException $e ) {
 			wfDebug( __METHOD__ . ': ' . $e->getMessage() );
 
 			// This used to return an integer-like string from getMetadata(),
@@ -139,10 +137,10 @@ class JpegHandler extends ExifBitmapHandler {
 	 * @param array $params Rotate parameters.
 	 *    'rotation' clockwise rotation in degrees, allowed are multiples of 90
 	 * @since 1.21
-	 * @return bool|MediaTransformError
+	 * @return MediaTransformError|false
 	 */
 	public function rotate( $file, $params ) {
-		$jpegTran = MediaWikiServices::getInstance()->getMainConfig()->get( 'JpegTran' );
+		$jpegTran = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::JpegTran );
 
 		$rotation = ( $params['rotation'] + $this->getRotation( $file ) ) % 360;
 
@@ -167,9 +165,8 @@ class JpegHandler extends ExifBitmapHandler {
 			}
 
 			return false;
-		} else {
-			return parent::rotate( $file, $params );
 		}
+		return parent::rotate( $file, $params );
 	}
 
 	public function supportsBucketing() {
@@ -190,7 +187,7 @@ class JpegHandler extends ExifBitmapHandler {
 	 */
 	protected function transformImageMagick( $image, $params ) {
 		$useTinyRGBForJPGThumbnails = MediaWikiServices::getInstance()
-			->getMainConfig()->get( 'UseTinyRGBForJPGThumbnails' );
+			->getMainConfig()->get( MainConfigNames::UseTinyRGBForJPGThumbnails );
 
 		$ret = parent::transformImageMagick( $image, $params );
 
@@ -246,7 +243,7 @@ class JpegHandler extends ExifBitmapHandler {
 	public function swapICCProfile( $filepath, array $colorSpaces,
 		array $oldProfileStrings, $profileFilepath
 	) {
-		$exiftool = MediaWikiServices::getInstance()->getMainConfig()->get( 'Exiftool' );
+		$exiftool = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::Exiftool );
 
 		if ( !$exiftool || !is_executable( $exiftool ) ) {
 			return false;
@@ -264,7 +261,7 @@ class JpegHandler extends ExifBitmapHandler {
 			->execute();
 
 		// Explode EXIF data into an array with [0 => Color Space, 1 => Device Model Desc]
-		$data = explode( "\t", trim( $result->getStdout() ) );
+		$data = explode( "\t", trim( $result->getStdout() ), 3 );
 
 		if ( $result->getExitCode() !== 0 ) {
 			return false;

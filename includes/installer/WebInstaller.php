@@ -21,8 +21,11 @@
  * @ingroup Installer
  */
 
+use MediaWiki\Html\Html;
 use MediaWiki\Languages\LanguageNameUtils;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\Status\Status;
 
 /**
  * Class for the core installer web interface.
@@ -975,7 +978,7 @@ class WebInstaller extends Installer {
 		}
 
 		$s = "<ul>\n";
-		foreach ( $items as $value => $item ) {
+		foreach ( $items as $item ) {
 			$s .= "<li>$item</li>\n";
 		}
 		$s .= "</ul>\n";
@@ -1067,7 +1070,7 @@ class WebInstaller extends Installer {
 		foreach ( $varNames as $name ) {
 			$value = $this->request->getVal( $prefix . $name );
 			// T32524, do not trim passwords
-			if ( stripos( $name, 'password' ) === false ) {
+			if ( $value !== null && stripos( $name, 'password' ) === false ) {
 				$value = trim( $value );
 			}
 			$newValues[$name] = $value;
@@ -1246,18 +1249,17 @@ class WebInstaller extends Installer {
 	 */
 	protected static function infoBox( $rawHtml, $icon, $alt, $class = '' ) {
 		$s = Html::openElement( 'div', [ 'class' => 'mw-installer-box-left' ] ) .
-				Html::element( 'img',
-					[
-						'src' => $icon,
-						'alt' => $alt,
-					]
-				) .
-				Html::closeElement( 'div' );
-
-		$s .= Html::openElement( 'div', [ 'class' => 'mw-installer-box-right' ] ) .
-				$rawHtml .
-				Html::closeElement( 'div' );
-		$s .= Html::element( 'div', [ 'style' => 'clear: left;' ], ' ' );
+			Html::element( 'img',
+				[
+					'src' => $icon,
+					'alt' => $alt,
+				]
+			) .
+			Html::closeElement( 'div' ) .
+			Html::openElement( 'div', [ 'class' => 'mw-installer-box-right' ] ) .
+			$rawHtml .
+			Html::closeElement( 'div' ) .
+			Html::element( 'div', [ 'style' => 'clear: left;' ], ' ' );
 
 		return Html::warningBox( $s, $class )
 			. Html::element( 'div', [ 'style' => 'clear: left;' ], ' ' );

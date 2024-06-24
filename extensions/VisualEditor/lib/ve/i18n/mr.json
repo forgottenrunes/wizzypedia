@@ -14,7 +14,6 @@
 		]
 	},
 	"visualeditor": "यथादृश्यसंपादक",
-	"visualeditor-aliencontextitem-title": "बाब",
 	"visualeditor-aliennode-tooltip": "क्षमा असावी,सध्या हा घटक केवळ स्रोत-संपादनानेच संपादीत करता येतो.",
 	"visualeditor-align-widget-center": "केंद्रीत",
 	"visualeditor-align-widget-default": "अविचल (डिफॉल्ट)",
@@ -52,7 +51,6 @@
 	"visualeditor-clipboard-paste-special": "साधा मजकूर म्हणून डकवा",
 	"visualeditor-command-dialog-cancel": "बंद / रद्द करा बदल",
 	"visualeditor-command-dialog-confirm": "बदल नक्की करा",
-	"visualeditor-commentinspector-edit": "अभिप्राय संपादन करा",
 	"visualeditor-commentinspector-title": "टिप्पणी",
 	"visualeditor-commentinspector-tooltip": "टिप्पणी",
 	"visualeditor-content-select-all": "सर्व निवडा",
@@ -80,7 +78,6 @@
 	"visualeditor-dialog-table-title": "सारणी",
 	"visualeditor-diff-no-changes": "बदल नाहीत",
 	"visualeditor-find-and-replace-diacritic": "असंवेसनशिल उच्चारभेद",
-	"visualeditor-find-and-replace-diacritic-unavailable": "असंवेसनशिल उच्चारभेद, ह्या ब्राउजरवर शोध घेण शक्य नाही",
 	"visualeditor-find-and-replace-done": "झाले",
 	"visualeditor-find-and-replace-find-text": "शोधा",
 	"visualeditor-find-and-replace-invalid-regex": "अवैध नियमीत उत्तर",

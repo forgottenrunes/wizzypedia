@@ -85,13 +85,12 @@ class TokenizerUtils {
 
 	/**
 	 * FIXME: document
-	 * @param mixed $c
-	 * @return mixed
+	 * @param array $c
+	 * @return array
 	 */
-	public static function flattenStringlist( $c ) {
+	public static function flattenStringlist( array $c ): array {
 		$out = [];
 		$text = '';
-		// c will always be an array
 		$c = self::flattenIfArray( $c );
 		for ( $i = 0,  $l = count( $c );  $i < $l;  $i++ ) {
 			$ci = $c[$i];
@@ -169,9 +168,9 @@ class TokenizerUtils {
 		PHPUtils::pushArray( $tokens, $content );
 
 		if ( $addEndTag ) {
-			$dataAttribs = new DataParsoid;
-			$dataAttribs->tsr = new SourceRange( $endPos, $endPos );
-			$tokens[] = new EndTagTk( $tagName, [], $dataAttribs );
+			$dataParsoid = new DataParsoid;
+			$dataParsoid->tsr = new SourceRange( $endPos, $endPos );
+			$tokens[] = new EndTagTk( $tagName, [], $dataParsoid );
 		} else {
 			// We rely on our tree builder to close the table cell (td/th) as needed.
 			// We cannot close the cell here because cell content can come from
@@ -388,7 +387,7 @@ class TokenizerUtils {
 		}
 		if ( count( $buf ) ) {
 			array_splice( $attrs, -count( $buf ), count( $buf ) );
-			return [ 'buf' => $buf, 'commentStartPos' => $buf[0]->dataAttribs->tsr->start ];
+			return [ 'buf' => $buf, 'commentStartPos' => $buf[0]->dataParsoid->tsr->start ];
 		} else {
 			return null;
 		}
@@ -398,12 +397,13 @@ class TokenizerUtils {
 	 * Parser.php::makeFreeExternalLink). This list is slightly context-dependent because the
 	 * inclusion of the right parenthesis depends on whether the provided character array $arr
 	 * contains a left parenthesis.
-	 * @param array $arr
+	 * @param bool $hasLeftParen should be true if the URL in question contains
+	 *   a left parenthesis.
 	 * @return string
 	 */
-	public static function getAutoUrlTerminatingChars( array $arr ): string {
+	public static function getAutoUrlTerminatingChars( bool $hasLeftParen ): string {
 		$chars = Consts::$strippedUrlCharacters;
-		if ( array_search( '(', $arr, true ) === false ) {
+		if ( !$hasLeftParen ) {
 			$chars .= ')';
 		}
 		return $chars;
@@ -456,18 +456,10 @@ class TokenizerUtils {
 	}
 
 	/**
-	 * Is this an include directive?
-	 * @param string $name
-	 * @return bool
-	 */
-	public static function isIncludeTag( string $name ): bool {
-		return $name === 'includeonly' || $name === 'noinclude' || $name === 'onlyinclude';
-	}
-
-	/**
 	 * Resets $inclAnnRegExp to null to avoid test environment side effects
 	 */
 	public static function resetAnnotationIncludeRegex(): void {
 		self::$inclAnnRegExp = null;
 	}
+
 }

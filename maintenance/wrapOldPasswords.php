@@ -21,9 +21,9 @@
  * @ingroup Maintenance
  */
 
-require_once __DIR__ . '/Maintenance.php';
+use MediaWiki\User\User;
 
-use MediaWiki\MediaWikiServices;
+require_once __DIR__ . '/Maintenance.php';
 
 /**
  * Maintenance script to wrap all passwords of a certain type in a specified layered
@@ -45,7 +45,7 @@ class WrapOldPasswords extends Maintenance {
 	}
 
 	public function execute() {
-		$passwordFactory = MediaWikiServices::getInstance()->getPasswordFactory();
+		$passwordFactory = $this->getServiceContainer()->getPasswordFactory();
 
 		$typeInfo = $passwordFactory->getTypes();
 		$layeredType = $this->getOption( 'type' );
@@ -72,25 +72,19 @@ class WrapOldPasswords extends Maintenance {
 
 		$count = 0;
 		$minUserId = 0;
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 		do {
 			if ( $update ) {
 				$this->beginTransaction( $dbw, __METHOD__ );
 			}
 
-			$res = $dbw->select( 'user',
-				[ 'user_id', 'user_name', 'user_password' ],
-				[
-					'user_id > ' . $dbw->addQuotes( $minUserId ),
-					$typeCond
-				],
-				__METHOD__,
-				[
-					'ORDER BY' => 'user_id',
-					'LIMIT' => $this->getBatchSize(),
-					'LOCK IN SHARE MODE',
-				]
-			);
+			$res = $dbw->newSelectQueryBuilder()
+				->select( [ 'user_id', 'user_name', 'user_password' ] )
+				->lockInShareMode()
+				->from( 'user' )
+				->where( [ 'user_id > ' . $dbw->addQuotes( $minUserId ), $typeCond ] )
+				->orderBy( 'user_id' )
+				->limit( $this->getBatchSize() )
+				->caller( __METHOD__ )->fetchResultSet();
 
 			/** @var User[] $updateUsers */
 			$updateUsers = [];
@@ -126,7 +120,7 @@ class WrapOldPasswords extends Maintenance {
 
 			if ( $update ) {
 				$this->commitTransaction( $dbw, __METHOD__ );
-				$lbFactory->waitForReplication();
+				$this->waitForReplication();
 
 				// Clear memcached so old passwords are wiped out
 				foreach ( $updateUsers as $user ) {

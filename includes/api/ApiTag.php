@@ -19,9 +19,11 @@
  * @file
  */
 
+use MediaWiki\ChangeTags\ChangeTagsStore;
 use MediaWiki\Revision\RevisionStore;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IDatabase;
-use Wikimedia\Rdbms\ILoadBalancer;
 
 /**
  * @ingroup API
@@ -31,27 +33,28 @@ class ApiTag extends ApiBase {
 
 	use ApiBlockInfoTrait;
 
-	/** @var IDatabase */
-	private $dbr;
-
-	/** @var RevisionStore */
-	private $revisionStore;
+	private IDatabase $dbr;
+	private RevisionStore $revisionStore;
+	private ChangeTagsStore $changeTagsStore;
 
 	/**
 	 * @param ApiMain $main
 	 * @param string $action
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param RevisionStore $revisionStore
+	 * @param ChangeTagsStore $changeTagsStore
 	 */
 	public function __construct(
 		ApiMain $main,
 		$action,
-		ILoadBalancer $loadBalancer,
-		RevisionStore $revisionStore
+		IConnectionProvider $dbProvider,
+		RevisionStore $revisionStore,
+		ChangeTagsStore $changeTagsStore
 	) {
 		parent::__construct( $main, $action );
-		$this->dbr = $loadBalancer->getConnectionRef( DB_REPLICA );
+		$this->dbr = $dbProvider->getReplicaDatabase();
 		$this->revisionStore = $revisionStore;
+		$this->changeTagsStore = $changeTagsStore;
 	}
 
 	public function execute() {
@@ -99,8 +102,11 @@ class ApiTag extends ApiBase {
 	}
 
 	protected function validateLogId( $logid ) {
-		$result = $this->dbr->selectField( 'logging', 'log_id', [ 'log_id' => $logid ],
-			__METHOD__ );
+		$result = $this->dbr->newSelectQueryBuilder()
+			->select( 'log_id' )
+			->from( 'logging' )
+			->where( [ 'log_id' => $logid ] )
+			->caller( __METHOD__ )->fetchField();
 		return (bool)$result;
 	}
 
@@ -120,6 +126,7 @@ class ApiTag extends ApiBase {
 					$idResult += $this->getErrorFormatter()->formatMessage( ApiMessage::create(
 						'apierror-blocked',
 						'blocked',
+						// @phan-suppress-next-line PhanTypeMismatchArgumentNullable Block is checked and not null
 						[ 'blockinfo' => $this->getBlockDetails( $user->getBlock() ) ]
 					) );
 					return $idResult;
@@ -137,6 +144,7 @@ class ApiTag extends ApiBase {
 					$idResult += $this->getErrorFormatter()->formatMessage( ApiMessage::create(
 							'apierror-blocked',
 							'blocked',
+							// @phan-suppress-next-line PhanTypeMismatchArgumentNullable Block is checked and not null
 							[ 'blockinfo' => $this->getBlockDetails( $user->getBlock() ) ]
 					) );
 					return $idResult;
@@ -183,7 +191,7 @@ class ApiTag extends ApiBase {
 				ApiResult::setIndexedTagName( $idResult['removed'], 't' );
 
 				if ( $params['tags'] ) {
-					ChangeTags::addTags( $params['tags'], null, null, $status->value->logId );
+					$this->changeTagsStore->addTags( $params['tags'], null, null, $status->value->logId );
 				}
 			}
 		}
@@ -201,31 +209,32 @@ class ApiTag extends ApiBase {
 	public function getAllowedParams() {
 		return [
 			'rcid' => [
-				ApiBase::PARAM_TYPE => 'integer',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'revid' => [
-				ApiBase::PARAM_TYPE => 'integer',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'logid' => [
-				ApiBase::PARAM_TYPE => 'integer',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'add' => [
-				ApiBase::PARAM_TYPE => 'tags',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'tags',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'remove' => [
-				ApiBase::PARAM_TYPE => 'string',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'reason' => [
-				ApiBase::PARAM_DFLT => '',
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_DEFAULT => '',
 			],
 			'tags' => [
-				ApiBase::PARAM_TYPE => 'tags',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'tags',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 		];
 	}

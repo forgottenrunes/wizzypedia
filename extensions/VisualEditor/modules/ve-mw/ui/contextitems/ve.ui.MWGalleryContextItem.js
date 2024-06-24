@@ -10,9 +10,9 @@
  * @class
  * @extends ve.ui.LinearContextItem
  *
- * @param {ve.ui.Context} context Context item is in
- * @param {ve.dm.Model} model Model item is related to
- * @param {Object} config Configuration options
+ * @param {ve.ui.LinearContext} context Context the item is in
+ * @param {ve.dm.Model} model Model the item is related to
+ * @param {Object} [config]
  */
 ve.ui.MWGalleryContextItem = function VeUiMWGalleryContextItem() {
 	// Parent constructor
@@ -44,7 +44,7 @@ ve.ui.MWGalleryContextItem.static.commandName = 'gallery';
  * @inheritdoc
  */
 ve.ui.MWGalleryContextItem.prototype.getDescription = function () {
-	return ve.msg( 'visualeditor-mwgallerycontext-description', this.model.children.length );
+	return ve.msg( 'visualeditor-mwgallerycontext-description', this.model.getImageNodes().length );
 };
 
 /* Registration */

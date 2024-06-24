@@ -1,15 +1,15 @@
 <?php
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\User\UserIdentity;
 
 /**
  * Job to clear a users watchlist in batches.
  *
- * @author Addshore
- *
- * @ingroup JobQueue
  * @since 1.31
+ * @ingroup JobQueue
+ * @author Addshore
  */
 class ClearUserWatchlistJob extends Job implements GenericParameterJob {
 	/**
@@ -34,14 +34,15 @@ class ClearUserWatchlistJob extends Job implements GenericParameterJob {
 	}
 
 	public function run() {
-		$updateRowsPerQuery = MediaWikiServices::getInstance()->getMainConfig()->get( 'UpdateRowsPerQuery' );
+		$updateRowsPerQuery = MediaWikiServices::getInstance()->getMainConfig()->get(
+			MainConfigNames::UpdateRowsPerQuery );
 		$userId = $this->params['userId'];
 		$maxWatchlistId = $this->params['maxWatchlistId'];
 		$batchSize = $updateRowsPerQuery;
 
 		$loadBalancer = MediaWikiServices::getInstance()->getDBLoadBalancer();
 		$dbw = $loadBalancer->getConnectionRef( DB_PRIMARY );
-		$dbr = $loadBalancer->getConnectionRef( DB_REPLICA, [ 'watchlist' ] );
+		$dbr = $loadBalancer->getConnectionRef( DB_REPLICA );
 
 		// Wait before lock to try to reduce time waiting in the lock.
 		if ( !$loadBalancer->waitForPrimaryPos( $dbr ) ) {
@@ -65,26 +66,26 @@ class ClearUserWatchlistJob extends Job implements GenericParameterJob {
 		// Clear any stale REPEATABLE-READ snapshot
 		$dbr->flushSnapshot( __METHOD__ );
 
-		$watchlistIds = $dbr->selectFieldValues(
-			'watchlist',
-			'wl_id',
-			[
-				'wl_user' => $userId,
-				'wl_id <= ' . $maxWatchlistId
-			],
-			__METHOD__,
-			[
-				'LIMIT' => $batchSize,
-			]
-		);
-
+		$watchlistIds = $dbr->newSelectQueryBuilder()
+			->select( 'wl_id' )
+			->from( 'watchlist' )
+			->where( [ 'wl_user' => $userId ] )
+			->andWhere( $dbr->buildComparison( '<=', [ 'wl_id' => $maxWatchlistId ] ) )
+			->limit( $batchSize )
+			->caller( __METHOD__ )->fetchFieldValues();
 		if ( count( $watchlistIds ) == 0 ) {
 			return true;
 		}
 
-		$dbw->delete( 'watchlist', [ 'wl_id' => $watchlistIds ], __METHOD__ );
-		if ( MediaWikiServices::getInstance()->getMainConfig()->get( 'WatchlistExpiry' ) ) {
-			$dbw->delete( 'watchlist_expiry', [ 'we_item' => $watchlistIds ], __METHOD__ );
+		$dbw->newDeleteQueryBuilder()
+			->deleteFrom( 'watchlist' )
+			->where( [ 'wl_id' => $watchlistIds ] )
+			->caller( __METHOD__ )->execute();
+		if ( MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::WatchlistExpiry ) ) {
+			$dbw->newDeleteQueryBuilder()
+				->deleteFrom( 'watchlist_expiry' )
+				->where( [ 'we_item' => $watchlistIds ] )
+				->caller( __METHOD__ )->execute();
 		}
 
 		// Commit changes and remove lock before inserting next job.

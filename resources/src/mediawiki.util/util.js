@@ -1,8 +1,7 @@
 'use strict';
 
-var util,
-	config = require( './config.json' ),
-	portletLinkOptions = require( './portletLinkOptions.json' );
+var config = require( './config.json' );
+var portletLinkOptions = require( './portletLinkOptions.json' );
 
 require( './jquery.accessKeyLabel.js' );
 
@@ -15,8 +14,12 @@ require( './jquery.accessKeyLabel.js' );
  */
 function rawurlencode( str ) {
 	return encodeURIComponent( String( str ) )
-		.replace( /!/g, '%21' ).replace( /'/g, '%27' ).replace( /\(/g, '%28' )
-		.replace( /\)/g, '%29' ).replace( /\*/g, '%2A' ).replace( /~/g, '%7E' );
+		.replace( /!/g, '%21' )
+		.replace( /'/g, '%27' )
+		.replace( /\(/g, '%28' )
+		.replace( /\)/g, '%29' )
+		.replace( /\*/g, '%2A' )
+		.replace( /~/g, '%7E' );
 }
 
 /**
@@ -24,8 +27,8 @@ function rawurlencode( str ) {
  *
  * @ignore
  * @param {string} str String to be encoded
- * @param {string} mode Encoding mode, see documentation for $wgFragmentMode
- *     in DefaultSettings.php
+ * @param {string} mode Encoding mode, see documentation at
+ *     MainConfigSchema::FragmentMode.
  * @return {string} Encoded string
  */
 function escapeIdInternal( str, mode ) {
@@ -49,7 +52,7 @@ function escapeIdInternal( str, mode ) {
  * @class mw.util
  * @singleton
  */
-util = {
+var util = {
 
 	/**
 	 * Encode the string like PHP's rawurlencode
@@ -83,6 +86,75 @@ util = {
 	 */
 	escapeIdForLink: function ( str ) {
 		return escapeIdInternal( str, config.FragmentMode[ 0 ] );
+	},
+
+	/**
+	 * Get the target element from a link hash
+	 *
+	 * This is the same element as you would get from
+	 * document.querySelectorAll(':target'), but can be used on
+	 * an arbitrary hash fragment, or after pushState/replaceState
+	 * has been used.
+	 *
+	 * Link fragments can be unencoded, fully encoded or partially
+	 * encoded, as defined in the spec.
+	 *
+	 * We can't just use decodeURI as that assumes the fragment
+	 * is fully encoded, and throws an error on a string like '%A',
+	 * so we use the percent-decode.
+	 *
+	 * @param {string} [hash] Hash fragment, without the leading '#'.
+	 *  Taken from location.hash if omitted.
+	 * @return {HTMLElement|null} Element, if found
+	 */
+	getTargetFromFragment: function ( hash ) {
+		hash = hash || location.hash.slice( 1 );
+		if ( !hash ) {
+			// Firefox emits a console warning if you pass an empty string
+			// to getElementById (T272844).
+			return null;
+		}
+		// Per https://html.spec.whatwg.org/multipage/browsing-the-web.html#target-element
+		// we try the raw fragment first, then the percent-decoded fragment.
+		var element = document.getElementById( hash );
+		if ( element ) {
+			return element;
+		}
+		var decodedHash = this.percentDecodeFragment( hash );
+		if ( !decodedHash ) {
+			// decodedHash can return null, calling getElementById would cast it to a string
+			return null;
+		}
+		return document.getElementById( decodedHash );
+	},
+
+	/**
+	 * Percent-decode a string, as found in a URL hash fragment
+	 *
+	 * Implements the percent-decode method as defined in
+	 * https://url.spec.whatwg.org/#percent-decode.
+	 *
+	 * URLSearchParams implements https://url.spec.whatwg.org/#concept-urlencoded-parser
+	 * which performs a '+' to ' ' substitution before running percent-decode.
+	 *
+	 * To get the desired behaviour we percent-encode any '+' in the fragment
+	 * to effectively expose the percent-decode implementation.
+	 *
+	 * @param {string} text Text to decode
+	 * @return {string|null} Decoded text, null if decoding failed
+	 */
+	percentDecodeFragment: function ( text ) {
+		var params = new URLSearchParams(
+			'q=' +
+			text
+				// Query string param decoding replaces '+' with ' ' before doing the
+				// percent_decode, so encode '+' to prevent this.
+				.replace( /\+/g, '%2B' )
+				// Query strings are split on '&' and then '=' so encode these too.
+				.replace( /&/g, '%26' )
+				.replace( /=/g, '%3D' )
+		);
+		return params.get( 'q' );
 	},
 
 	/**
@@ -169,33 +241,18 @@ util = {
 	},
 
 	/**
-	 * Encode page titles for use in a URL
+	 * Encode page titles in a way that matches `wfUrlencode` in PHP.
 	 *
-	 * We want / and : to be included as literal characters in our title URLs
-	 * as they otherwise fatally break the title.
-	 *
-	 * The others are decoded because we can, it's prettier and matches behaviour
-	 * of `wfUrlencode` in PHP.
+	 * This is important both for readability and consistency in the user experience,
+	 * as well as for caching. If URLs are not formatted in the canonical way, they
+	 * may be subject to drastically shorter cache durations and/or miss automatic
+	 * purging after edits, thus leading to stale content being served from a
+	 * non-canonical URL.
 	 *
 	 * @param {string} str String to be encoded.
 	 * @return {string} Encoded string
 	 */
-	wikiUrlencode: function ( str ) {
-		return util.rawurlencode( str )
-			.replace( /%20/g, '_' )
-			// wfUrlencode replacements
-			.replace( /%3B/g, ';' )
-			.replace( /%40/g, '@' )
-			.replace( /%24/g, '$' )
-			.replace( /%21/g, '!' )
-			.replace( /%2A/g, '*' )
-			.replace( /%28/g, '(' )
-			.replace( /%29/g, ')' )
-			.replace( /%2C/g, ',' )
-			.replace( /%2F/g, '/' )
-			.replace( /%7E/g, '~' )
-			.replace( /%3A/g, ':' );
-	},
+	wikiUrlencode: mw.internalWikiUrlencode,
 
 	/**
 	 * Get the URL to a given local wiki page name,
@@ -243,7 +300,7 @@ util = {
 	},
 
 	/**
-	 * Get URL to a MediaWiki server entry point.
+	 * Get URL to a MediaWiki entry point.
 	 *
 	 * Similar to `wfScript()` in PHP.
 	 *
@@ -299,6 +356,7 @@ util = {
 	 */
 	getParamValue: function ( param, url ) {
 		// Get last match, stop at hash
+		// eslint-disable-next-line security/detect-non-literal-regexp
 		var re = new RegExp( '^[^#]*[&?]' + util.escapeRegExp( param ) + '=([^&#]*)' ),
 			m = re.exec( url !== undefined ? url : location.href );
 
@@ -314,6 +372,43 @@ util = {
 			}
 		}
 		return null;
+	},
+
+	/**
+	 * Get the value for an array query parameter, combined according to similar rules as PHP uses.
+	 * Currently this does not handle associative or multi-dimensional arrays, but that may be
+	 * improved in the future.
+	 *
+	 *     mw.util.getArrayParam( 'foo', new URLSearchParams( '?foo[0]=a&foo[1]=b' ) ); // [ 'a', 'b' ]
+	 *     mw.util.getArrayParam( 'foo', new URLSearchParams( '?foo[]=a&foo[]=b' ) ); // [ 'a', 'b' ]
+	 *     mw.util.getArrayParam( 'foo', new URLSearchParams( '?foo=a' ) ); // null
+	 *
+	 * @param {string} param The parameter name.
+	 * @param {URLSearchParams} [params] Parsed URL parameters to search through, defaulting to the current browsing location.
+	 * @return {string[]|null} Parameter value, or null if parameter was not found.
+	 */
+	getArrayParam: function ( param, params ) {
+		// eslint-disable-next-line security/detect-non-literal-regexp
+		var paramRe = new RegExp( '^' + util.escapeRegExp( param ) + '\\[(\\d*)\\]$' );
+
+		if ( !params ) {
+			params = new URLSearchParams( location.search );
+		}
+
+		var arr = [];
+		params.forEach( function ( v, k ) {
+			var paramMatch = k.match( paramRe );
+			if ( paramMatch ) {
+				var i = paramMatch[ 1 ];
+				if ( i === '' ) {
+					// If no explicit index, append at the end
+					i = arr.length;
+				}
+				arr[ i ] = v;
+			}
+		} );
+
+		return arr.length ? arr : null;
 	},
 
 	/**
@@ -373,12 +468,102 @@ util = {
 	},
 
 	/**
+	 * Clears the entire subtitle if present in the page. Used for refreshing subtitle
+	 * after edit with response from parse API.
+	 */
+	clearSubtitle: function () {
+		var subtitle = document.getElementById( 'mw-content-subtitle' );
+		if ( subtitle ) {
+			subtitle.innerHTML = '';
+		}
+	},
+
+	/**
+	 * Add content to the subtitle of the skin.
+	 *
+	 * @param {HTMLElement|string} nodeOrHTMLString
+	 */
+	addSubtitle: function ( nodeOrHTMLString ) {
+		var subtitle = document.getElementById( 'mw-content-subtitle' );
+		if ( subtitle ) {
+			if ( typeof nodeOrHTMLString === 'string' ) {
+				subtitle.innerHTML += nodeOrHTMLString;
+			} else {
+				subtitle.appendChild( nodeOrHTMLString );
+			}
+		} else {
+			throw new Error( 'This skin does not support additions to the subtitle.' );
+		}
+	},
+
+	/**
+	 * Creates a detached portlet Element in the skin with no elements.
+	 *
+	 * @param {string} id of the new portlet.
+	 * @param {string} [label] of the new portlet.
+	 * @param {string} [before] selector of the element preceding the new portlet. If not passed
+	 *  the caller is responsible for appending the element to the DOM before using addPortletLink.
+	 * @return {HTMLElement|null} will be null if it was not possible to create an portlet with
+	 *  the required information e.g. the selector given in before parameter could not be resolved
+	 *  to an existing element in the page.
+	 */
+	addPortlet: function ( id, label, before ) {
+		const portlet = document.createElement( 'div' );
+		// These classes should be kept in sync with includes/skins/components/SkinComponentMenu.php.
+		// eslint-disable-next-line mediawiki/class-doc
+		portlet.classList.add( 'mw-portlet', 'mw-portlet-' + id, 'emptyPortlet',
+			// Additional class is added to allow skins to track portlets added via this mechanism.
+			'mw-portlet-js'
+		);
+		portlet.id = id;
+		if ( label ) {
+			const labelNode = document.createElement( 'label' );
+			labelNode.textContent = label;
+			portlet.appendChild( labelNode );
+		}
+		const listWrapper = document.createElement( 'div' );
+		const list = document.createElement( 'ul' );
+		listWrapper.appendChild( list );
+		portlet.appendChild( listWrapper );
+		if ( before ) {
+			var referenceNode;
+			try {
+				referenceNode = document.querySelector( before );
+			} catch ( e ) {
+				// CSS selector not supported by browser.
+			}
+			if ( referenceNode ) {
+				const parentNode = referenceNode.parentNode;
+				parentNode.insertBefore( portlet, referenceNode );
+			} else {
+				return null;
+			}
+		}
+		/**
+		 * @event util.addPortlet
+		 *
+		 * Fires when a portlet is successfully created.
+		 *
+		 * @param {HTMLElement} portlet the portlet that was created.
+		 * @param {string|null} before the css selector used to append to the DOM.
+		 */
+		mw.hook( 'util.addPortlet' ).fire( portlet, before );
+		return portlet;
+	},
+	/**
 	 * Add a link to a portlet menu on the page, such as:
 	 *
 	 * - p-cactions (Content actions),
 	 * - p-personal (Personal tools),
 	 * - p-navigation (Navigation),
 	 * - p-tb (Toolbox).
+	 * - p-associated-pages (For namespaces and special page tabs on supported skins)
+	 * - p-namespaces (For namespaces on legacy skins)
+	 *
+	 * Additional menus can be discovered through the following code:
+	 * ```$('.mw-portlet').toArray().map((el) => el.id);```
+	 *
+	 * Menu availability varies by skin, wiki, and current page.
 	 *
 	 * The first three parameters are required, the others are optional and
 	 * may be null. Though providing an id and tooltip is recommended.
@@ -394,7 +579,7 @@ util = {
 	 *
 	 *     var node = mw.util.addPortletLink(
 	 *         'p-tb',
-	 *         new mw.Title( 'Special:Example' ).getUrl(),
+	 *         mw.util.getUrl( 'Special:Example' ),
 	 *         'Example'
 	 *     );
 	 *     $( node ).on( 'click', function ( e ) {
@@ -421,24 +606,23 @@ util = {
 	 * @param {HTMLElement|jQuery|string} [nextnode] Element that the new item should be added before.
 	 *  Must be another item in the same list, it will be ignored otherwise.
 	 *  Can be specified as DOM reference, as jQuery object, or as CSS selector string.
+	 * @fires util_addPortletLink
 	 * @return {HTMLElement|null} The added list item, or null if no element was added.
 	 */
 	addPortletLink: function ( portletId, href, text, id, tooltip, accesskey, nextnode ) {
-		var item, link, portlet, portletDiv, ul, next;
-
 		if ( !portletId ) {
 			// Avoid confusing id="undefined" lookup
 			return null;
 		}
 
-		portlet = document.getElementById( portletId );
+		var portlet = document.getElementById( portletId );
 		if ( !portlet ) {
 			// Invalid portlet ID
 			return null;
 		}
 
 		// Setup the anchor tag and set any the properties
-		link = document.createElement( 'a' );
+		var link = document.createElement( 'a' );
 		link.href = href;
 
 		var linkChild = document.createTextNode( text );
@@ -467,7 +651,7 @@ util = {
 		// Unhide portlet if it was hidden before
 		util.showPortlet( portletId );
 
-		item = $( '<li>' ).append( link )[ 0 ];
+		var item = $( '<li>' ).append( link )[ 0 ];
 		// mw-list-item-js distinguishes portlet links added via javascript and the server
 		item.className = 'mw-list-item mw-list-item-js';
 		if ( id ) {
@@ -475,11 +659,11 @@ util = {
 		}
 
 		// Select the first (most likely only) unordered list inside the portlet
-		ul = portlet.tagName.toLowerCase() === 'ul' ? portlet : portlet.querySelector( 'ul' );
+		var ul = portlet.tagName.toLowerCase() === 'ul' ? portlet : portlet.querySelector( 'ul' );
 		if ( !ul ) {
 			// If it didn't have an unordered list yet, create one
 			ul = document.createElement( 'ul' );
-			portletDiv = portlet.querySelector( 'div' );
+			var portletDiv = portlet.querySelector( 'div' );
 			if ( portletDiv ) {
 				// Support: Legacy skins have a div (such as div.body or div.pBody).
 				// Append the <ul> to that.
@@ -490,6 +674,7 @@ util = {
 			}
 		}
 
+		var next;
 		if ( nextnode && ( typeof nextnode === 'string' || nextnode.nodeType || nextnode.jquery ) ) {
 			// eslint-disable-next-line no-jquery/variable-pattern
 			nextnode = $( ul ).find( nextnode );
@@ -612,6 +797,7 @@ util = {
 
 		block = allowBlock ? '(?:\\/(?:3[0-2]|[12]?\\d))?' : '';
 
+		// eslint-disable-next-line security/detect-non-literal-regexp
 		return ( new RegExp( '^' + RE_IP_ADD + block + '$' ).test( address ) );
 	},
 
@@ -621,12 +807,12 @@ util = {
 	 * Based on \Wikimedia\IPUtils::isIPv6 in PHP.
 	 *
 	 *     // Valid
-	 *     mw.util.isIPv4Address( '2001:db8:a:0:0:0:0:0' );
-	 *     mw.util.isIPv4Address( '2001:db8:a::' );
+	 *     mw.util.isIPv6Address( '2001:db8:a:0:0:0:0:0' );
+	 *     mw.util.isIPv6Address( '2001:db8:a::' );
 	 *
 	 *     // Invalid
-	 *     mw.util.isIPv4Address( '2001:db8:a::/32' );
-	 *     mw.util.isIPv4Address( 'hello' );
+	 *     mw.util.isIPv6Address( '2001:db8:a::/32' );
+	 *     mw.util.isIPv6Address( 'hello' );
 	 *
 	 * @param {string} address
 	 * @param {boolean} [allowBlock=false]
@@ -657,6 +843,7 @@ util = {
 				'){7}' +
 			')';
 
+		// eslint-disable-next-line security/detect-non-literal-regexp
 		if ( new RegExp( '^' + RE_IPV6_ADD + block + '$' ).test( address ) ) {
 			return true;
 		}
@@ -669,6 +856,7 @@ util = {
 			'){1,6}';
 
 		return (
+			// eslint-disable-next-line security/detect-non-literal-regexp
 			new RegExp( '^' + RE_IPV6_ADD + block + '$' ).test( address ) &&
 			/::/.test( address ) &&
 			!/::.*::/.test( address )
@@ -708,16 +896,22 @@ util = {
 	 *   Special:Redirect which is less efficient. Otherwise, it is a direct thumbnail URL.
 	 */
 	parseImageUrl: function ( url ) {
-		var i, name, decodedName, width, match, strippedUrl,
-			urlTemplate = null,
-			// thumb.php-generated thumbnails
-			// thumb.php?f=<name>&w[idth]=<width>[px]
-			thumbPhpRegex = /thumb\.php/,
-			regexes = [
+		var name, decodedName, width, urlTemplate;
+
+		// thumb.php-generated thumbnails
+		// thumb.php?f=<name>&w[idth]=<width>[px]
+		if ( /thumb\.php/.test( url ) ) {
+			decodedName = mw.util.getParamValue( 'f', url );
+			name = encodeURIComponent( decodedName );
+			width = mw.util.getParamValue( 'width', url ) || mw.util.getParamValue( 'w', url );
+			urlTemplate = url.replace( /([&?])w(?:idth)?=[^&]+/g, '' ) + '&width={width}';
+		} else {
+			var regexes = [
 				// Thumbnails
 				// /<hash prefix>/<name>/[<options>-]<width>-<name*>[.<ext>]
 				// where <name*> could be the filename, 'thumbnail.<ext>' (for long filenames)
 				// or the base-36 SHA1 of the filename.
+				// eslint-disable-next-line security/detect-unsafe-regex
 				/\/[\da-f]\/[\da-f]{2}\/([^\s/]+)\/(?:[^\s/]+-)?(\d+)px-(?:\1|thumbnail|[a-z\d]{31})(\.[^\s/]+)?$/,
 
 				// Full size images
@@ -726,21 +920,15 @@ util = {
 
 				// Thumbnails in non-hashed upload directories
 				// /<name>/[<options>-]<width>-<name*>[.<ext>]
+				// eslint-disable-next-line security/detect-unsafe-regex
 				/\/([^\s/]+)\/(?:[^\s/]+-)?(\d+)px-(?:\1|thumbnail|[a-z\d]{31})[^\s/]*$/,
 
 				// Full-size images in non-hashed upload directories
 				// /<name>
 				/\/([^\s/]+)$/
 			];
-
-		if ( thumbPhpRegex.test( url ) ) {
-			decodedName = mw.util.getParamValue( 'f', url );
-			name = encodeURIComponent( decodedName );
-			width = mw.util.getParamValue( 'width', url ) || mw.util.getParamValue( 'w', url );
-			urlTemplate = url.replace( /([&?])w(?:idth)?=[^&]+/g, '' ) + '&width={width}';
-		} else {
-			for ( i = 0; i < regexes.length; i++ ) {
-				match = url.match( regexes[ i ] );
+			for ( var i = 0; i < regexes.length; i++ ) {
+				var match = url.match( regexes[ i ] );
 				if ( match ) {
 					name = match[ 1 ];
 					decodedName = decodeURIComponent( name );
@@ -764,7 +952,7 @@ util = {
 			} else if ( width && !urlTemplate ) {
 				// Javascript does not expose regexp capturing group indexes, and the width
 				// part could in theory also occur in the filename so hide that first.
-				strippedUrl = url.replace( name, '{name}' )
+				var strippedUrl = url.replace( name, '{name}' )
 					.replace( name, '{name}' )
 					.replace( width + 'px-', '{width}px-' );
 				urlTemplate = strippedUrl.replace( /\{name\}/g, name );
@@ -797,36 +985,22 @@ util = {
 	},
 
 	/**
-	 * Takes a string (str) and returns string repeated count times
-	 *
-	 * @param {string} str string to be repeated
-	 * @param {number} count number of times to repeat string
-	 * @return {string} String repeated count times
-	 */
-	repeatString: function ( str, count ) {
-		if ( count <= 0 || count === Infinity || str === '' ) {
-			return str;
-		}
-		var repeatedString = '';
-		for ( var i = 0; i < count; i++ ) {
-			repeatedString += str;
-		}
-		return repeatedString;
-	},
-
-	/**
-	 * This functionality has been adapted from \Wikimedia\IPUtils::sanitizeIP()
-	 *
 	 * Convert an IP into a verbose, uppercase, normalized form.
+	 *
 	 * Both IPv4 and IPv6 addresses are trimmed. Additionally,
 	 * IPv6 addresses in octet notation are expanded to 8 words;
 	 * IPv4 addresses have leading zeros, in each octet, removed.
 	 *
+	 * This functionality has been adapted from \Wikimedia\IPUtils::sanitizeIP()
+	 *
 	 * @param {string} ip IP address in quad or octet form (CIDR or not).
-	 * @return {string|null|*}
+	 * @return {string|null}
 	 */
 	sanitizeIP: function ( ip ) {
-		ip = ip.replace( /(^\s+|\s+$)/g, '' );
+		if ( typeof ip !== 'string' ) {
+			return null;
+		}
+		ip = ip.trim();
 		if ( ip === '' ) {
 			return null;
 		}
@@ -837,11 +1011,11 @@ util = {
 			return ip.replace( /(^|\.)0+(\d)/g, '$1$2' );
 		}
 		ip = ip.toUpperCase();
-		var abbrevPos, CIDRStart, addressEnd, repeatStr, extra, pad;
-		abbrevPos = ip.search( /::/ );
+		var abbrevPos = ip.indexOf( '::' );
 		if ( abbrevPos !== -1 ) {
-			CIDRStart = ip.search( /\// );
-			addressEnd = ( CIDRStart !== -1 ) ? CIDRStart - 1 : ip.length - 1;
+			var CIDRStart = ip.indexOf( '/' );
+			var addressEnd = ( CIDRStart !== -1 ) ? CIDRStart - 1 : ip.length - 1;
+			var repeatStr, extra, pad;
 			if ( abbrevPos === 0 ) {
 				repeatStr = '0:';
 				extra = ip === '::' ? '0' : '';
@@ -855,21 +1029,21 @@ util = {
 				extra = ':';
 				pad = 8;
 			}
-			ip = ip.replace( '::',
-				this.repeatString( repeatStr, pad - ( ip.split( ':' ).length - 1 ) ) + extra
-			);
+			var count = pad - ( ip.split( ':' ).length - 1 );
+			ip = ip.replace( '::', repeatStr.repeat( count ) + extra );
 		}
 		return ip.replace( /(^|:)0+(([0-9A-Fa-f]{1,4}))/g, '$1$2' );
 	},
 
 	/**
-	 * This functionality has been adapted from \Wikimedia\IPUtils::prettifyIP()
-	 *
 	 * Prettify an IP for display to end users.
+	 *
 	 * This will make it more compact and lower-case.
 	 *
+	 * This functionality has been adapted from \Wikimedia\IPUtils::prettifyIP()
+	 *
 	 * @param {string} ip IP address in quad or octet form (CIDR or not).
-	 * @return {null|*}
+	 * @return {string|null}
 	 */
 	prettifyIP: function ( ip ) {
 		ip = this.sanitizeIP( ip );
@@ -878,7 +1052,7 @@ util = {
 		}
 		if ( this.isIPv6Address( ip, true ) ) {
 			var cidr, matches, ipCidrSplit, i, replaceZeros;
-			if ( ip.search( /\// ) !== -1 ) {
+			if ( ip.indexOf( '/' ) !== -1 ) {
 				ipCidrSplit = ip.split( '/', 2 );
 				ip = ipCidrSplit[ 0 ];
 				cidr = ipCidrSplit[ 1 ];
@@ -902,6 +1076,39 @@ util = {
 			ip = ip.toLowerCase();
 		}
 		return ip;
+	},
+
+	/**
+	 * Does given username match $wgAutoCreateTempUser?
+	 *
+	 * This functionality has been adapted from MediaWiki\User\TempUser\Pattern::isMatch()
+	 *
+	 * @param {string} username
+	 * @return {boolean}
+	 */
+	isTemporaryUser: function ( username ) {
+		var autoCreateUserMatchPattern = config.AutoCreateTempUser.matchPattern;
+		var position = autoCreateUserMatchPattern.indexOf( '$1' );
+
+		if ( !config.AutoCreateTempUser.enabled ) {
+			return false;
+		}
+		// '$1' was not found in autoCreateUserMatchPattern
+		if ( position === -1 ) {
+			return false;
+		}
+		var prefix = autoCreateUserMatchPattern.slice( 0, position );
+		var suffix = autoCreateUserMatchPattern.slice( position + '$1'.length );
+
+		var match = true;
+		if ( prefix !== '' ) {
+			match = ( username.indexOf( prefix ) === 0 );
+		}
+		if ( match && suffix !== '' ) {
+			match = ( username.slice( -suffix.length ) === suffix ) &&
+				( username.length >= prefix.length + suffix.length );
+		}
+		return match;
 	}
 };
 
@@ -933,9 +1140,7 @@ mw.log.deprecate( mw.RegExp, 'escape', util.escapeRegExp, 'Use mw.util.escapeReg
 if ( window.QUnit ) {
 	// Not allowed outside unit tests
 	util.setOptionsForTest = function ( opts ) {
-		var oldConfig = config;
-		config = $.extend( {}, config, opts );
-		return oldConfig;
+		config = !opts ? require( './config.json' ) : $.extend( {}, config, opts );
 	};
 	util.init = init;
 } else {

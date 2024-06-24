@@ -1,10 +1,8 @@
 <?php
 /** Minangkabau (Baso Minangkabau)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Bennylin
  * @author Iwan Novirion

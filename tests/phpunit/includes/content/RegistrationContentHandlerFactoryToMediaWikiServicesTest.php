@@ -1,5 +1,7 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+
 /**
  * @group ContentHandlerFactory
  */
@@ -8,9 +10,21 @@ class RegistrationContentHandlerFactoryToMediaWikiServicesTest extends MediaWiki
 	protected function setUp(): void {
 		parent::setUp();
 
-		$this->setMwGlobals( [
-			'wgContentHandlers' => [
-				CONTENT_MODEL_WIKITEXT => WikitextContentHandler::class,
+		$this->overrideConfigValue(
+			MainConfigNames::ContentHandlers,
+			[
+				CONTENT_MODEL_WIKITEXT => [
+					'class' => WikitextContentHandler::class,
+					'services' => [
+						'TitleFactory',
+						'ParserFactory',
+						'GlobalIdGenerator',
+						'LanguageNameUtils',
+						'LinkRenderer',
+						'MagicWordFactory',
+						'ParsoidParserFactory',
+					],
+				],
 				CONTENT_MODEL_JAVASCRIPT => JavaScriptContentHandler::class,
 				CONTENT_MODEL_JSON => JsonContentHandler::class,
 				CONTENT_MODEL_CSS => CssContentHandler::class,
@@ -19,16 +33,8 @@ class RegistrationContentHandlerFactoryToMediaWikiServicesTest extends MediaWiki
 				'testing-callbacks' => static function ( $modelId ) {
 					return new DummyContentHandlerForTesting( $modelId );
 				},
-			],
-		] );
-
-		$this->getServiceContainer()->resetServiceForTesting( 'ContentHandlerFactory' );
-	}
-
-	protected function tearDown(): void {
-		$this->getServiceContainer()->resetServiceForTesting( 'ContentHandlerFactory' );
-
-		parent::tearDown();
+			]
+		);
 	}
 
 	/**

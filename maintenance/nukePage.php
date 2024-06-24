@@ -25,6 +25,8 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
+use MediaWiki\Title\Title;
+
 /**
  * Maintenance script that erases a page record from the database.
  *
@@ -57,12 +59,11 @@ class NukePage extends Maintenance {
 			# Get corresponding revisions
 			$this->output( "Searching for revisions..." );
 
-			$revs = $dbw->selectFieldValues(
-				'revision',
-				'rev_id',
-				[ 'rev_page' => $id ],
-				__METHOD__
-			);
+			$revs = $dbw->newSelectQueryBuilder()
+				->select( 'rev_id' )
+				->from( 'revision' )
+				->where( [ 'rev_page' => $id ] )
+				->caller( __METHOD__ )->fetchFieldValues();
 			$count = count( $revs );
 			$this->output( "found $count.\n" );
 

@@ -40,19 +40,17 @@ class Hooks {
 	/**
 	 * Attach an event handler to a given hook in both legacy and non-legacy hook systems
 	 *
+	 * @see HookContainer::register()
+	 *
 	 * @param string $name Name of hook
-	 * @param callable $callback Callback function to attach
-	 * @deprecated since 1.35. use HookContainer::register() instead
+	 * @param mixed $handler Hooks handler to attay
+	 * @deprecated since 1.35. use HookContainer::register() instead, emitting warnings since 1.40
 	 * @since 1.18
 	 */
-	public static function register( $name, $callback ) {
-		if ( !defined( 'MW_SERVICE_BOOTSTRAP_COMPLETE' ) ) {
-			wfDeprecatedMsg( 'Registering handler for ' . $name .
-				' before MediaWiki bootstrap complete was deprecated in MediaWiki 1.35',
-				'1.35' );
-		}
+	public static function register( $name, $handler ) {
+		wfDeprecated( __METHOD__, '1.35' );
 		$hookContainer = MediaWikiServices::getInstance()->getHookContainer();
-		$hookContainer->register( $name, $callback );
+		$hookContainer->register( $name, $handler );
 	}
 
 	/**
@@ -63,14 +61,13 @@ class Hooks {
 	 *
 	 * @since 1.21
 	 * @deprecated since 1.35. Instead of using Hooks::register() and Hooks::clear(),
-	 * use HookContainer::scopedRegister() instead to register a temporary hook
-	 * @throws MWException If not in testing mode.
+	 * use HookContainer::scopedRegister() instead to register a temporary hook, emitting warnings since 1.35
 	 * @codeCoverageIgnore
 	 */
 	public static function clear( $name ) {
 		wfDeprecated( __METHOD__, '1.35' );
 		if ( !defined( 'MW_PHPUNIT_TEST' ) && !defined( 'MW_PARSER_TEST' ) ) {
-			throw new MWException( 'Cannot reset hooks in operation.' );
+			throw new LogicException( 'Cannot reset hooks in operation.' );
 		}
 		$hookContainer = MediaWikiServices::getInstance()->getHookContainer();
 		$hookContainer->clear( $name );
@@ -81,11 +78,12 @@ class Hooks {
 	 * The function may have been registered either via Hooks::register or in $wgHooks.
 	 *
 	 * @since 1.18
-	 * @deprecated since 1.35. use HookContainer::isRegistered() instead
+	 * @deprecated since 1.35. use HookContainer::isRegistered() instead, emitting warnings since 1.41
 	 * @param string $name Name of hook
 	 * @return bool True if the hook has a function registered to it
 	 */
 	public static function isRegistered( $name ) {
+		wfDeprecated( __METHOD__, '1.35' );
 		$hookContainer = MediaWikiServices::getInstance()->getHookContainer();
 		return $hookContainer->isRegistered( $name );
 	}
@@ -95,18 +93,14 @@ class Hooks {
 	 * This combines functions registered via Hooks::register and with $wgHooks.
 	 *
 	 * @since 1.18
-	 * @deprecated since 1.35
+	 * @deprecated since 1.35, emitting warnings since 1.41
 	 * @param string $name Name of the hook
 	 * @return array
 	 */
 	public static function getHandlers( $name ) {
+		wfDeprecated( __METHOD__, '1.35' );
 		$hookContainer = MediaWikiServices::getInstance()->getHookContainer();
-		$handlers = $hookContainer->getLegacyHandlers( $name );
-		$funcName = 'on' . strtr( ucfirst( $name ), ':-', '__' );
-		foreach ( $hookContainer->getHandlers( $name ) as $obj ) {
-			$handlers[] = [ $obj, $funcName ];
-		}
-		return $handlers;
+		return $hookContainer->getHandlerCallbacks( $name );
 	}
 
 	/**
@@ -129,9 +123,10 @@ class Hooks {
 	 * @since 1.22 A hook function is not required to return a value for
 	 *   processing to continue. Not returning a value (or explicitly
 	 *   returning null) is equivalent to returning true.
-	 * @deprecated since 1.35 Use HookContainer::run() instead
+	 * @deprecated since 1.35 Use HookContainer::run() instead, emitting warnings since 1.41
 	 */
 	public static function run( $event, array $args = [], $deprecatedVersion = null ) {
+		wfDeprecated( __METHOD__, '1.35' );
 		$hookContainer = MediaWikiServices::getInstance()->getHookContainer();
 		$options = $deprecatedVersion ? [ 'deprecatedVersion' => $deprecatedVersion ] : [];
 		return $hookContainer->run( $event, $args, $options );
@@ -146,9 +141,10 @@ class Hooks {
 	 * @return bool Always true
 	 * @throws UnexpectedValueException callback returns an invalid value
 	 * @since 1.30
-	 * @deprecated since 1.35 Use HookContainer::run() with 'abortable' option instead
+	 * @deprecated since 1.35 Use HookContainer::run() with 'abortable' option instead, emitting warnings since 1.41
 	 */
 	public static function runWithoutAbort( $event, array $args = [], $deprecatedVersion = null ) {
+		wfDeprecated( __METHOD__, '1.35' );
 		$hookContainer = MediaWikiServices::getInstance()->getHookContainer();
 		$options = $deprecatedVersion ? [ 'deprecatedVersion' => $deprecatedVersion ] : [];
 		$options[ 'abortable' ] = false;
@@ -167,10 +163,12 @@ class Hooks {
 	 *
 	 * @since 1.35
 	 * @internal because HookRunner is intended for core only, see documentation on that class
+	 * @deprecated since 1.41, emitting warnings since 1.41
 	 *
 	 * @return HookRunner
 	 */
 	public static function runner() {
+		wfDeprecated( __METHOD__, '1.41' );
 		return new HookRunner( MediaWikiServices::getInstance()->getHookContainer() );
 	}
 }

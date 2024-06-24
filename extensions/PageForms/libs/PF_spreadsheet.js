@@ -48,6 +48,7 @@ var dataValues = [];
 		if ( mwValue == null ) {
 			return null;
 		}
+		mwValue = this.decodeValues( mwValue );
 		if ( columnAttributes['type'] == 'checkbox' ) {
 			return jexcel.prototype.valueIsYes(mwValue);
 		} else if ( columnAttributes['list'] == true ) {
@@ -93,8 +94,9 @@ var dataValues = [];
 		if ( jExcelValue == null ) {
 			return null;
 		}
+		jExcelValue = this.decodeValues( jExcelValue );
 		if ( columnAttributes['type'] == 'checkbox' ) {
-			return ( jExcelValue == true ) ?
+			return ( jExcelValue == 'true' ) ?
 				mw.config.get( 'wgPageFormsContLangYes' ) :
 				mw.config.get( 'wgPageFormsContLangNo' );
 		} else if ( columnAttributes['list'] == true ) {
@@ -128,7 +130,7 @@ var dataValues = [];
 	}
 
 	jexcel.prototype.saveChanges = function( spreadsheetID, templateName, pageName, newPageName, formName, rowNum, rowValues, columns, editMultiplePages ) {
-		$("div#" + spreadsheetID + " table.jexcel td[data-y = " + rowNum + "]").not(".jexcel_row").each( function () {
+		$("div#" + spreadsheetID + " table.jexcel td[data-y = " + rowNum + "]").not(".jexcel_row").each( function() {
 			var columnNum = $(this).attr("data-x");
 			var curColumn = columns[columnNum]['title'];
 			var curValue = rowValues[curColumn];
@@ -180,7 +182,7 @@ var dataValues = [];
 	}
 
 	jexcel.prototype.cancelChanges = function( spreadsheetID, rowValues, rowNum, columnNames ) {
-		$("div#" + spreadsheetID + " table.jexcel td[data-y = " + rowNum + "]").not(".jexcel_row").each( function () {
+		$("div#" + spreadsheetID + " table.jexcel td[data-y = " + rowNum + "]").not(".jexcel_row").each( function() {
 			var columnNum = $(this).attr("data-x");
 			var curColumn = columnNames[columnNum];
 			if ( rowValues[curColumn] !== undefined ) {
@@ -190,7 +192,7 @@ var dataValues = [];
 			}
 		} );
 
-		$("div#" + spreadsheetID + " td[data-y = " + rowNum + "] .save-changes").each( function () {
+		$("div#" + spreadsheetID + " td[data-y = " + rowNum + "] .save-changes").each( function() {
 			$(this).parent().hide();
 			$(this).parent().siblings('.mit-row-icons').show();
 		} );
@@ -226,6 +228,11 @@ var dataValues = [];
 		} );
 	}
 
+	// Decode values
+	jexcel.prototype.decodeValues = function( value ) {
+		value = $('<div />').html( value ).text();
+		return value;
+	}
 
 	jexcel.prototype.deleteRow = function( spreadsheetID, rowNum ) {
 		rowNum = parseInt(rowNum);
@@ -233,7 +240,7 @@ var dataValues = [];
 		dataValues[spreadsheetID].splice(rowNum, 1);
 	}
 
-	jexcel.prototype.getAutocompleteAttributes = function ( cell ) {
+	jexcel.prototype.getAutocompleteAttributes = function( cell ) {
 		var autocompletedatatype = jQuery(cell).attr('data-autocomplete-data-type');
 		var autocompletesettings = jQuery(cell).attr('data-autocomplete-settings');
 		if ( autocompletedatatype == undefined || autocompletesettings == undefined ) {
@@ -248,13 +255,13 @@ var dataValues = [];
 			autocompletesettings = jQuery($table).find('thead td[data-x="'+data_x+'"]').attr('data-autocomplete-settings');
 		}
 		return {
-			autocompletedatatype, autocompletesettings
+			autocompletedatatype: autocompletedatatype, autocompletesettings: autocompletesettings
 		};
 	}
 
 	// If a field is dependent on some other field in the form
 	// then it returns its name.
-	jexcel.prototype.dependenton = function (origname) {
+	jexcel.prototype.dependenton = function(origname) {
 		var wgPageFormsDependentFields = mw.config.get('wgPageFormsDependentFields');
 			for (var i = 0; i < wgPageFormsDependentFields.length; i++) {
 				var dependentFieldPair = wgPageFormsDependentFields[i];
@@ -296,7 +303,7 @@ var dataValues = [];
 				}
 			} else {
 				// this is probably the case where some parameters are set
-				// in a wrong way in form defintion, in that case use the default jexcel editor
+				// in a wrong way in form definition, in that case use the default jexcel editor
 				pfSpreadsheetAutocomplete = false;
 			}
 		} else if ( autocompletedatatype == 'external data' ) {
@@ -311,7 +318,7 @@ var dataValues = [];
 				}
 			} else {
 				// this is probably the case where some autocomplete parameters are set
-				// in a wrong way in form defintion, in that case use the default jexcel editor
+				// in a wrong way in form definition, in that case use the default jexcel editor
 				pfSpreadsheetAutocomplete = false;
 			}
 		}
@@ -319,11 +326,11 @@ var dataValues = [];
 		editor = pfSpreadsheetAutocomplete ? widget.$element[0] : document.createElement(type);
 
 		return {
-			editor, pfSpreadsheetAutocomplete
+			editor: editor, pfSpreadsheetAutocomplete: pfSpreadsheetAutocomplete
 		};
 	}
 
-	jexcel.prototype.getValueToBeSavedAfterClosingEditor = function ( cell, pfSpreadsheetAutocomplete, ooui_input_val ) {
+	jexcel.prototype.getValueToBeSavedAfterClosingEditor = function( cell, pfSpreadsheetAutocomplete, ooui_input_val ) {
 		if (pfSpreadsheetAutocomplete) {
 			// setting the value to be saved after closing the editor
 			return ooui_input_val;
@@ -332,7 +339,7 @@ var dataValues = [];
 		}
 	}
 
-	jexcel.prototype.setAutocompleteAttributesOfColumns = function ( cell, gridParams, templateName, fieldNum ) {
+	jexcel.prototype.setAutocompleteAttributesOfColumns = function( cell, gridParams, templateName, fieldNum ) {
 		$(cell).attr( 'name', templateName + '[' + $(cell).attr('title') + ']' );
 		if ( gridParams[templateName][fieldNum]['autocompletedatatype'] == undefined ) {
 			$(cell).attr( 'data-autocomplete-data-type', '' );
@@ -356,7 +363,7 @@ var dataValues = [];
 
 })( jexcel, mediaWiki );
 
-( function ( $, mw, pf ) {
+( function( $, mw, pf ) {
 	var baseUrl = mw.config.get( 'wgScriptPath' ),
 		gridParams = mw.config.get( 'wgPageFormsGridParams' ),
 		gridValues = mw.config.get( 'wgPageFormsGridValues' );
@@ -599,7 +606,7 @@ var dataValues = [];
 
 				// Update either the "save" or the "add" icon,
 				// depending on which one exists for this row.
-				$( "div#" + spreadsheetID + " td[data-y = " + y + "] .save-changes" ).each( function () {
+				$( "div#" + spreadsheetID + " td[data-y = " + y + "] .save-changes" ).each( function() {
 					if ( modifiedDataValues[spreadsheetID] === undefined ) {
 						modifiedDataValues[spreadsheetID] = {};
 					}
@@ -633,7 +640,7 @@ var dataValues = [];
 					$(this).parent().show();
 					$(this).parent().siblings('.mit-row-icons').hide();
 				});
-				$("div#" + spreadsheetID + " td[data-y = " + y + "] .save-new-row").each(function () {
+				$("div#" + spreadsheetID + " td[data-y = " + y + "] .save-new-row").each(function() {
 					dataValues[spreadsheetID][y][columnName] = value;
 					// @HACK - see above
 					$(this).off();
@@ -652,7 +659,7 @@ var dataValues = [];
 						$(this).parent().hide();
 					} );
 				});
-				$( "div#" + spreadsheetID + " td[data-y = " + y + "] .cancel-changes" ).each( function () {
+				$( "div#" + spreadsheetID + " td[data-y = " + y + "] .cancel-changes" ).each( function() {
 					// @HACK - see above
 					$(this).off();
 					$(this).click( function( event ) {
@@ -684,8 +691,8 @@ var dataValues = [];
 						var fieldValueObject = {};
 						for (const field of fieldArray) {
 							var equalPos = field.indexOf('=');
-							var fieldLabel = field.substring(0, equalPos);
-							var fieldValue = field.substring(equalPos + 1);
+							var fieldLabel = field.slice(0, Math.max(0, equalPos));
+							var fieldValue = field.slice(Math.max(0, equalPos + 1));
 							fieldLabel = fieldLabel.trim();
 							fieldValueObject[fieldLabel] = fieldValue.trim();
 						}
@@ -829,7 +836,7 @@ var dataValues = [];
 					tableOverflow: true,
 					loadingSpin: true,
 					onchange: editMade,
-					columnSorting: false,
+					columnSorting: true,
 					allowInsertColumn: false,
 					allowDeletingAllRows: true,
 					oninsertrow: rowAdded,
@@ -874,7 +881,7 @@ var dataValues = [];
 
 				$(table).append(addRowButton.$element);
 
-				$('div#' + spreadsheetID + ' span.add-row').click( function ( event ) {
+				$('div#' + spreadsheetID + ' span.add-row').click( function( event ) {
 					var curSpreadsheet = mw.spreadsheets[spreadsheetID];
 					event.preventDefault();
 					if ( curSpreadsheet.getData().length > 0 ) {
@@ -885,14 +892,14 @@ var dataValues = [];
 						rowAdded2($curSpreadsheetDiv, spreadsheetID);
 					}
 				} );
-				$('div#' + spreadsheetID + ' a.raise-row').click( function ( event ) {
+				$('div#' + spreadsheetID + ' a.raise-row').click( function( event ) {
 					var y = $(this).parents('td').attr("data-y");
 					event.preventDefault();
 					if ( y > 0 ) {
 						mw.spreadsheets[spreadsheetID].moveRow( y, y - 1 );
 					}
 				} );
-				$('div#' + spreadsheetID + ' a.lower-row').click( function ( event ) {
+				$('div#' + spreadsheetID + ' a.lower-row').click( function( event ) {
 					var curSpreadsheet = mw.spreadsheets[spreadsheetID];
 					var y = parseInt( $(this).parents('td').attr("data-y") );
 					event.preventDefault();
@@ -900,7 +907,7 @@ var dataValues = [];
 						mw.spreadsheets[spreadsheetID].moveRow( y, y + 1 );
 					}
 				} );
-				$('div#' + spreadsheetID + ' a.delete-row').click( function ( event ) {
+				$('div#' + spreadsheetID + ' a.delete-row').click( function( event ) {
 					var y = $(this).parents('td').attr("data-y");
 					event.preventDefault();
 					jexcel.prototype.deleteRow( spreadsheetID, y );

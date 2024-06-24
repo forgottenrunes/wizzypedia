@@ -6,15 +6,14 @@ use ApiBase;
 use ApiMain;
 use ApiMessage;
 use ApiUsageException;
-use FauxRequest;
 use IApiMessage;
+use MediaWiki\Request\FauxRequest;
+use MediaWiki\Request\WebResponse;
 use MediaWiki\Rest\Handler;
 use MediaWiki\Rest\HttpException;
 use MediaWiki\Rest\LocalizedHttpException;
 use MediaWiki\Rest\Response;
-use MediaWiki\Session\Session;
 use RequestContext;
-use WebResponse;
 use Wikimedia\Message\ListParam;
 use Wikimedia\Message\MessageParam;
 use Wikimedia\Message\MessageValue;
@@ -29,28 +28,12 @@ use Wikimedia\Message\ScalarParam;
 abstract class ActionModuleBasedHandler extends Handler {
 
 	/**
-	 * @var Session|null
-	 */
-	private $session = null;
-
-	/**
 	 * @var ApiMain|null
 	 */
 	private $apiMain = null;
 
 	protected function getUser() {
 		return $this->getApiMain()->getUser();
-	}
-
-	/**
-	 * @return Session
-	 */
-	protected function getSession() {
-		if ( !$this->session ) {
-			$this->session = $this->getApiMain()->getRequest()->getSession();
-		}
-
-		return $this->session;
 	}
 
 	/**
@@ -73,7 +56,7 @@ abstract class ActionModuleBasedHandler extends Handler {
 		$context = RequestContext::getMain();
 		$session = $context->getRequest()->getSession();
 
-		// NOTE: This being a FauxRequest instance triggers special case behavior
+		// NOTE: This being a MediaWiki\Request\FauxRequest instance triggers special case behavior
 		// in ApiMain, causing ApiMain::isInternalMode() to return true. Among other things,
 		// this causes ApiMain to throw errors rather than encode them in the result data.
 		$fauxRequest = new FauxRequest( [], true, $session );
@@ -128,7 +111,7 @@ abstract class ActionModuleBasedHandler extends Handler {
 		}
 
 		try {
-			// NOTE: ApiMain detects the this to be an internal call, so it will throw
+			// NOTE: ApiMain detects this to be an internal call, so it will throw
 			// ApiUsageException rather than putting error messages into the result.
 			$apiMain->execute();
 		} catch ( ApiUsageException $ex ) {

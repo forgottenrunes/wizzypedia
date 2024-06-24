@@ -1,14 +1,18 @@
 <?php
 
+use MediaWiki\CommentStore\CommentStore;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\Linker\LinkTarget;
 use MediaWiki\Permissions\Authority;
 use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\Title\TitleValue;
+use MediaWiki\User\User;
 use MediaWiki\User\UserIdentity;
+use MediaWiki\User\UserOptionsLookup;
 use Wikimedia\Assert\Assert;
+use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IDatabase;
-use Wikimedia\Rdbms\ILoadBalancer;
 
 /**
  * Class performing complex database queries related to WatchedItems.
@@ -57,9 +61,9 @@ class WatchedItemQueryService {
 	public const SORT_DESC = 'DESC';
 
 	/**
-	 * @var ILoadBalancer
+	 * @var IConnectionProvider
 	 */
-	private $loadBalancer;
+	private $dbProvider;
 
 	/** @var WatchedItemQueryServiceExtension[]|null */
 	private $extensions = null;
@@ -73,6 +77,9 @@ class WatchedItemQueryService {
 	/** @var HookRunner */
 	private $hookRunner;
 
+	/** @var UserOptionsLookup */
+	private $userOptionsLookup;
+
 	/**
 	 * @var bool Correlates to $wgWatchlistExpiry feature flag.
 	 */
@@ -84,17 +91,19 @@ class WatchedItemQueryService {
 	private $maxQueryExecutionTime;
 
 	public function __construct(
-		ILoadBalancer $loadBalancer,
+		IConnectionProvider $dbProvider,
 		CommentStore $commentStore,
 		WatchedItemStoreInterface $watchedItemStore,
 		HookContainer $hookContainer,
+		UserOptionsLookup $userOptionsLookup,
 		bool $expiryEnabled = false,
 		int $maxQueryExecutionTime = 0
 	) {
-		$this->loadBalancer = $loadBalancer;
+		$this->dbProvider = $dbProvider;
 		$this->commentStore = $commentStore;
 		$this->watchedItemStore = $watchedItemStore;
 		$this->hookRunner = new HookRunner( $hookContainer );
+		$this->userOptionsLookup = $userOptionsLookup;
 		$this->expiryEnabled = $expiryEnabled;
 		$this->maxQueryExecutionTime = $maxQueryExecutionTime;
 	}
@@ -111,13 +120,6 @@ class WatchedItemQueryService {
 	}
 
 	/**
-	 * @return IDatabase
-	 */
-	private function getConnection() {
-		return $this->loadBalancer->getConnectionRef( DB_REPLICA, [ 'watchlist' ] );
-	}
-
-	/**
 	 * @param User $user
 	 * @param array $options Allowed keys:
 	 *        'includeFields'       => string[] RecentChange fields to be included in the result,
@@ -131,7 +133,7 @@ class WatchedItemQueryService {
 	 *                                 (defaults to all types), allowed values: RC_EDIT, RC_NEW,
 	 *                                 RC_LOG, RC_EXTERNAL, RC_CATEGORIZE
 	 *        'onlyByUser'          => string only list changes by a specified user
-	 *        'notByUser'           => string do not incluide changes by a specified user
+	 *        'notByUser'           => string do not include changes by a specified user
 	 *        'dir'                 => string in which direction to enumerate, accepted values:
 	 *                                 - DIR_OLDER list newest first
 	 *                                 - DIR_NEWER list oldest first
@@ -139,7 +141,7 @@ class WatchedItemQueryService {
 	 *                                 timestamp to start enumerating from
 	 *        'end'                 => string (format accepted by wfTimestamp) requires 'dir' option,
 	 *                                 timestamp to end enumerating
-	 *        'watchlistOwner'      => User user whose watchlist items should be listed if different
+	 *        'watchlistOwner'      => UserIdentity user whose watchlist items should be listed if different
 	 *                                 than the one specified with $user param, requires
 	 *                                 'watchlistOwnerToken' option
 	 *        'watchlistOwnerToken' => string a watchlist token used to access another user's
@@ -200,7 +202,7 @@ class WatchedItemQueryService {
 		);
 		if ( array_key_exists( 'watchlistOwner', $options ) ) {
 			Assert::parameterType(
-				User::class,
+				UserIdentity::class,
 				$options['watchlistOwner'],
 				'$options[\'watchlistOwner\']'
 			);
@@ -211,7 +213,7 @@ class WatchedItemQueryService {
 			);
 		}
 
-		$db = $this->getConnection();
+		$db = $this->dbProvider->getReplicaDatabase();
 
 		$tables = $this->getWatchedItemsWithRCInfoQueryTables( $options );
 		$fields = $this->getWatchedItemsWithRCInfoQueryFields( $options );
@@ -282,7 +284,7 @@ class WatchedItemQueryService {
 	 *                          one of the self::SORT_* constants
 	 *        'namespaceIds' => int[] optional namespace IDs to filter by (defaults to all namespaces)
 	 *        'limit'        => int maximum number of items to return
-	 *        'filter'       => string optional filter, one of the self::FILTER_* contants
+	 *        'filter'       => string optional filter, one of the self::FILTER_* constants
 	 *        'from'         => LinkTarget requires 'sort' key, only return items starting from
 	 *                          those related to the link target
 	 *        'until'        => LinkTarget requires 'sort' key, only return items until
@@ -320,7 +322,7 @@ class WatchedItemQueryService {
 			'must be provided if any of "from", "until", "startFrom" options is provided'
 		);
 
-		$db = $this->getConnection();
+		$db = $this->dbProvider->getReplicaDatabase();
 
 		$conds = $this->getWatchedItemsForUserQueryConds( $db, $user, $options );
 		$dbOptions = $this->getWatchedItemsForUserQueryDbOptions( $options );
@@ -366,7 +368,7 @@ class WatchedItemQueryService {
 		return array_filter(
 			get_object_vars( $row ),
 			static function ( $key ) {
-				return substr( $key, 0, 3 ) === 'rc_';
+				return str_starts_with( $key, 'rc_' );
 			},
 			ARRAY_FILTER_USE_KEY
 		);
@@ -505,10 +507,10 @@ class WatchedItemQueryService {
 
 	private function getWatchlistOwnerId( UserIdentity $user, array $options ) {
 		if ( array_key_exists( 'watchlistOwner', $options ) ) {
-			/** @var User $watchlistOwner */
+			/** @var UserIdentity $watchlistOwner */
 			$watchlistOwner = $options['watchlistOwner'];
 			$ownersToken =
-				$watchlistOwner->getOption( 'watchlisttoken' );
+				$this->userOptionsLookup->getOption( $watchlistOwner, 'watchlisttoken' );
 			$token = $options['watchlistOwnerToken'];
 			if ( $ownersToken == '' || !hash_equals( $ownersToken, $token ) ) {
 				throw ApiUsageException::newWithMessage( null, 'apierror-bad-watchlist-token', 'bad_wltoken' );
@@ -632,23 +634,14 @@ class WatchedItemQueryService {
 	}
 
 	private function getStartFromConds( IDatabase $db, array $options, array $startFrom ) {
-		$op = $options['dir'] === self::DIR_OLDER ? '<' : '>';
-		list( $rcTimestamp, $rcId ) = $startFrom;
-		$rcTimestamp = $db->addQuotes( $db->timestamp( $rcTimestamp ) );
+		$op = $options['dir'] === self::DIR_OLDER ? '<=' : '>=';
+		[ $rcTimestamp, $rcId ] = $startFrom;
+		$rcTimestamp = $db->timestamp( $rcTimestamp );
 		$rcId = (int)$rcId;
-		return $db->makeList(
-			[
-				"rc_timestamp $op $rcTimestamp",
-				$db->makeList(
-					[
-						"rc_timestamp = $rcTimestamp",
-						"rc_id $op= $rcId"
-					],
-					LIST_AND
-				)
-			],
-			LIST_OR
-		);
+		return $db->buildComparison( $op, [
+			'rc_timestamp' => $rcTimestamp,
+			'rc_id' => $rcId,
+		] );
 	}
 
 	private function getWatchedItemsForUserQueryConds(
@@ -668,15 +661,15 @@ class WatchedItemQueryService {
 		}
 
 		if ( isset( $options['from'] ) ) {
-			$op = $options['sort'] === self::SORT_ASC ? '>' : '<';
+			$op = $options['sort'] === self::SORT_ASC ? '>=' : '<=';
 			$conds[] = $this->getFromUntilTargetConds( $db, $options['from'], $op );
 		}
 		if ( isset( $options['until'] ) ) {
-			$op = $options['sort'] === self::SORT_ASC ? '<' : '>';
+			$op = $options['sort'] === self::SORT_ASC ? '<=' : '>=';
 			$conds[] = $this->getFromUntilTargetConds( $db, $options['until'], $op );
 		}
 		if ( isset( $options['startFrom'] ) ) {
-			$op = $options['sort'] === self::SORT_ASC ? '>' : '<';
+			$op = $options['sort'] === self::SORT_ASC ? '>=' : '<=';
 			$conds[] = $this->getFromUntilTargetConds( $db, $options['startFrom'], $op );
 		}
 
@@ -693,19 +686,10 @@ class WatchedItemQueryService {
 	 * @return string
 	 */
 	private function getFromUntilTargetConds( IDatabase $db, LinkTarget $target, $op ) {
-		return $db->makeList(
-			[
-				"wl_namespace $op " . $target->getNamespace(),
-				$db->makeList(
-					[
-						'wl_namespace = ' . $target->getNamespace(),
-						"wl_title $op= " . $db->addQuotes( $target->getDBkey() )
-					],
-					LIST_AND
-				)
-			],
-			LIST_OR
-		);
+		return $db->buildComparison( $op, [
+			'wl_namespace' => $target->getNamespace(),
+			'wl_title' => $target->getDBkey(),
+		] );
 	}
 
 	private function getWatchedItemsWithRCInfoQueryDbOptions( array $options ) {

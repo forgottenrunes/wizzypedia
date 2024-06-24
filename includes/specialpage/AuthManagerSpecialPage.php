@@ -1,10 +1,25 @@
 <?php
 
+namespace MediaWiki\SpecialPage;
+
+use DerivativeContext;
+use ErrorPageError;
+use HTMLForm;
+use HTMLInfoField;
+use InvalidArgumentException;
+use LogicException;
 use MediaWiki\Auth\AuthenticationRequest;
 use MediaWiki\Auth\AuthenticationResponse;
 use MediaWiki\Auth\AuthManager;
+use MediaWiki\Language\RawMessage;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\Request\DerivativeRequest;
+use MediaWiki\Request\WebRequest;
 use MediaWiki\Session\Token;
+use MediaWiki\Status\Status;
+use MWCryptRand;
+use StatusValue;
+use UnexpectedValueException;
 
 /**
  * A special page subclass for authentication-related special pages. It generates a form from
@@ -85,11 +100,11 @@ abstract class AuthManagerSpecialPage extends SpecialPage {
 	 */
 	protected function setRequest( array $data, $wasPosted = null ) {
 		$request = $this->getContext()->getRequest();
-		if ( $wasPosted === null ) {
-			$wasPosted = $request->wasPosted();
-		}
-		$this->savedRequest = new DerivativeRequest( $request, $data + $request->getQueryValues(),
-			$wasPosted );
+		$this->savedRequest = new DerivativeRequest(
+			$request,
+			$data + $request->getQueryValues(),
+			$wasPosted ?? $request->wasPosted()
+		);
 	}
 
 	/**
@@ -451,10 +466,12 @@ abstract class AuthManagerSpecialPage extends SpecialPage {
 				$status = Status::newFatal( new RawMessage( '$1', [ $status ] ) );
 			} elseif ( is_array( $status ) ) {
 				if ( is_string( reset( $status ) ) ) {
+					// @phan-suppress-next-line PhanParamTooFewUnpack
 					$status = Status::newFatal( ...$status );
 				} elseif ( is_array( reset( $status ) ) ) {
 					$ret = Status::newGood();
 					foreach ( $status as $message ) {
+						// @phan-suppress-next-line PhanParamTooFewUnpack
 						$ret->fatal( ...$message );
 					}
 					$status = $ret;
@@ -611,7 +628,7 @@ abstract class AuthManagerSpecialPage extends SpecialPage {
 	 * @return bool
 	 */
 	protected function hasOwnSubmitButton( AuthenticationRequest $req ) {
-		foreach ( $req->getFieldInfo() as $field => $info ) {
+		foreach ( $req->getFieldInfo() as $info ) {
 			if ( $info['type'] === 'button' ) {
 				return true;
 			}
@@ -626,7 +643,7 @@ abstract class AuthManagerSpecialPage extends SpecialPage {
 	 */
 	protected function addTabIndex( &$formDescriptor ) {
 		$i = 1;
-		foreach ( $formDescriptor as $field => &$definition ) {
+		foreach ( $formDescriptor as &$definition ) {
 			$class = false;
 			if ( array_key_exists( 'class', $definition ) ) {
 				$class = $definition['class'];
@@ -743,7 +760,7 @@ abstract class AuthManagerSpecialPage extends SpecialPage {
 		foreach ( $formDescriptor as &$field ) {
 			$field['__index'] = $i++;
 		}
-		uasort( $formDescriptor, function ( $first, $second ) {
+		uasort( $formDescriptor, static function ( $first, $second ) {
 			return self::getField( $first, 'weight', 0 ) <=> self::getField( $second, 'weight', 0 )
 				?: $first['__index'] <=> $second['__index'];
 		} );
@@ -840,3 +857,9 @@ abstract class AuthManagerSpecialPage extends SpecialPage {
 		return array_filter( $defaultFormDescriptor + $formDescriptor );
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( AuthManagerSpecialPage::class, 'AuthManagerSpecialPage' );

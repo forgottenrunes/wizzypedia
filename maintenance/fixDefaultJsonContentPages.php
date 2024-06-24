@@ -21,9 +21,9 @@
  * @ingroup Maintenance
  */
 
-use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Title\Title;
 
 require_once __DIR__ . '/Maintenance.php';
 
@@ -54,17 +54,17 @@ class FixDefaultJsonContentPages extends LoggedUpdateMaintenance {
 		foreach ( $namespaces as $ns => $like ) {
 			$lastPage = 0;
 			do {
-				$rows = $dbr->select(
-					'page',
-					[ 'page_id', 'page_title', 'page_namespace', 'page_content_model' ],
-					[
+				$rows = $dbr->newSelectQueryBuilder()
+					->select( [ 'page_id', 'page_title', 'page_namespace', 'page_content_model' ] )
+					->from( 'page' )
+					->where( [
 						'page_namespace' => $ns,
 						'page_title ' . $like,
 						'page_id > ' . $dbr->addQuotes( $lastPage )
-					],
-					__METHOD__,
-					[ 'ORDER BY' => 'page_id', 'LIMIT' => $this->getBatchSize() ]
-				);
+					] )
+					->orderBy( 'page_id' )
+					->limit( $this->getBatchSize() )
+					->caller( __METHOD__ )->fetchResultSet();
 				foreach ( $rows as $row ) {
 					$this->handleRow( $row );
 					$lastPage = $row->page_id;
@@ -78,13 +78,12 @@ class FixDefaultJsonContentPages extends LoggedUpdateMaintenance {
 	protected function handleRow( stdClass $row ) {
 		$title = Title::makeTitle( $row->page_namespace, $row->page_title );
 		$this->output( "Processing {$title} ({$row->page_id})...\n" );
-		$rev = MediaWikiServices::getInstance()
+		$rev = $this->getServiceContainer()
 			->getRevisionLookup()
 			->getRevisionByTitle( $title );
 		$content = $rev->getContent( SlotRecord::MAIN, RevisionRecord::RAW );
 		$dbw = $this->getDB( DB_PRIMARY );
 		if ( $content instanceof JsonContent ) {
-			$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 			if ( $content->isValid() ) {
 				// Yay, actually JSON. We need to just change the
 				// page_content_model because revision will automatically
@@ -97,7 +96,7 @@ class FixDefaultJsonContentPages extends LoggedUpdateMaintenance {
 					__METHOD__
 				);
 				$this->output( "done.\n" );
-				$lbFactory->waitForReplication();
+				$this->waitForReplication();
 			} else {
 				// Not JSON...force it to wikitext. We need to update the
 				// revision table so that these revisions are always processed
@@ -105,12 +104,11 @@ class FixDefaultJsonContentPages extends LoggedUpdateMaintenance {
 				// set to "wikitext".
 				$this->output( "Setting rev_content_model to wikitext..." );
 				// Grab all the ids for batching
-				$ids = $dbw->selectFieldValues(
-					'revision',
-					'rev_id',
-					[ 'rev_page' => $row->page_id ],
-					__METHOD__
-				);
+				$ids = $dbw->newSelectQueryBuilder()
+					->select( 'rev_id' )
+					->from( 'revision' )
+					->where( [ 'rev_page' => $row->page_id ] )
+					->caller( __METHOD__ )->fetchFieldValues();
 				foreach ( array_chunk( $ids, 50 ) as $chunk ) {
 					$dbw->update(
 						'revision',
@@ -118,7 +116,7 @@ class FixDefaultJsonContentPages extends LoggedUpdateMaintenance {
 						[ 'rev_page' => $row->page_id, 'rev_id' => $chunk ],
 						__METHOD__
 					);
-					$lbFactory->waitForReplication();
+					$this->waitForReplication();
 				}
 				$this->output( "done.\n" );
 			}

@@ -5,13 +5,14 @@ namespace MediaWiki\Tests\User;
 use CannotCreateActorException;
 use InvalidArgumentException;
 use MediaWiki\DAO\WikiAwareEntity;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\User\ActorStore;
+use MediaWiki\User\User;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
 use MediaWiki\User\UserSelectQueryBuilder;
 use stdClass;
-use User;
 use Wikimedia\Assert\PreconditionException;
 use Wikimedia\Rdbms\IDatabase;
 
@@ -22,7 +23,7 @@ use Wikimedia\Rdbms\IDatabase;
  */
 class ActorStoreTest extends ActorStoreTestBase {
 
-	public function provideGetActorById() {
+	public static function provideGetActorById() {
 		yield 'getActorById, registered' => [
 			42, // $argument
 			new UserIdentityValue( 24, 'TestUser' ), // $expected
@@ -59,7 +60,7 @@ class ActorStoreTest extends ActorStoreTestBase {
 		}
 	}
 
-	public function provideGetActorByMethods() {
+	public static function provideGetActorByMethods() {
 		yield 'getUserIdentityByName, registered' => [
 			'getUserIdentityByName', // $method
 			'TestUser', // $argument
@@ -132,7 +133,7 @@ class ActorStoreTest extends ActorStoreTestBase {
 		}
 	}
 
-	public function provideUserIdentityValues() {
+	public static function provideUserIdentityValues() {
 		yield [ new UserIdentityValue( 24, 'TestUser' ) ];
 		yield [ new UserIdentityValue( 0, self::IP ) ];
 	}
@@ -198,7 +199,7 @@ class ActorStoreTest extends ActorStoreTestBase {
 		$this->assertSameActors( $user, $actor );
 	}
 
-	public function provideNewActorFromRow() {
+	public static function provideNewActorFromRow() {
 		yield 'full row' => [
 			UserIdentity::LOCAL, // $wikiId
 			(object)[ 'actor_id' => 42, 'actor_name' => 'TestUser', 'actor_user' => 24 ], // $row
@@ -240,7 +241,7 @@ class ActorStoreTest extends ActorStoreTestBase {
 		$this->assertSameActors( $expected, $actor, $wikiId );
 	}
 
-	public function provideNewActorFromRow_exception() {
+	public static function provideNewActorFromRow_exception() {
 		yield 'null actor' => [
 			(object)[ 'actor_id' => '0', 'actor_name' => 'TestUser', 'actor_user' => 0 ], // $row
 		];
@@ -261,7 +262,7 @@ class ActorStoreTest extends ActorStoreTestBase {
 		$this->getStore()->newActorFromRow( $row );
 	}
 
-	public function provideNewActorFromRowFields() {
+	public static function provideNewActorFromRowFields() {
 		yield 'full row' => [
 			UserIdentity::LOCAL, // $wikiId
 			42, // $actorId
@@ -315,7 +316,7 @@ class ActorStoreTest extends ActorStoreTestBase {
 		$this->assertSameActors( $expected, $actor, $wikiId );
 	}
 
-	public function provideNewActorFromRowFields_exception() {
+	public static function provideNewActorFromRowFields_exception() {
 		yield 'empty name' => [
 			42, // $actorId
 			'', // $name
@@ -347,7 +348,7 @@ class ActorStoreTest extends ActorStoreTestBase {
 		$this->getStore()->newActorFromRowFields( $userId, $name, $actorId );
 	}
 
-	public function provideFindActorId() {
+	public static function provideFindActorId() {
 		yield 'anon, local' => [
 			static function () {
 				return new UserIdentityValue( 0, self::IP );
@@ -368,7 +369,7 @@ class ActorStoreTest extends ActorStoreTestBase {
 		];
 		yield 'registered, zero user name' => [
 			static function () {
-				return new UserIdentityValue( 26, '0', 0 );
+				return new UserIdentityValue( 26, '0' );
 			}, // $actorCallback
 			46, // $expected
 		];
@@ -462,7 +463,7 @@ class ActorStoreTest extends ActorStoreTestBase {
 		);
 	}
 
-	public function provideFindActorIdByName() {
+	public static function provideFindActorIdByName() {
 		yield 'anon' => [
 			self::IP, // $actorCallback
 			43,  // $expected
@@ -509,7 +510,7 @@ class ActorStoreTest extends ActorStoreTestBase {
 		$this->assertSame( $expected, $this->getStore()->findActorIdByName( $name, $this->db ) );
 	}
 
-	public function provideAcquireActorId() {
+	public static function provideAcquireActorId() {
 		yield 'anon' => [ static function () {
 			return new UserIdentityValue( 0, '127.3.2.1' );
 		} ];
@@ -535,7 +536,7 @@ class ActorStoreTest extends ActorStoreTestBase {
 		}
 	}
 
-	public function provideAcquireActorId_foreign() {
+	public static function provideAcquireActorId_foreign() {
 		yield 'anon' => [
 			'userCallback' => static function () {
 				return new UserIdentityValue( 0, '127.3.2.1', 'acmewiki' );
@@ -600,7 +601,7 @@ class ActorStoreTest extends ActorStoreTestBase {
 		);
 	}
 
-	public function provideAcquireActorId_canNotCreate() {
+	public static function provideAcquireActorId_canNotCreate() {
 		yield 'usable name' => [
 			'actor' => new UserIdentityValue( 0, 'MyFancyUser' ),
 			'method' => 'acquireActorId'
@@ -639,7 +640,7 @@ class ActorStoreTest extends ActorStoreTestBase {
 	 */
 	public function testAcquireActorId_canNotCreate( UserIdentityValue $actor, string $method ) {
 		// We rely on DB to protect against duplicates when inserting new actor
-		$this->setNullLogger( 'DBQuery' );
+		$this->setNullLogger( 'rdbms' );
 		$this->expectException( CannotCreateActorException::class );
 		$this->getStore()->$method( $actor, $this->db );
 	}
@@ -649,12 +650,12 @@ class ActorStoreTest extends ActorStoreTestBase {
 	 */
 	public function testAcquireNowActorId_existing() {
 		// We rely on DB to protect against duplicates when inserting new actor
-		$this->setNullLogger( 'DBQuery' );
+		$this->setNullLogger( 'rdbms' );
 		$this->expectException( CannotCreateActorException::class );
 		$this->getStore()->createNewActor( new UserIdentityValue( 24, 'TestUser' ), $this->db );
 	}
 
-	public function provideAcquireActorId_existing() {
+	public static function provideAcquireActorId_existing() {
 		yield 'anon' => [
 			new UserIdentityValue( 0, self::IP ), // $actor
 			43, // $expected
@@ -781,9 +782,10 @@ class ActorStoreTest extends ActorStoreTestBase {
 	 * @covers ::acquireSystemActorId
 	 */
 	public function testAcquireSystemActorId_replaceReserved() {
-		$this->setMwGlobals( [
-			'wgReservedUsernames' => [ 'RESERVED' ],
-		] );
+		$this->overrideConfigValue(
+			MainConfigNames::ReservedUsernames,
+			[ 'RESERVED' ]
+		);
 		$store = $this->getStore();
 		$originalActor = new UserIdentityValue( 0, 'RESERVED' );
 		$actorId = $store->createNewActor( $originalActor, $this->db );
@@ -845,7 +847,7 @@ class ActorStoreTest extends ActorStoreTestBase {
 		$this->assertSameActors( $unknownActor, $store->getUnknownActor() );
 	}
 
-	public function provideNormalizeUserName() {
+	public static function provideNormalizeUserName() {
 		yield [ strtolower( self::IP ), self::IP ];
 		yield [ 'acme>test', 'acme>test' ];
 		yield [ 'test_this', 'Test this' ];

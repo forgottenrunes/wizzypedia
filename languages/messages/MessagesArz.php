@@ -1,11 +1,8 @@
 <?php
 /** Egyptian Spoken Arabic (مصرى)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
- *
+ * @ingroup Languages
  */
 
 $fallback = 'ar';
@@ -61,6 +58,7 @@ $specialPageAliases = [
 	'ChangePassword'            => [ 'تغيير_الپاسوورد', 'ظبط_الپاسوورد' ],
 	'ComparePages'              => [ 'مقارنه_الصفحات' ],
 	'Confirmemail'              => [ 'تأكيد_الايميل' ],
+	'Contribute'                => [ 'ساهم' ],
 	'Contributions'             => [ 'مساهمات' ],
 	'CreateAccount'             => [ 'ابتدى_حساب' ],
 	'Deadendpages'              => [ 'صفح_نهايه_مسدوده' ],
@@ -109,6 +107,7 @@ $specialPageAliases = [
 	'Mute'                      => [ 'اكتم' ],
 	'Mycontributions'           => [ 'مساهماتى' ],
 	'MyLanguage'                => [ 'اللغة_بتاعتى' ],
+	'Mylog'                     => [ 'السجل_بتاعى' ],
 	'Mypage'                    => [ 'صفحتى' ],
 	'Mytalk'                    => [ 'مناقشتى' ],
 	'Myuploads'                 => [ 'مرفوعاتى', 'فايلاتى' ],
@@ -137,6 +136,7 @@ $specialPageAliases = [
 	'Recentchangeslinked'       => [ 'اجدد_التغييرات_اللى_معمول_ليها_لينك', 'تغييرات_مرتبطه' ],
 	'Redirect'                  => [ 'تحويل' ],
 	'RemoveCredentials'         => [ 'مسح_الكريدينشيال' ],
+	'Renameuser'                => [ 'سمّى_تانى_يوزر' ],
 	'ResetTokens'               => [ 'ضبط_المفاتيح' ],
 	'Revisiondelete'            => [ 'مسح_نسخه' ],
 	'RunJobs'                   => [ 'تشغيل_الوظايف' ],

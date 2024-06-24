@@ -4,6 +4,7 @@ declare( strict_types = 1 );
 namespace Wikimedia\Parsoid\Utils;
 
 use Wikimedia\Assert\Assert;
+use Wikimedia\Assert\UnreachableException;
 use Wikimedia\Parsoid\Config\Env;
 use Wikimedia\Parsoid\DOM\Comment;
 use Wikimedia\Parsoid\DOM\Document;
@@ -52,7 +53,7 @@ class PipelineUtils {
 	): SelfclosingTagTk {
 		$token = $opts['token'];
 		return new SelfclosingTagTk( 'mw:dom-fragment-token', [
-			new KV( 'contextTok', $token, $token->dataAttribs->tsr->expandTsrV() ),
+			new KV( 'contextTok', $token, $token->dataParsoid->tsr->expandTsrV() ),
 			new KV( 'content', $content, $srcOffsets->expandTsrV() ),
 			new KV( 'inlineContext', ( $opts['inlineContext'] ?? false ) ? "1" : "0" ),
 			new KV( 'inPHPBlock', ( $opts['inPHPBlock'] ?? false ) ? "1" : "0" ),
@@ -229,7 +230,7 @@ class PipelineUtils {
 				$endTag = new EndTagTk( $nodeName );
 				// Keep stx parity
 				if ( WTUtils::isLiteralHTMLNode( $node ) ) {
-					$endTag->dataAttribs->stx = 'html';
+					$endTag->dataParsoid->stx = 'html';
 				}
 				$tokBuf[] = $endTag;
 			}
@@ -241,7 +242,7 @@ class PipelineUtils {
 			// getWrapperTokens calls convertDOMToTokens with a Element
 			// and children of dom elements are always text/comment/elements
 			// which are all covered above.
-			PHPUtils::unreachable( "Should never get here!" );
+			throw new UnreachableException( "Should never get here!" );
 		}
 
 		return $tokBuf;
@@ -367,12 +368,28 @@ class PipelineUtils {
 				// Shallow clone since we don't want to convert the whole tree to tokens.
 				$workNode = $node->cloneNode( false );
 
-				// Reset 'tsr' since it isn't applicable.
+				// Reset 'tsr' since it isn't applicable. Neither is
+				// any auxiliary info like 'endTSR'.
 				// FIXME: The above comment is only true if we are reusing
 				// DOM fragments from cache from previous revisions in
 				// incremental parsing scenarios.  See T98992
 				if ( isset( $nodeData->parsoid->tsr ) ) {
 					$nodeData->parsoid->tsr = null;
+				}
+				if ( isset( $nodeData->parsoid->tmp->endTSR ) ) {
+					unset( $nodeData->parsoid->tmp->endTSR );
+				}
+
+				// The "in transclusion" flag was set on the first child for template
+				// wrapping in the nested pipeline, and doesn't apply to the dom
+				// fragment wrapper in this pipeline.  Keeping it around can induce
+				// template wrapping of a foster box if the dom fragment is found in
+				// a fosterable position.
+				if (
+					isset( $nodeData->parsoid ) &&
+					$nodeData->parsoid->getTempFlag( TempData::IN_TRANSCLUSION )
+				) {
+					$nodeData->parsoid->tmp->setFlag( TempData::IN_TRANSCLUSION, false );
 				}
 			}
 
@@ -441,33 +458,33 @@ class PipelineUtils {
 		$firstWrapperToken->setAttribute( 'typeof', $fragmentType );
 
 		// Assign the HTML fragment to the data-parsoid.html on the first wrapper token.
-		$firstWrapperToken->dataAttribs->html = $expansion['html'];
+		$firstWrapperToken->dataParsoid->html = $expansion['html'];
 
 		// Pass through setDSR flag
 		if ( !empty( $opts['setDSR'] ) ) {
-			$firstWrapperToken->dataAttribs->setTempFlag(
+			$firstWrapperToken->dataParsoid->setTempFlag(
 				TempData::SET_DSR, $opts['setDSR'] );
 		}
 
 		// Pass through fromCache flag
 		if ( !empty( $opts['fromCache'] ) ) {
-			$firstWrapperToken->dataAttribs->setTempFlag(
+			$firstWrapperToken->dataParsoid->setTempFlag(
 				TempData::FROM_CACHE, $opts['fromCache'] );
 		}
 
 		// Transfer the tsr.
 		// The first token gets the full width, the following tokens zero width.
-		$tokenTsr = $opts['tsr'] ?? $token->dataAttribs->tsr ?? null;
+		$tokenTsr = $opts['tsr'] ?? $token->dataParsoid->tsr ?? null;
 		if ( $tokenTsr ) {
-			$firstWrapperToken->dataAttribs->tsr = $tokenTsr;
-			$firstWrapperToken->dataAttribs->extTagOffsets = $token->dataAttribs->extTagOffsets ?? null;
+			$firstWrapperToken->dataParsoid->tsr = $tokenTsr;
+			$firstWrapperToken->dataParsoid->extTagOffsets = $token->dataParsoid->extTagOffsets ?? null;
 			// XXX to investigate: if $tokenTsr->end is null, then we're losing
 			// the 'hint' we'd like to provide here that this is a zero-width
 			// source range.
 			// ->end can be set to null by WikiLinkHandler::bailTokens()
 			$endTsr = new SourceRange( $tokenTsr->end, $tokenTsr->end );
 			for ( $i = 1;  $i < count( $toks );  $i++ ) {
-				$toks[$i]->dataAttribs->tsr = clone $endTsr;
+				$toks[$i]->dataParsoid->tsr = clone $endTsr;
 			}
 		}
 
@@ -499,9 +516,14 @@ class PipelineUtils {
 	 * top-level nodes are elements.
 	 *
 	 * @param NodeList $nodes List of DOM nodes to wrap, mix of node types.
-	 * @param ?Node $startAfter
+	 * @param ?Node $startAt
+	 * @param ?Node $stopAt
 	 */
-	public static function addSpanWrappers( $nodes, ?Node $startAfter = null ): void {
+	public static function addSpanWrappers(
+		$nodes,
+		?Node $startAt = null,
+		?Node $stopAt = null
+	): void {
 		$textCommentAccum = [];
 		$doc = $nodes->item( 0 )->ownerDocument;
 
@@ -515,18 +537,21 @@ class PipelineUtils {
 			$nodeBuf[] = $node;
 		}
 
-		$start = ( $startAfter === null );
+		$start = ( $startAt === null );
 		foreach ( $nodeBuf as $node ) {
 			if ( !$start ) {
-				if ( $startAfter === $node ) {
-					$start = true;
+				if ( $startAt !== $node ) {
+					continue;
 				}
-				continue;
+				$start = true;
 			}
 			if ( $node instanceof Text || $node instanceof Comment ) {
 				$textCommentAccum[] = $node;
 			} elseif ( count( $textCommentAccum ) ) {
 				self::wrapAccum( $doc, $textCommentAccum );
+			}
+			if ( $node === $stopAt ) {
+				break;
 			}
 		}
 
@@ -607,7 +632,7 @@ class PipelineUtils {
 					}
 
 					if ( $key ) {
-						PHPUtils::unreachable( 'Callsite was not ported!' );
+						throw new UnreachableException( 'Callsite was not ported!' );
 						// FIXME: makeExpansion return type changed
 						// $expAccum[$key] = self::makeExpansion( $env, $nodes );
 					}

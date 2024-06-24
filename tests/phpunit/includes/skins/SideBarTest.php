@@ -1,21 +1,21 @@
 <?php
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
 
 /**
+ * @covers Skin
+ * @covers SkinTemplate
  * @group Skin
+ * @group Database
  */
 class SideBarTest extends MediaWikiLangTestCase {
-
-	/**
-	 * A skin template, reinitialized before each test
-	 * @var SkinTemplate
-	 */
+	/** @var SkinTemplate */
 	private $skin;
 	/** @var string[][] Local cache for sidebar messages */
 	private $messages;
 
-	/** Build $this->messages array */
 	private function initMessagesHref() {
 		# List of default messages for the sidebar. The sidebar doesn't care at
 		# all whether they are full URLs, interwiki links or local titles.
@@ -86,14 +86,14 @@ class SideBarTest extends MediaWikiLangTestCase {
 					# ** Baz|Fred
 					[
 						'text' => 'Fred',
-						'href' => Title::newFromText( 'Baz' )->getLocalURL(),
+						'href' => Title::makeTitle( NS_MAIN, 'Baz' )->getLocalURL(),
 						'id' => 'n-Fred',
 						'active' => null,
 						'icon' => null,
 					],
 					[
 						'text' => 'title-to-display',
-						'href' => Title::newFromText( 'page-to-go-to' )->getLocalURL(),
+						'href' => Title::makeTitle( NS_MAIN, 'Page-to-go-to' )->getLocalURL(),
 						'id' => 'n-title-to-display',
 						'active' => null,
 						'icon' => null,
@@ -111,7 +111,6 @@ class SideBarTest extends MediaWikiLangTestCase {
 	}
 
 	/**
-	 * @covers SkinTemplate::addToSidebarPlain
 	 * @dataProvider provideSidebars
 	 */
 	public function testAddToSidebarPlain( $expected, $text, $message = '' ) {
@@ -120,14 +119,11 @@ class SideBarTest extends MediaWikiLangTestCase {
 		$this->assertEquals( $expected, $bar, $message );
 	}
 
-	/**
-	 * @covers SkinTemplate::addToSidebarPlain
-	 */
 	public function testExternalUrlsRequireADescription() {
-		$this->setMwGlobals( [
-			'wgNoFollowLinks' => true,
-			'wgNoFollowDomainExceptions' => [],
-			'wgNoFollowNsExceptions' => [],
+		$this->overrideConfigValues( [
+			MainConfigNames::NoFollowLinks => true,
+			MainConfigNames::NoFollowDomainExceptions => [],
+			MainConfigNames::NoFollowNsExceptions => [],
 		] );
 
 		$bar = [];
@@ -154,7 +150,6 @@ class SideBarTest extends MediaWikiLangTestCase {
 		);
 	}
 
-	#### Attributes for external links ##########################
 	private function getAttribs() {
 		# Sidebar text we will use everytime
 		$text = '* Title
@@ -167,15 +162,15 @@ class SideBarTest extends MediaWikiLangTestCase {
 	}
 
 	/**
-	 * Simple test to verify our helper assertAttribs() is functional
+	 * Test our assertAttribs() helper function
 	 * @coversNothing
 	 */
 	public function testTestAttributesAssertionHelper() {
-		$this->setMwGlobals( [
-			'wgNoFollowLinks' => true,
-			'wgNoFollowDomainExceptions' => [],
-			'wgNoFollowNsExceptions' => [],
-			'wgExternalLinkTarget' => false,
+		$this->overrideConfigValues( [
+			MainConfigNames::NoFollowLinks => true,
+			MainConfigNames::NoFollowDomainExceptions => [],
+			MainConfigNames::NoFollowNsExceptions => [],
+			MainConfigNames::ExternalLinkTarget => false,
 		] );
 		$attribs = $this->getAttribs();
 
@@ -187,10 +182,9 @@ class SideBarTest extends MediaWikiLangTestCase {
 
 	/**
 	 * Test $wgNoFollowLinks in sidebar
-	 * @covers Skin::addToSidebarPlain
 	 */
 	public function testRespectWgnofollowlinks() {
-		$this->setMwGlobals( 'wgNoFollowLinks', false );
+		$this->overrideConfigValue( MainConfigNames::NoFollowLinks, false );
 
 		$attribs = $this->getAttribs();
 		$this->assertArrayNotHasKey( 'rel', $attribs,
@@ -201,10 +195,9 @@ class SideBarTest extends MediaWikiLangTestCase {
 	/**
 	 * Test $wgExternaLinkTarget in sidebar
 	 * @dataProvider dataRespectExternallinktarget
-	 * @covers Skin::addToSidebarPlain
 	 */
 	public function testRespectExternallinktarget( $externalLinkTarget ) {
-		$this->setMwGlobals( 'wgExternalLinkTarget', $externalLinkTarget );
+		$this->overrideConfigValue( MainConfigNames::ExternalLinkTarget, $externalLinkTarget );
 
 		$attribs = $this->getAttribs();
 		$this->assertArrayHasKey( 'target', $attribs );

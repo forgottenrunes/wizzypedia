@@ -20,19 +20,23 @@
 
 namespace MediaWiki\Preferences;
 
-use Html;
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\Html\Html;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Parser\ParserOutputFlags;
+use MediaWiki\Parser\Parsoid\Config\PageConfigFactory;
+use MediaWiki\Revision\MutableRevisionRecord;
+use MediaWiki\Revision\SlotRecord;
+use MediaWiki\SpecialPage\SpecialPage;
 use MediaWiki\SpecialPage\SpecialPageFactory;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleFactory;
 use MediaWiki\User\UserIdentity;
 use MessageLocalizer;
-use MultiHttpClient;
-use Parser;
+use ParserFactory;
 use ParserOptions;
-use ParsoidVirtualRESTService;
-use SpecialPage;
-use TitleFactory;
-use VirtualRESTServiceClient;
+use Wikimedia\Parsoid\Parsoid;
+use WikitextContent;
 
 /**
  * @since 1.35
@@ -41,8 +45,8 @@ class SignatureValidator {
 
 	/** @var array Made public for use in services */
 	public const CONSTRUCTOR_OPTIONS = [
-		'SignatureAllowedLintErrors',
-		'VirtualRestConfig',
+		MainConfigNames::SignatureAllowedLintErrors,
+		MainConfigNames::VirtualRestConfig,
 	];
 
 	/** @var UserIdentity */
@@ -51,8 +55,10 @@ class SignatureValidator {
 	private $localizer;
 	/** @var ParserOptions */
 	private $popts;
-	/** @var Parser */
-	private $parser;
+	/** @var ParserFactory */
+	private $parserFactory;
+	private Parsoid $parsoid;
+	private PageConfigFactory $pageConfigFactory;
 	/** @var ServiceOptions */
 	private $serviceOptions;
 	/** @var SpecialPageFactory */
@@ -65,7 +71,9 @@ class SignatureValidator {
 	 * @param UserIdentity $user
 	 * @param ?MessageLocalizer $localizer
 	 * @param ParserOptions $popts
-	 * @param Parser $parser
+	 * @param ParserFactory $parserFactory
+	 * @param Parsoid $parsoid
+	 * @param PageConfigFactory $pageConfigFactory
 	 * @param SpecialPageFactory $specialPageFactory
 	 * @param TitleFactory $titleFactory
 	 */
@@ -74,15 +82,18 @@ class SignatureValidator {
 		UserIdentity $user,
 		?MessageLocalizer $localizer,
 		ParserOptions $popts,
-		Parser $parser,
+		ParserFactory $parserFactory,
+		Parsoid $parsoid,
+		PageConfigFactory $pageConfigFactory,
 		SpecialPageFactory $specialPageFactory,
 		TitleFactory $titleFactory
 	) {
 		$this->user = $user;
 		$this->localizer = $localizer;
 		$this->popts = $popts;
-		// Fetch the parser, will be used to create a new parser via getFreshParser() when needed
-		$this->parser = $parser;
+		$this->parserFactory = $parserFactory;
+		$this->parsoid = $parsoid;
+		$this->pageConfigFactory = $pageConfigFactory;
 		// Configuration
 		$this->serviceOptions = $options;
 		$this->serviceOptions->assertRequiredOptions( self::CONSTRUCTOR_OPTIONS );
@@ -118,7 +129,8 @@ class SignatureValidator {
 
 		$lintErrors = $this->checkLintErrors( $signature );
 		if ( $lintErrors ) {
-			$allowedLintErrors = $this->serviceOptions->get( 'SignatureAllowedLintErrors' );
+			$allowedLintErrors = $this->serviceOptions->get(
+				MainConfigNames::SignatureAllowedLintErrors );
 			$messages = '';
 
 			foreach ( $lintErrors as $error ) {
@@ -203,12 +215,12 @@ class SignatureValidator {
 
 	/**
 	 * @param string $signature Signature before PST
-	 * @return string|bool Signature with PST applied, or false if applying PST yields wikitext that
+	 * @return string|false Signature with PST applied, or false if applying PST yields wikitext that
 	 *     would change if PST was applied again
 	 */
 	protected function applyPreSaveTransform( string $signature ) {
 		// This may be called by the Parser when it's displaying a signature, so we need a new instance
-		$parser = $this->parser->getFreshParser();
+		$parser = $this->parserFactory->getInstance();
 
 		$pstSignature = $parser->preSaveTransform(
 			$signature,
@@ -245,44 +257,18 @@ class SignatureValidator {
 		// This has to use Parsoid because PHP Parser doesn't produce this information,
 		// it just fixes up the result quietly.
 
-		// This request is not cached, but that's okay, because $signature is short (other code checks
-		// the length against $wgMaxSigChars).
+		$page = Title::newMainPage();
+		$fakeRevision = new MutableRevisionRecord( $page );
+		$fakeRevision->setSlot(
+			SlotRecord::newUnsaved(
+				SlotRecord::MAIN,
+				new WikitextContent( $signature )
+			)
+		);
 
-		$vrsConfig = $this->serviceOptions->get( 'VirtualRestConfig' );
-		if ( isset( $vrsConfig['modules']['parsoid'] ) ) {
-			$params = $vrsConfig['modules']['parsoid'];
-			if ( isset( $vrsConfig['global'] ) ) {
-				$params = array_merge( $vrsConfig['global'], $params );
-			}
-			$parsoidVrs = new ParsoidVirtualRESTService( $params );
-
-			$vrsClient = new VirtualRESTServiceClient( new MultiHttpClient( [] ) );
-			$vrsClient->mount( '/parsoid/', $parsoidVrs );
-
-			$request = [
-				'method' => 'POST',
-				'url' => '/parsoid/local/v3/transform/wikitext/to/lint',
-				'body' => [
-					'wikitext' => $signature,
-				],
-				'headers' => [
-					// Are both of these are really needed?
-					'User-Agent' => 'MediaWiki/' . MW_VERSION,
-					'Api-User-Agent' => 'MediaWiki/' . MW_VERSION,
-				],
-			];
-
-			$response = $vrsClient->run( $request );
-			if ( $response['code'] === 200 ) {
-				$json = json_decode( $response['body'], true );
-				// $json is an array of error objects
-				if ( $json ) {
-					return $json;
-				}
-			}
-		}
-
-		return [];
+		return $this->parsoid->wikitext2lint(
+			$this->pageConfigFactory->create( $page, null, $fakeRevision )
+		);
 	}
 
 	/**
@@ -291,7 +277,7 @@ class SignatureValidator {
 	 */
 	protected function checkUserLinks( string $signature ): bool {
 		// This may be called by the Parser when it's displaying a signature, so we need a new instance
-		$parser = $this->parser->getFreshParser();
+		$parser = $this->parserFactory->getInstance();
 
 		// Check for required links. This one's easier to do with the PHP Parser.
 		$pout = $parser->parse(
@@ -314,7 +300,7 @@ class SignatureValidator {
 		// the "subpage parameter" are not normalized for us.
 		$splinks = $pout->getLinksSpecial();
 		foreach ( $splinks as $dbkey => $unused ) {
-			list( $name, $subpage ) = $this->specialPageFactory->resolveAlias( $dbkey );
+			[ $name, $subpage ] = $this->specialPageFactory->resolveAlias( $dbkey );
 			if ( $name === 'Contributions' && $subpage ) {
 				$userTitle = $this->titleFactory->makeTitleSafe( NS_USER, $subpage );
 				if ( $userTitle && $userTitle->getText() === $username ) {

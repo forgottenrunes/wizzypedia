@@ -15,17 +15,19 @@
  * along with MultimediaViewer.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+const { Utils } = require( 'mmv.ui.ondemandshareddependencies' );
+
 ( function () {
-	QUnit.module( 'mw.mmv.ui.reuse.utils', QUnit.newMwEnvironment() );
+	QUnit.module( 'mmv.ui.reuse.utils', QUnit.newMwEnvironment() );
 
 	QUnit.test( 'Sense test, object creation and UI construction', function ( assert ) {
-		var utils = new mw.mmv.ui.Utils();
+		var utils = new Utils();
 
-		assert.ok( utils, 'ReuseUtils object is created.' );
+		assert.true( utils instanceof Utils, 'ReuseUtils object is created.' );
 	} );
 
 	QUnit.test( 'createPulldownMenu():', function ( assert ) {
-		var utils = new mw.mmv.ui.Utils(),
+		var utils = new Utils(),
 			menuItems = [ 'original', 'small', 'medium', 'large' ],
 			def = 'large',
 			menu = utils.createPulldownMenu(
@@ -50,7 +52,7 @@
 	} );
 
 	QUnit.test( 'updateMenuOptions():', function ( assert ) {
-		var utils = new mw.mmv.ui.Utils(),
+		var utils = new Utils(),
 			menu = utils.createPulldownMenu(
 				[ 'original', 'small', 'medium', 'large' ],
 				[ 'mw-mmv-download-size' ],
@@ -63,7 +65,7 @@
 			oldMessage = mw.message;
 
 		mw.message = function ( messageKey ) {
-			assert.ok( messageKey.match( /^multimediaviewer-(small|medium|original|embed-dimensions)/ ), 'messageKey passed correctly.' );
+			assert.true( /^multimediaviewer-(small|medium|original|embed-dimensions)/.test( messageKey ), 'messageKey passed correctly.' );
 
 			return { text: function () {} };
 		};
@@ -74,7 +76,7 @@
 	} );
 
 	QUnit.test( 'getPossibleImageSizesForHtml()', function ( assert ) {
-		var utils = new mw.mmv.ui.Utils(),
+		var utils = new Utils(),
 			exampleSizes = [
 				{
 					test: 'Extra large wide image',

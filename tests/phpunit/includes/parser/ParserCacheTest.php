@@ -3,6 +3,7 @@
 namespace MediaWiki\Tests\Parser;
 
 use BagOStuff;
+use CacheTime;
 use EmptyBagOStuff;
 use HashBagOStuff;
 use InvalidArgumentException;
@@ -12,8 +13,11 @@ use MediaWiki\Page\PageRecord;
 use MediaWiki\Page\PageStoreRecord;
 use MediaWiki\Page\WikiPageFactory;
 use MediaWiki\Tests\Json\JsonUnserializableSuperClass;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleFactory;
+use MediaWiki\User\User;
+use MediaWiki\Utils\MWTimestamp;
 use MediaWikiIntegrationTestCase;
-use MWTimestamp;
 use NullStatsdDataFactory;
 use ParserCache;
 use ParserOptions;
@@ -22,8 +26,6 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
 use Psr\Log\NullLogger;
 use TestLogger;
-use Title;
-use User;
 use Wikimedia\TestingAccessWrapper;
 use WikiPage;
 
@@ -81,6 +83,12 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		LoggerInterface $logger = null,
 		WikiPageFactory $wikiPageFactory = null
 	): ParserCache {
+		if ( !$wikiPageFactory ) {
+			$wikiPageMock = $this->createMock( WikiPage::class );
+			$wikiPageMock->method( 'getContentModel' )->willReturn( CONTENT_MODEL_WIKITEXT );
+			$wikiPageFactory = $this->createMock( WikiPageFactory::class );
+			$wikiPageFactory->method( 'newFromTitle' )->willReturn( $wikiPageMock );
+		}
 		return new ParserCache(
 			'test',
 			$storage ?: new HashBagOStuff(),
@@ -89,8 +97,8 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 			new JsonCodec(),
 			new NullStatsdDataFactory(),
 			$logger ?: new NullLogger(),
-			$this->getServiceContainer()->getTitleFactory(),
-			$wikiPageFactory ?: $this->getServiceContainer()->getWikiPageFactory()
+			$this->createMock( TitleFactory::class ),
+			$wikiPageFactory
 		);
 	}
 
@@ -134,7 +142,7 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$cache = $this->createParserCache();
 		$parserOutput = $this->createDummyParserOutput();
 
-		$cache->save( $parserOutput, $this->page, ParserOptions::newCanonical( 'canonical' ), $this->cacheTime );
+		$cache->save( $parserOutput, $this->page, ParserOptions::newFromAnon(), $this->cacheTime );
 
 		$metadataFromCache = $cache->getMetadata( $this->page, ParserCache::USE_CURRENT_ONLY );
 		$this->assertNotNull( $metadataFromCache );
@@ -150,7 +158,7 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 	public function testGetMetadataExpired() {
 		$cache = $this->createParserCache();
 		$parserOutput = $this->createDummyParserOutput();
-		$cache->save( $parserOutput, $this->page, ParserOptions::newCanonical( 'canonical' ), $this->cacheTime );
+		$cache->save( $parserOutput, $this->page, ParserOptions::newFromAnon(), $this->cacheTime );
 
 		$this->page = $this->createPageRecord( [ 'page_touched' => $this->time + 10000 ] );
 		$this->assertNull( $cache->getMetadata( $this->page, ParserCache::USE_CURRENT_ONLY ) );
@@ -168,7 +176,7 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 	public function testGetMetadataOutdated() {
 		$cache = $this->createParserCache();
 		$parserOutput = $this->createDummyParserOutput();
-		$cache->save( $parserOutput, $this->page, ParserOptions::newCanonical( 'canonical' ), $this->cacheTime );
+		$cache->save( $parserOutput, $this->page, ParserOptions::newFromAnon(), $this->cacheTime );
 
 		$this->page = $this->createPageRecord( [ 'page_latest' => $this->page->getLatest() + 1 ] );
 		$this->assertNull( $cache->getMetadata( $this->page, ParserCache::USE_CURRENT_ONLY ) );
@@ -186,12 +194,12 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 	public function testMakeParserOutputKey() {
 		$cache = $this->createParserCache();
 
-		$options1 = ParserOptions::newCanonical( 'canonical' );
+		$options1 = ParserOptions::newFromAnon();
 		$options1->setOption( $this->getDummyUsedOptions()[0], 'value1' );
 		$key1 = $cache->makeParserOutputKey( $this->page, $options1, $this->getDummyUsedOptions() );
 		$this->assertNotNull( $key1 );
 
-		$options2 = ParserOptions::newCanonical( 'canonical' );
+		$options2 = ParserOptions::newFromAnon();
 		$options2->setOption( $this->getDummyUsedOptions()[0], 'value2' );
 		$key2 = $cache->makeParserOutputKey( $this->page, $options2, $this->getDummyUsedOptions() );
 		$this->assertNotNull( $key2 );
@@ -204,7 +212,7 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 	 */
 	public function testGetEmpty() {
 		$cache = $this->createParserCache();
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 
 		$this->assertFalse( $cache->get( $this->page, $options ) );
 	}
@@ -218,7 +226,7 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$cache = $this->createParserCache();
 		$parserOutput = new ParserOutput( 'TEST_TEXT' );
 
-		$options1 = ParserOptions::newCanonical( 'canonical' );
+		$options1 = ParserOptions::newFromAnon();
 		$options1->setOption( $this->getDummyUsedOptions()[0], 'value1' );
 		$cache->save( $parserOutput, $this->page, $options1, $this->cacheTime );
 
@@ -240,11 +248,11 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$optionName = $this->getDummyUsedOptions()[0];
 		$parserOutput = new ParserOutput( 'TEST_TEXT' );
 
-		$options1 = ParserOptions::newCanonical( 'canonical' );
+		$options1 = ParserOptions::newFromAnon();
 		$options1->setOption( $optionName, 'value1' );
 		$cache->save( $parserOutput, $this->page, $options1, $this->cacheTime );
 
-		$options2 = ParserOptions::newCanonical( 'canonical' );
+		$options2 = ParserOptions::newFromAnon();
 		$options2->setOption( $optionName, 'value2' );
 		$savedOutput = $cache->get( $this->page, $options2 );
 		$this->assertInstanceOf( ParserOutput::class, $savedOutput );
@@ -264,7 +272,7 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$parserOutput = new ParserOutput( 'TEST_TEXT' );
 		$parserOutput->updateCacheExpiry( 0 );
 
-		$options1 = ParserOptions::newCanonical( 'canonical' );
+		$options1 = ParserOptions::newFromAnon();
 		$cache->save( $parserOutput, $this->page, $options1, $this->cacheTime );
 
 		$this->assertFalse( $cache->get( $this->page, $options1 ) );
@@ -281,7 +289,7 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$parserOutput = new ParserOutput( 'TEST_TEXT' );
 		$parserOutput->recordOption( 'wrapclass' );
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$options->setOption( 'wrapclass', 'wrapwrap' );
 
 		$cache->save( $parserOutput, $this->page, $options, $this->cacheTime );
@@ -300,9 +308,9 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$parserOutput = new ParserOutput( 'TEST_TEXT' );
 		$parserOutput->recordOption( 'wrapclass' );
 
-		$cache->save( $parserOutput, $this->page, ParserOptions::newCanonical( 'canonical' ), $this->cacheTime );
+		$cache->save( $parserOutput, $this->page, ParserOptions::newFromAnon(), $this->cacheTime );
 
-		$otherOptions = ParserOptions::newCanonical( 'canonical' );
+		$otherOptions = ParserOptions::newFromAnon();
 		$otherOptions->setOption( 'wrapclass', 'wrapwrap' );
 
 		$this->assertFalse( $cache->get( $this->page, $otherOptions ) );
@@ -319,7 +327,7 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$cache = $this->createParserCache();
 		$parserOutput = new ParserOutput( 'TEST_TEXT' );
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$options->setOption( 'wrapclass', 'wrapwrap' );
 
 		$cache->save( $parserOutput, $this->page, $options, $this->cacheTime );
@@ -337,11 +345,11 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$optionName = $this->getDummyUsedOptions()[0];
 		$parserOutput->recordOption( $optionName );
 
-		$options1 = ParserOptions::newCanonical( 'canonical' );
+		$options1 = ParserOptions::newFromAnon();
 		$options1->setOption( $optionName, 'value1' );
 		$cache->save( $parserOutput, $this->page, $options1, $this->cacheTime );
 
-		$options2 = ParserOptions::newCanonical( 'canonical' );
+		$options2 = ParserOptions::newFromAnon();
 		$options2->setOption( $optionName, 'value2' );
 		$this->assertFalse( $cache->get( $this->page, $options2 ) );
 	}
@@ -356,7 +364,7 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$parserOutput = new ParserOutput( 'TEST_TEXT' );
 		$parserOutput->updateCacheExpiry( 10 );
 
-		$options1 = ParserOptions::newCanonical( 'canonical' );
+		$options1 = ParserOptions::newFromAnon();
 		$cache->save( $parserOutput, $this->page, $options1, $this->cacheTime );
 
 		MWTimestamp::setFakeTime( $this->time + 15 * 1000 );
@@ -379,14 +387,14 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$parserOutput1 = new ParserOutput( 'TEST_TEXT1' );
 		$parserOutput1->recordOption( $optionName );
 		$parserOutput1->updateCacheExpiry( 10 );
-		$options1 = ParserOptions::newCanonical( 'canonical' );
+		$options1 = ParserOptions::newFromAnon();
 		$options1->setOption( $optionName, 'value1' );
 		$cache->save( $parserOutput1, $this->page, $options1, $this->cacheTime );
 
 		$parserOutput2 = new ParserOutput( 'TEST_TEXT2' );
 		$parserOutput2->recordOption( $optionName );
 		$parserOutput2->updateCacheExpiry( 100500600 );
-		$options2 = ParserOptions::newCanonical( 'canonical' );
+		$options2 = ParserOptions::newFromAnon();
 		$options2->setOption( $optionName, 'value2' );
 		$cache->save( $parserOutput2, $this->page, $options2, $this->cacheTime );
 
@@ -407,7 +415,7 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$cache = $this->createParserCache();
 		$parserOutput = new ParserOutput( 'TEST_TEXT' );
 
-		$options1 = ParserOptions::newCanonical( 'canonical' );
+		$options1 = ParserOptions::newFromAnon();
 		$cache->save( $parserOutput, $this->page, $options1, $this->cacheTime );
 		$this->assertInstanceOf( ParserOutput::class,
 			$cache->get( $this->page, $options1 ) );
@@ -431,14 +439,14 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 
 		$parserOutput1 = new ParserOutput( 'TEST_TEXT' );
 		$parserOutput1->recordOption( $optionName );
-		$options1 = ParserOptions::newCanonical( 'canonical' );
+		$options1 = ParserOptions::newFromAnon();
 		$options1->setOption( $optionName, 'value1' );
 		$cache->save( $parserOutput1, $this->page, $options1, $this->cacheTime );
 
 		$this->page = $this->createPageRecord( [ 'page_latest' => $this->page->getLatest() + 1 ] );
 		$parserOutput2 = new ParserOutput( 'TEST_TEXT' );
 		$parserOutput2->recordOption( $optionName );
-		$options2 = ParserOptions::newCanonical( 'canonical' );
+		$options2 = ParserOptions::newFromAnon();
 		$options2->setOption( $optionName, 'value2' );
 		$cache->save( $parserOutput2, $this->page, $options2, $this->cacheTime );
 
@@ -457,7 +465,7 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$cache = $this->createParserCache();
 		$parserOutput = new ParserOutput( 'TEST_TEXT' );
 
-		$options1 = ParserOptions::newCanonical( 'canonical' );
+		$options1 = ParserOptions::newFromAnon();
 		$cache->save( $parserOutput, $this->page, $options1, $this->cacheTime );
 		$this->assertInstanceOf( ParserOutput::class,
 			$cache->get( $this->page, $options1 ) );
@@ -472,25 +480,26 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 	 */
 	public function testRejectedByHook() {
 		$parserOutput = new ParserOutput( 'TEST_TEXT' );
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$options->setOption( $this->getDummyUsedOptions()[0], 'value1' );
 
 		$wikiPageMock = $this->createMock( WikiPage::class );
-		$wikiPageFactoryMock = $this->createMock( WikiPageFactory::class );
-		$wikiPageFactoryMock->method( 'newFromTitle' )
+		$wikiPageMock->method( 'getContentModel' )->willReturn( CONTENT_MODEL_WIKITEXT );
+		$wikiPageFactory = $this->createMock( WikiPageFactory::class );
+		$wikiPageFactory->method( 'newFromTitle' )
 			->with( $this->page )
 			->willReturn( $wikiPageMock );
 		$hookContainer = $this->createHookContainer( [
 			'RejectParserCacheValue' =>
 				function ( ParserOutput $value, WikiPage $hookPage, ParserOptions $popts )
 				use ( $wikiPageMock, $parserOutput, $options ) {
-					$this->assertSame( $parserOutput, $value );
+					$this->assertEquals( $parserOutput, $value );
 					$this->assertSame( $wikiPageMock, $hookPage );
 					$this->assertSame( $options, $popts );
 					return false;
 				}
 		] );
-		$cache = $this->createParserCache( $hookContainer, null, null, $wikiPageFactoryMock );
+		$cache = $this->createParserCache( $hookContainer, null, null, $wikiPageFactory );
 		$cache->save( $parserOutput, $this->page, $options, $this->cacheTime );
 		$this->assertFalse( $cache->get( $this->page, $options ) );
 	}
@@ -501,7 +510,7 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 	 */
 	public function testParserCacheSaveCompleteHook() {
 		$parserOutput = new ParserOutput( 'TEST_TEXT' );
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$options->setOption( $this->getDummyUsedOptions()[0], 'value1' );
 
 		$hookContainer = $this->createHookContainer( [
@@ -526,12 +535,13 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$mockPage = $this->createNoOpMock( PageRecord::class, [ 'exists', 'assertWiki' ] );
 		$mockPage->method( 'exists' )->willReturn( false );
 		$wikiPageMock = $this->createMock( WikiPage::class );
+		$wikiPageMock->method( 'getContentModel' )->willReturn( 'wikitext' );
 		$wikiPageFactoryMock = $this->createMock( WikiPageFactory::class );
 		$wikiPageFactoryMock->method( 'newFromTitle' )
 			->with( $mockPage )
 			->willReturn( $wikiPageMock );
 		$cache = $this->createParserCache( null, null, null, $wikiPageFactoryMock );
-		$this->assertFalse( $cache->get( $mockPage, ParserOptions::newCanonical( 'canonical' ) ) );
+		$this->assertFalse( $cache->get( $mockPage, ParserOptions::newFromAnon() ) );
 	}
 
 	/**
@@ -543,7 +553,7 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$page = $this->createPageRecord( [
 			'page_is_redirect' => true
 		] );
-		$this->assertFalse( $cache->get( $page, ParserOptions::newCanonical( 'canonical' ) ) );
+		$this->assertFalse( $cache->get( $page, ParserOptions::newFromAnon() ) );
 	}
 
 	/**
@@ -564,17 +574,16 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$this->createParserCache()->save(
 			new ParserOutput( null ),
 			$this->page,
-			ParserOptions::newCanonical( 'canonical' )
+			ParserOptions::newFromAnon()
 		);
 	}
 
-	public function provideCorruptData() {
-		yield 'PHP serialization, bad data' => [ false, 'bla bla' ];
-		yield 'JSON serialization, bad data' => [ true, 'bla bla' ];
-		yield 'JSON serialization, no _class_' => [ true, '{"test":"test"}' ];
-		yield 'JSON serialization, non-existing _class_' => [ true, '{"_class_":"NonExistentBogusClass"}' ];
+	public static function provideCorruptData() {
+		yield 'JSON serialization, bad data' => [ 'bla bla' ];
+		yield 'JSON serialization, no _class_' => [ '{"test":"test"}' ];
+		yield 'JSON serialization, non-existing _class_' => [ '{"_class_":"NonExistentBogusClass"}' ];
 		$wrongInstance = new JsonUnserializableSuperClass( 'test' );
-		yield 'JSON serialization, wrong class' => [ true, json_encode( $wrongInstance->jsonSerialize() ) ];
+		yield 'JSON serialization, wrong class' => [ json_encode( $wrongInstance->jsonSerialize() ) ];
 	}
 
 	/**
@@ -586,15 +595,13 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 	 * @dataProvider provideCorruptData
 	 * @covers ParserCache::get
 	 * @covers ParserCache::restoreFromJson
-	 * @param bool $json
 	 * @param string $data
 	 */
-	public function testCorruptData( bool $json, string $data ) {
+	public function testCorruptData( string $data ) {
 		$cache = $this->createParserCache( null, new HashBagOStuff() );
-		$cache->setJsonSupport( $json, $json );
 		$parserOutput = new ParserOutput( 'TEST_TEXT' );
 
-		$options1 = ParserOptions::newCanonical( 'canonical' );
+		$options1 = ParserOptions::newFromAnon();
 		$cache->save( $parserOutput, $this->page, $options1, $this->cacheTime );
 
 		$outputKey = $cache->makeParserOutputKey(
@@ -622,7 +629,7 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 		$cache = $this->createParserCache( null, $cacheStorage );
 		$parserOutput = new ParserOutput( 'TEST_TEXT' );
 
-		$options1 = ParserOptions::newCanonical( 'canonical' );
+		$options1 = ParserOptions::newFromAnon();
 		$cache->save( $parserOutput, $this->page, $options1, $this->cacheTime );
 
 		// Mess up the metadata
@@ -639,22 +646,50 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * Test whats happen when we turn on JSON support but there
-	 * are still old entries in the cache.
+	 * Test what happens when upgrading from 1.35 or earlier,
+	 * when old cache entries do not yet use JSON.
 	 *
 	 * @covers ParserCache::get
 	 */
 	public function testMigrationToJson() {
-		$cache = $this->createParserCache();
-		$cache->setJsonSupport( false, false );
+		$bagOStuff = new HashBagOStuff();
+
+		$wikiPageMock = $this->createMock( WikiPage::class );
+		$wikiPageMock->method( 'getContentModel' )->willReturn( CONTENT_MODEL_WIKITEXT );
+		$wikiPageFactory = $this->createMock( WikiPageFactory::class );
+		$wikiPageFactory->method( 'newFromTitle' )->willReturn( $wikiPageMock );
+		$cache = $this->getMockBuilder( ParserCache::class )
+			->setConstructorArgs( [
+				'test',
+				$bagOStuff,
+				'19900220000000',
+				$this->createHookContainer( [] ),
+				new JsonCodec(),
+				new NullStatsdDataFactory(),
+				new NullLogger(),
+				$this->createMock( TitleFactory::class ),
+				$wikiPageFactory
+			] )
+			->onlyMethods( [ 'convertForCache' ] )
+			->getMock();
+
+		// Emulate pre-1.36 behavior: rely on native PHP serialization.
+		// Note that backwards compatibility of the actual serialization is covered
+		// by ParserOutputTest which uses various versions of serialized data
+		// under tests/phpunit/data/ParserCache.
+		$cache->method( 'convertForCache' )->willReturnCallback(
+			static function ( CacheTime $obj, string $key ) {
+				return $obj;
+			}
+		);
 
 		$parserOutput1 = new ParserOutput( 'Lorem Ipsum' );
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$cache->save( $parserOutput1, $this->page, $options, $this->cacheTime );
 
 		// emulate migration to JSON
-		$cache->setJsonSupport( true, true );
+		$cache = $this->createParserCache( null, $bagOStuff );
 
 		// make sure we can load non-json cache data
 		$cachedOutput = $cache->get( $this->page, $options );
@@ -670,54 +705,15 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * Test whats happen when we have to roll back from supporting JSON
-	 * to not supporting JSON.
-	 *
-	 * @covers ParserCache::get
-	 */
-	public function testRollbackFromJson() {
-		$cache = $this->createParserCache();
-		$cache->setJsonSupport( true, true );
-
-		$parserOutput1 = new ParserOutput( 'Lorem Ipsum' );
-
-		$options = ParserOptions::newCanonical( 'canonical' );
-		$cache->save( $parserOutput1, $this->page, $options, $this->cacheTime );
-
-		// emulate rolling back to not writing but still reading JSON
-		$cache->setJsonSupport( true, false );
-
-		// make sure we can load json cache data
-		$cachedOutput = $cache->get( $this->page, $options );
-		$this->assertEquals( $parserOutput1, $cachedOutput );
-
-		// emulate rolling back to not reading JSON
-		$cache->setJsonSupport( false, false );
-
-		// make sure we don't crash and burn
-		$cachedOutput = $cache->get( $this->page, $options );
-		$this->assertFalse( $cachedOutput );
-
-		// now test that the cache works without JSON
-		$parserOutput2 = new ParserOutput( 'dolor sit amet' );
-		$cache->save( $parserOutput2, $this->page, $options, $this->cacheTime );
-
-		// make sure we can load non-json cache data
-		$cachedOutput = $cache->get( $this->page, $options );
-		$this->assertEquals( $parserOutput2, $cachedOutput );
-	}
-
-	/**
-	 * @covers ParserCache::encodeAsJson
+	 * @covers ParserCache::convertForCache
 	 */
 	public function testNonSerializableJsonIsReported() {
 		$testLogger = new TestLogger( true );
 		$cache = $this->createParserCache( null, null, $testLogger );
-		$cache->setJsonSupport( true, true );
 
 		$parserOutput = $this->createDummyParserOutput();
 		$parserOutput->setExtensionData( 'test', new User() );
-		$cache->save( $parserOutput, $this->page, ParserOptions::newCanonical( 'canonical' ) );
+		$cache->save( $parserOutput, $this->page, ParserOptions::newFromAnon() );
 		$this->assertArraySubmapSame(
 			[ [ LogLevel::ERROR, 'Unable to serialize JSON' ] ],
 			$testLogger->getBuffer()
@@ -725,18 +721,18 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * @covers ParserCache::encodeAsJson
+	 * @covers ParserCache::convertForCache
 	 */
 	public function testCyclicStructuresDoNotBlowUpInJson() {
+		$this->markTestSkipped( 'Temporarily disabled: T314338' );
 		$testLogger = new TestLogger( true );
 		$cache = $this->createParserCache( null, null, $testLogger );
-		$cache->setJsonSupport( true, true );
 
 		$parserOutput = $this->createDummyParserOutput();
 		$cyclicArray = [ 'a' => 'b' ];
 		$cyclicArray['c'] = &$cyclicArray;
 		$parserOutput->setExtensionData( 'test', $cyclicArray );
-		$cache->save( $parserOutput, $this->page, ParserOptions::newCanonical( 'canonical' ) );
+		$cache->save( $parserOutput, $this->page, ParserOptions::newFromAnon() );
 		$this->assertArraySubmapSame(
 			[ [ LogLevel::ERROR, 'Unable to serialize JSON' ] ],
 			$testLogger->getBuffer()
@@ -745,18 +741,18 @@ class ParserCacheTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * Tests that unicode characters are not \u escaped
-	 * @covers ParserCache::encodeAsJson
+	 *
+	 * @covers ParserCache::convertForCache
 	 */
 	public function testJsonEncodeUnicode() {
 		$unicodeCharacter = "Э";
 		$cache = $this->createParserCache( null, new HashBagOStuff() );
-		$cache->setJsonSupport( true, true );
 
 		$parserOutput = $this->createDummyParserOutput();
 		$parserOutput->setText( $unicodeCharacter );
-		$cache->save( $parserOutput, $this->page, ParserOptions::newCanonical( 'canonical' ) );
+		$cache->save( $parserOutput, $this->page, ParserOptions::newFromAnon() );
 		$json = $cache->getCacheStorage()->get(
-			$cache->makeParserOutputKey( $this->page, ParserOptions::newCanonical( 'canonical' ) )
+			$cache->makeParserOutputKey( $this->page, ParserOptions::newFromAnon() )
 		);
 		$this->assertStringNotContainsString( "\u003E", $json );
 		$this->assertStringContainsString( $unicodeCharacter, $json );

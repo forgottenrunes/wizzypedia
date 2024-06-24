@@ -44,7 +44,6 @@ class MediaWikiLoggerPHPUnitExtension implements
 	 * @inheritDoc
 	 */
 	public function executeBeforeTest( string $test ): void {
-		$this->lastTestLogs = null;
 		$this->originalSpi = LoggerFactory::getProvider();
 		$this->spi = new LogCapturingSpi( $this->originalSpi );
 		LoggerFactory::registerProvider( $this->spi );
@@ -87,7 +86,7 @@ class MediaWikiLoggerPHPUnitExtension implements
 	}
 
 	private function augmentTestWithLogs( string $test ) {
-		if ( $this->spi ) {
+		if ( $this->spi && getenv( 'PHPUNIT_LOGS' ) !== '0' ) {
 			$logs = $this->spi->getLogs();
 			$formatted = $this->formatLogs( $logs );
 			self::$testsCollection[$test] = $formatted;

@@ -1,4 +1,4 @@
-( function ( M, track, msg ) {
+( function ( M, track ) {
 	var MAX_PRINT_TIMEOUT = 3000,
 		printSetTimeoutReference = 0,
 		mobile = M.require( 'mobile.startup' ),
@@ -45,6 +45,11 @@
 		var androidVersion = getAndroidVersion( userAgent ),
 			chromeVersion = getChromeVersion( userAgent );
 
+		if ( typeof window.print !== 'function' ) {
+			// T309591: No window.print support
+			return false;
+		}
+
 		// Download button is restricted to certain namespaces T181152.
 		// Not shown on missing pages
 		// Defaults to 0, in case cached JS has been served.
@@ -72,7 +77,7 @@
 	 * @param {Icon} spinner
 	 */
 	function onClick( portletItem, spinner ) {
-		var icon = portletItem.querySelector( '.mw-ui-icon-minerva-download' );
+		var icon = portletItem.querySelector( '.minerva-icon--download' );
 		function doPrint() {
 			printSetTimeoutReference = clearTimeout( printSetTimeoutReference );
 			track( 'minerva.downloadAsPDF', {
@@ -119,11 +124,10 @@
 	function downloadPageAction( page, supportedNamespaces, windowObj, overflowList ) {
 		var
 			portletLink, iconElement,
-			modifier = overflowList ? 'toggle-list-item__anchor toggle-list-item__label' :
-				'mw-ui-icon-element mw-ui-icon-with-label-desktop',
-			spinner = icons.spinner( {
-				modifier: modifier
-			} );
+			spinner = ( overflowList ) ? icons.spinner( {
+				label: '',
+				isIconOnly: false
+			} ) : icons.spinner();
 
 		if (
 			isAvailable(
@@ -131,15 +135,16 @@
 				supportedNamespaces
 			)
 		) {
-
+			// FIXME: Use p-views when cache has cleared.
+			const actionID = document.querySelector( '#p-views' ) ? 'p-views' : 'page-actions';
 			portletLink = mw.util.addPortletLink(
-				overflowList ? 'page-actions-overflow' : 'page-actions',
+				overflowList ? 'page-actions-overflow' : actionID,
 				'#',
-				msg( 'minerva-download' ),
+				mw.msg( 'minerva-download' ),
 				// id
 				'minerva-download',
 				// tooltip
-				msg( 'minerva-download' ),
+				mw.msg( 'minerva-download' ),
 				// access key
 				'p',
 				overflowList ? null : document.getElementById( 'page-actions-watch' )
@@ -148,13 +153,13 @@
 				portletLink.addEventListener( 'click', function () {
 					onClick( portletLink, spinner );
 				} );
-				spinner.$el.hide().insertAfter(
-					$( portletLink ).find( '.mw-ui-icon' )
-				);
-				iconElement = portletLink.querySelector( '.mw-ui-icon' );
+				iconElement = portletLink.querySelector( '.minerva-icon' );
 				if ( iconElement ) {
-					iconElement.classList.add( 'mw-ui-icon-minerva-download' );
+					iconElement.classList.add( 'minerva-icon--download' );
 				}
+				spinner.$el.hide().insertBefore(
+					$( portletLink ).find( '.minerva-icon' )
+				);
 			}
 			return portletLink;
 		} else {
@@ -171,4 +176,4 @@
 	};
 
 // eslint-disable-next-line no-restricted-properties
-}( mw.mobileFrontend, mw.track, mw.msg ) );
+}( mw.mobileFrontend, mw.track ) );

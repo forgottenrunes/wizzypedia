@@ -1,6 +1,7 @@
 {
 	"@metadata": {
 		"authors": [
+			"Brettchenweber",
 			"Debenben",
 			"Geitost",
 			"Giftpflanze",
@@ -21,7 +22,7 @@
 	"log-name-titleblacklist": "Titel-Negativlisten-Logbuch",
 	"log-description-titleblacklist": "Dies ist ein Logbuch der Titel-Negativliste-Treffer.",
 	"logentry-titleblacklist-hit-username": "$1 {{GENDER:$2|verursachte}} einen Treffer in der Titel-Negativliste beim Versuch, das Benutzerkonto $3 mit dem übereinstimmenden Eintrag „$4“ zu erstellen.",
-	"titleblacklist-desc": "Ermöglicht es Administratoren die Erstellung unerwünschter Seiten- und Benutzernamen zu unterbinden: [[MediaWiki:Titleblacklist]] und [[MediaWiki:Titlewhitelist]]",
+	"titleblacklist-desc": "Ermöglicht es Administratoren, die Erstellung unerwünschter Seiten- und Benutzernamen zu unterbinden: [[MediaWiki:Titleblacklist]] und [[MediaWiki:Titlewhitelist]]",
 	"titleblacklist": "# Dies ist eine Negativliste für Seiten- und Benutzernamen. Sofern auf einen solchen Namen einer der folgenden regulären Ausdrücke zutrifft, kann er nicht erstellt werden.\n# Verwende „#“ für Kommentare.\n# Standardmäßig wird nicht zwischen Groß- und Kleinschreibung unterschieden.",
 	"titlewhitelist": "# Dies ist die Ausnahmeliste von der Schwarzen Liste unerwünschter Seiten- und Benutzernamen. Benutze „#“ für Kommentare.\n# Standardmäßig wird nicht zwischen Groß- und Kleinschreibung unterschieden.",
 	"titleblacklist-forbidden-edit": "'''Eine Seite mit dem Titel „$2“ kann nicht erstellt werden.'''<br />Der Titel kollidiert mit diesem Sperrbegriff: '''''$1'''''",
@@ -34,5 +35,5 @@
 	"titleblacklist-warning": "<strong>Warnung: Diese Seite kann nur von Administratoren und anderen Benutzern mit dem <code>tboverride</code>-Recht bearbeitet werden, da sie mit dem folgenden Eintrag in der Titel-Negativliste übereinstimmt:</strong><br /><code>$1</code>",
 	"right-tboverride": "Die Negativliste unerwünschter Seiten- oder Benutzernamen außer Kraft setzen",
 	"right-tboverride-account": "Die Negativliste unerwünschter Benutzernamen außer Kraft setzen",
-	"right-titleblacklistlog": "Das Titel-Negativliste-Logbuch ansehen"
+	"right-titleblacklistlog": "Das Logbuch der Liste der nicht zugelassenen Titel ansehen"
 }

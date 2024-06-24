@@ -5,6 +5,8 @@ namespace phpunit\unit\includes\Settings;
 use BagOStuff;
 use ExtensionRegistry;
 use InvalidArgumentException;
+use MediaWiki\MainConfigNames;
+use MediaWiki\MainConfigSchema;
 use MediaWiki\Settings\Cache\CacheableSource;
 use MediaWiki\Settings\Config\ArrayConfigBuilder;
 use MediaWiki\Settings\Config\MergeStrategy;
@@ -127,11 +129,23 @@ class SettingsBuilderTest extends TestCase {
 		$config = $configBuilder->build();
 		$this->assertSame( 'TEST', $config->get( 'Something' ) );
 
-		// Finalize and lock loading & applying anymore settings
-		$setting->finalize();
+		// Check that after enterRegistrationStage(), we can still override config,
+		// but we can't load settings sources.
+		$setting->enterRegistrationStage();
+		$setting->overrideConfigValue( 'Foo', 'bar' );
 
 		$this->expectException( SettingsBuilderException::class );
 		$setting->loadFile( 'fixtures/settings.json' )->apply();
+	}
+
+	public function testSettingConfigAfterLock() {
+		$setting = $this->newSettingsBuilder();
+
+		// Check that after enterOperationStage(), we can't override config.
+		$setting->enterReadOnlyStage();
+
+		$this->expectException( SettingsBuilderException::class );
+		$setting->overrideConfigValue( 'Foo', 'bar' );
 	}
 
 	public function testLoadingExtensions() {
@@ -152,12 +166,12 @@ class SettingsBuilderTest extends TestCase {
 		$setting->apply();
 	}
 
-	public function provideConfigOverrides() {
+	public static function provideConfigDefaults() {
 		yield 'sets a value from a single settings file' => [
 			'settingsBatches' => [
 				[ 'config' => [ 'MySetting' => 'MyValue', ], ],
 			],
-			'expectedGlobals' => [
+			'expected' => [
 				'MySetting' => 'MyValue',
 			],
 		];
@@ -166,7 +180,7 @@ class SettingsBuilderTest extends TestCase {
 				[ 'config' => [ 'MySetting' => 'MyValue', ], ],
 				[ 'config' => [ 'MyOtherSetting' => 'MyOtherValue', ], ],
 			],
-			'expectedGlobals' => [
+			'expected' => [
 				'MySetting' => 'MyValue',
 				'MyOtherSetting' => 'MyOtherValue',
 			],
@@ -176,7 +190,7 @@ class SettingsBuilderTest extends TestCase {
 				[ 'config' => [ 'MySetting' => 'MyValue', ], ],
 				[ 'config' => [ 'MySetting' => 'MyOtherValue', ], ],
 			],
-			'expectedGlobals' => [
+			'expected' => [
 				'MySetting' => 'MyOtherValue',
 			],
 		];
@@ -184,7 +198,7 @@ class SettingsBuilderTest extends TestCase {
 			'settingsBatches' => [
 				[ 'config-schema' => [ 'MySetting' => [ 'default' => 'MyDefault', ], ], ],
 			],
-			'expectedGlobals' => [
+			'expected' => [
 				'MySetting' => 'MyDefault',
 			],
 		];
@@ -195,7 +209,7 @@ class SettingsBuilderTest extends TestCase {
 					'config' => [ 'MySetting' => 'MyValue', ],
 				],
 			],
-			'expectedGlobals' => [
+			'expected' => [
 				'MySetting' => 'MyValue',
 			],
 		];
@@ -203,7 +217,7 @@ class SettingsBuilderTest extends TestCase {
 			'settingsBatches' => [
 				[ 'config-schema' => [ 'MySetting' => [ 'default' => null, ], ], ],
 			],
-			'expectedGlobals' => [
+			'expected' => [
 				'MySetting' => null,
 			],
 		];
@@ -214,7 +228,7 @@ class SettingsBuilderTest extends TestCase {
 					'config' => [ 'MySetting' => null, ],
 				],
 			],
-			'expectedGlobals' => [
+			'expected' => [
 				'MySetting' => null,
 			],
 		];
@@ -230,7 +244,7 @@ class SettingsBuilderTest extends TestCase {
 					'config' => [ 'MySetting' => [ 'a' => [ 'b' => 'd' ], ], ],
 				]
 			],
-			'expectedGlobals' => [
+			'expected' => [
 				'MySetting' => [ 'a' => [ 'b' => [ 'c', 'd' ], ], ],
 			],
 		];
@@ -246,11 +260,11 @@ class SettingsBuilderTest extends TestCase {
 					'config-overrides' => [ 'MySetting' => [ 'a' => [ 'b' => 'd' ], ], ],
 				]
 			],
-			'expectedGlobals' => [
+			'expected' => [
 				'MySetting' => [ 'a' => [ 'b' => 'd' ], ],
 			],
 		];
-		yield 'merge strategy is applied backwards setting schema default' => [
+		yield 'config value is merged into default when setting both in the same settings file' => [
 			'settingsBatches' => [
 				[
 					'config' => [ 'MySetting' => [ 'a' => [ 'b' => 'd' ], ], ],
@@ -260,38 +274,39 @@ class SettingsBuilderTest extends TestCase {
 					], ],
 				]
 			],
-			'expectedGlobals' => [
+			'expected' => [
 				'MySetting' => [ 'a' => [ 'b' => [ 'c', 'd' ], ], ],
 			],
 		];
-		yield 'merge strategy is applied backwards setting schema default in different batch' => [
+		yield 'default is merged backwards into config value when set later' => [
 			'settingsBatches' => [
 				[
 					'config' => [ 'MySetting' => [ 'a' => [ 'b' => 'd' ], ], ],
-				], [
+				],
+				[
 					'config-schema' => [ 'MySetting' => [
 						'mergeStrategy' => MergeStrategy::ARRAY_MERGE_RECURSIVE,
 						'default' => [ 'a' => [ 'b' => 'c' ], ],
 					], ],
 				]
 			],
-			'expectedGlobals' => [
+			'expected' => [
 				'MySetting' => [ 'a' => [ 'b' => [ 'c', 'd' ], ], ],
 			],
 		];
 	}
 
 	/**
-	 * @dataProvider provideConfigOverrides
+	 * @dataProvider provideConfigDefaults
 	 */
-	public function testConfigOverrides( array $settingsBatches, array $expectedGlobals ) {
+	public function testConfigDefaults( array $settingsBatches, array $expected ) {
 		$configBuilder = new ArrayConfigBuilder();
 		$setting = $this->newSettingsBuilder( [ 'configBuilder' => $configBuilder ] );
 		foreach ( $settingsBatches as $batch ) {
 			$setting->loadArray( $batch );
 		}
 		$setting->apply();
-		foreach ( $expectedGlobals as $key => $value ) {
+		foreach ( $expected as $key => $value ) {
 			$this->assertSame( $value, $configBuilder->build()->get( $key ) );
 		}
 	}
@@ -352,6 +367,16 @@ class SettingsBuilderTest extends TestCase {
 		$this->assertSame( 22, $config->get( 'b' ) );
 	}
 
+	public function testRegisterHookHandler() {
+		$setting = $this->newSettingsBuilder();
+
+		$hookName = 'TestHookForSettingsBuilderTest';
+		$setting->registerHookHandlers( [ $hookName => [ 'strtolower' ] ] );
+
+		$config = $setting->getConfig();
+		$this->assertArrayHasKey( $hookName, $config->get( MainConfigNames::Hooks ) );
+	}
+
 	public function testApplyPurgesState() {
 		$configBuilder = new ArrayConfigBuilder();
 		$setting = $this->newSettingsBuilder( [ 'configBuilder' => $configBuilder ] );
@@ -367,8 +392,26 @@ class SettingsBuilderTest extends TestCase {
 
 	public function testApplyDefaultDoesNotOverwriteExisting() {
 		$configBuilder = new ArrayConfigBuilder();
-		$configBuilder->set( 'MySetting', 'existing' );
+
+		// If we set a value via SettingsBuilder, defining a default later
+		// should not override it.
 		$this->newSettingsBuilder( [ 'configBuilder' => $configBuilder ] )
+			->putConfigValue( 'MySetting', 'existing' )
+			->loadArray( [ 'config-schema' => [ 'MySetting' => [ 'default' => 'default' ], ], ] )
+			->apply();
+
+		$this->assertSame( 'existing', $configBuilder->build()->get( 'MySetting' ) );
+	}
+
+	public function testApplyDefaultDoesNotOverwritePreexisting() {
+		$configBuilder = new ArrayConfigBuilder();
+
+		// If we set a value in the config directly, defining a default later
+		// would override it, unless we call assumeDirtyConfig().
+		$configBuilder->set( 'MySetting', 'existing' );
+
+		$this->newSettingsBuilder( [ 'configBuilder' => $configBuilder ] )
+			->assumeDirtyConfig()
 			->loadArray( [ 'config-schema' => [ 'MySetting' => [ 'default' => 'default' ], ], ] )
 			->apply();
 		$this->assertSame( 'existing', $configBuilder->build()->get( 'MySetting' ) );
@@ -382,7 +425,39 @@ class SettingsBuilderTest extends TestCase {
 			->apply();
 	}
 
-	public function provideValidate() {
+	public function testConfigSchemaDefaultsEvaluation() {
+		$settingsBuilder = $this->newSettingsBuilder();
+		$settingsBuilder->loadArray( [
+			'config-schema' => [
+				'A' => [ 'default' => [ 'a' ], 'type' => 'array' ],
+				'B' => [ 'default' => [ 'b' ], 'type' => 'array' ],
+			],
+			'config' => [
+				'B' => [ 'b2' ],
+				'C' => [ 'c2' ],
+			]
+		] );
+		$settingsBuilder->loadArray( [
+			'config-schema' => [
+				'X' => [ 'default' => [ 'x' ], 'type' => 'array' ],
+			],
+			'config' => [
+				'A' => [ 'a3' ],
+				'B' => [ 'b3' ],
+			],
+			'config-overrides' => [
+				'C' => [ 'c4' ],
+			]
+		] );
+
+		$config = $settingsBuilder->getConfig();
+		$this->assertSame( [ 'a', 'a3' ], $config->get( 'A' ) );
+		$this->assertSame( [ 'b', 'b2', 'b3' ], $config->get( 'B' ) );
+		$this->assertSame( [ 'c4' ], $config->get( 'C' ) );
+		$this->assertSame( [ 'x' ], $config->get( 'X' ) );
+	}
+
+	public static function provideValidate() {
 		yield 'all good' => [
 			'settings' => [
 				'config-schema' => [ 'foo' => [ 'type' => 'string', ], ],
@@ -496,31 +571,66 @@ class SettingsBuilderTest extends TestCase {
 
 	public function testGetDefaultConfig() {
 		$defaultConfig = $this->newSettingsBuilder()
-			->loadArray( [ 'config-schema' => [ 'MySetting' => [ 'default' => 'bla' ], ], ] )
+			->loadArray( [ 'config-schema' => [
+				'MySetting' => [ 'default' => 'bla' ],
+				'OtherSetting' => [ 'type' => 'number' ], // no default
+				] ] )
 			->apply()
 			->getDefaultConfig();
+
 		$this->assertTrue( $defaultConfig->has( 'MySetting' ) );
 		$this->assertSame( 'bla', $defaultConfig->get( 'MySetting' ) );
+
+		$this->assertTrue( $defaultConfig->has( 'OtherSetting' ) );
+		$this->assertNull( $defaultConfig->get( 'OtherSetting' ) );
 	}
 
-	public function provideLoadWikiFarmSettings() {
-		yield 'By WIKI_NAME' => [
-			[],
-			[ 'WIKI_NAME' => 'alpha' ],
-			[ 'SiteName' => 'Alpha Wiki' ]
-		];
+	public function testGetConfigSchema() {
+		$configSchema = $this->newSettingsBuilder()
+			->loadArray( [ 'config-schema' => [ 'MySetting' => [ 'default' => 'bla' ], ], ] )
+			->apply()
+			->getConfigSchema();
+		$this->assertTrue( $configSchema->hasSchemaFor( 'MySetting' ) );
+		$this->assertSame( 'bla', $configSchema->getDefaultFor( 'MySetting' ) );
+	}
 
-		yield 'By SERVER_NAME' => [
-			[],
-			[ 'SERVER_NAME' => 'alpha' ],
-			[ 'SiteName' => 'Alpha Wiki' ]
-		];
+	/**
+	 * Make sure that the 'config-schema' and 'config-schema-inverse' keys
+	 * are fully processed and combined appropriately.
+	 */
+	public function testSchemaLoading() {
+		$settings = $this->newSettingsBuilder();
+		$settings->loadFile( 'fixtures/default-schema.json' );
+		$schema = $settings->getConfigSchema();
 
-		yield 'By WIKI_NAME using JSON' => [
-			[ 'WikiFarmSettingsExtension' => 'json' ],
-			[ 'WIKI_NAME' => 'beta' ],
-			[ 'SiteName' => 'Beta Wiki' ]
-		];
+		$this->assertSame(
+			'/DEFAULT/',
+			$schema->getDefaultFor( 'StyleDirectory' )
+		);
+		$this->assertSame(
+			[ 'callback' => [ MainConfigSchema::class, 'getDefaultUsePathInfo' ] ],
+			$schema->getDynamicDefaultDeclarationFor( 'UsePathInfo' )
+		);
+		$this->assertSame(
+			'replace',
+			$schema->getMergeStrategyFor( 'LBFactoryConf' )->getName()
+		);
+		$this->assertSame(
+			'/DEFAULT/',
+			$schema->getDefaultFor( 'ExtensionDirectory' )
+		);
+		$this->assertSame(
+			[ 'use' => [ 'ScriptPath' ], 'callback' => [ MainConfigSchema::class, 'getDefaultRestPath' ] ],
+			$schema->getDynamicDefaultDeclarationFor( 'RestPath' )
+		);
+		$this->assertSame(
+			[ 'use' => [ 'ScriptPath' ], 'callback' => [ MainConfigSchema::class, 'getDefaultRestPath' ] ],
+			$schema->getDynamicDefaultDeclarationFor( 'RestPath' )
+		);
+		$this->assertSame(
+			'replace',
+			$schema->getMergeStrategyFor( 'TiffThumbnailType' )->getName()
+		);
 	}
 
 }

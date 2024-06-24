@@ -2,12 +2,16 @@
 namespace MediaWiki\Skins\Vector\Tests\Integration;
 
 use Exception;
-use HashConfig;
+use LinkCache;
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Skins\Vector\SkinVector22;
+use MediaWiki\Skins\Vector\SkinVectorLegacy;
+use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
+use MediaWiki\Title\Title;
+use MediaWiki\User\TalkPageNotificationManager;
 use MediaWikiIntegrationTestCase;
 use ReflectionMethod;
 use RequestContext;
-use Title;
-use Vector\SkinVector;
 use Wikimedia\TestingAccessWrapper;
 
 /**
@@ -15,16 +19,24 @@ use Wikimedia\TestingAccessWrapper;
  * @package MediaWiki\Skins\Vector\Tests\Unit
  * @group Vector
  * @group Skins
- *
- * @coversDefaultClass \Vector\SkinVector
  */
 class SkinVectorTest extends MediaWikiIntegrationTestCase {
+	use MockAuthorityTrait;
+
+	protected function setUp(): void {
+		parent::setUp();
+		// Mock TalkPageNotificationManager to avoid DB queries
+		$this->setService( 'TalkPageNotificationManager', $this->createMock( TalkPageNotificationManager::class ) );
+		$this->clearHooks();
+	}
 
 	/**
-	 * @return SkinVector
+	 * @return SkinVectorLegacy
 	 */
-	private function provideVectorTemplateObject() {
-		return new SkinVector( [ 'name' => 'vector' ] );
+	private static function provideVectorTemplateObject() {
+		$skinFactory = MediaWikiServices::getInstance()->getSkinFactory();
+		$template = $skinFactory->makeSkin( 'vector' );
+		return $template;
 	}
 
 	/**
@@ -46,122 +58,21 @@ class SkinVectorTest extends MediaWikiIntegrationTestCase {
 		return in_array( $search, $values );
 	}
 
-	public function provideGetTocData() {
-		$tocData = [
-			'number-section-count' => 2,
-			'array-sections' => [
-				[
-					'toclevel' => 1,
-					'level' => '2',
-					'line' => 'A',
-					'number' => '1',
-					'index' => '1',
-					'fromtitle' => 'Test',
-					'byteoffset' => 231,
-					'anchor' => 'A',
-					'array-sections' => [
-						[
-							'toclevel' => 2,
-							'level' => '4',
-							'line' => 'A1',
-							'number' => '1.1',
-							'index' => '2',
-							'fromtitle' => 'Test',
-							'byteoffset' => 245,
-							'anchor' => 'A1'
-						]
-					]
-				],
-			]
-		];
-
-		return [
-			// When zero sections
-			[
-				// $tocData
-				[],
-				// wgVectorTableOfContentsCollapseAtCount
-				1,
-				// expected 'vector-is-collapse-sections-enabled' value
-				false
-			],
-			// When number of multiple sections is lower than configured value
-			[
-				// $tocData
-				$tocData,
-				// wgVectorTableOfContentsCollapseAtCount
-				3,
-				// expected 'vector-is-collapse-sections-enabled' value
-				false
-			],
-			// When number of multiple sections is equal to the configured value
-			[
-				// $tocData
-				$tocData,
-				// wgVectorTableOfContentsCollapseAtCount
-				2,
-				// expected 'vector-is-collapse-sections-enabled' value
-				true
-			],
-			// When number of multiple sections is higher than configured value
-			[
-				// $tocData
-				$tocData,
-				// wgVectorTableOfContentsCollapseAtCount
-				1,
-				// expected 'vector-is-collapse-sections-enabled' value
-				true
-			],
-		];
-	}
-
 	/**
-	 * @covers ::getTocData
-	 * @dataProvider provideGetTOCData
-	 */
-	public function testGetTocData(
-		array $tocData,
-		int $configValue,
-		bool $expected
-	) {
-		$this->setMwGlobals( [
-			'wgVectorTableOfContentsCollapseAtCount' => $configValue
-		] );
-
-		$skinVector = new SkinVector( [ 'name' => 'vector-2022' ] );
-		$openSkinVector = TestingAccessWrapper::newFromObject( $skinVector );
-		$data = $openSkinVector->getTocData( $tocData );
-
-		if ( empty( $tocData ) ) {
-			$this->assertEquals( [], $data, 'toc data is empty when given an empty array' );
-			return;
-		}
-		$this->assertArrayHasKey( 'vector-is-collapse-sections-enabled', $data );
-		$this->assertEquals(
-			$expected,
-			$data['vector-is-collapse-sections-enabled'],
-			'vector-is-collapse-sections-enabled has correct value'
-		);
-		$this->assertArrayHasKey( 'array-sections', $data );
-	}
-
-	/**
-	 * @covers ::getTemplateData
+	 * @covers \MediaWiki\Skins\Vector\SkinVectorLegacy::getTemplateData
 	 */
 	public function testGetTemplateData() {
-		$title = Title::newFromText( 'SkinVector' );
-		$context = RequestContext::getMain();
+		$this->setService( 'LinkCache', $this->createMock( LinkCache::class ) );
+		$title = Title::makeTitle( NS_MAIN, 'SkinVector' );
+		$title->resetArticleID( 0 );
+		$context = new RequestContext();
 		$context->setTitle( $title );
+		$context->setAuthority( $this->mockAnonNullAuthority() );
 		$context->setLanguage( 'fr' );
+		$context->setActionName( 'view' );
 		$vectorTemplate = $this->provideVectorTemplateObject();
-		$this->setTemporaryHook( 'PersonalUrls', [
-			static function ( &$personal_urls, &$title, $skin ) {
-				$personal_urls = [
-					'pt-1' => [ 'text' => 'pt1' ],
-				];
-			}
-		] );
-		$this->setTemporaryHook( 'SkinTemplateNavigation::Universal', [
+		$vectorTemplate->setContext( $context );
+		$this->setTemporaryHook( 'SkinTemplateNavigation::Universal',
 			static function ( &$skinTemplate, &$content_navigation ) {
 				$content_navigation['actions'] = [
 					'action-1' => []
@@ -179,8 +90,11 @@ class SkinVectorTest extends MediaWikiIntegrationTestCase {
 					]
 				];
 				$content_navigation['views'] = [];
+				$content_navigation['user-menu'] = [
+					'pt-1' => [ 'text' => 'pt1' ],
+				];
 			}
-		] );
+		);
 		$openVectorTemplate = TestingAccessWrapper::newFromObject( $vectorTemplate );
 
 		$props = $openVectorTemplate->getTemplateData()['data-portlets'];
@@ -203,13 +117,14 @@ class SkinVectorTest extends MediaWikiIntegrationTestCase {
 			[
 				// Provided by core
 				'id' => 'p-views',
-				'class' => 'mw-portlet mw-portlet-views emptyPortlet vector-menu vector-menu-tabs',
+				'class' => 'mw-portlet mw-portlet-views emptyPortlet ' .
+					'vector-menu-tabs vector-menu-tabs-legacy',
 				'html-tooltip' => '',
 				'html-items' => '',
 				'html-after-portal' => '',
 				'html-before-portal' => '',
 				'label' => $context->msg( 'views' )->text(),
-				'heading-class' => 'vector-menu-heading',
+				'heading-class' => '',
 				'is-dropdown' => false,
 			],
 			$views
@@ -218,19 +133,19 @@ class SkinVectorTest extends MediaWikiIntegrationTestCase {
 		$variants = $props['data-variants'];
 		$actions = $props['data-actions'];
 		$this->assertSame(
-			'mw-portlet mw-portlet-namespaces vector-menu vector-menu-tabs',
+			'mw-portlet mw-portlet-namespaces vector-menu-tabs vector-menu-tabs-legacy',
 			$namespaces['class']
 		);
 		$this->assertSame(
-			'mw-portlet mw-portlet-variants vector-menu-dropdown-noicon vector-menu vector-menu-dropdown',
+			'mw-portlet mw-portlet-variants vector-menu-dropdown',
 			$variants['class']
 		);
 		$this->assertSame(
-			'mw-portlet mw-portlet-cactions vector-menu-dropdown-noicon vector-menu vector-menu-dropdown',
+			'mw-portlet mw-portlet-cactions vector-menu-dropdown',
 			$actions['class']
 		);
 		$this->assertSame(
-			'mw-portlet mw-portlet-personal vector-user-menu-legacy vector-menu',
+			'mw-portlet mw-portlet-personal vector-user-menu-legacy',
 			$props['data-personal']['class']
 		);
 	}
@@ -239,7 +154,7 @@ class SkinVectorTest extends MediaWikiIntegrationTestCase {
 	 * Standard config for Language Alert in Sidebar
 	 * @return array
 	 */
-	private function enableLanguageAlertFeatureConfig(): array {
+	private static function enableLanguageInHeaderFeatureConfig(): array {
 		return [
 			'VectorLanguageInHeader' => [
 				'logged_in' => true,
@@ -249,14 +164,10 @@ class SkinVectorTest extends MediaWikiIntegrationTestCase {
 				'logged_in' => false,
 				'logged_out' => false
 			],
-			'VectorLanguageAlertInSidebar' => [
-				'logged_in' => true,
-				'logged_out' => true
-			],
 		];
 	}
 
-	public function providerLanguageAlertRequirements() {
+	public static function providerLanguageAlertRequirements() {
 		$testTitle = Title::makeTitle( NS_MAIN, 'Test' );
 		$testTitleMainPage = Title::makeTitle( NS_MAIN, 'MAIN_PAGE' );
 		return [
@@ -275,23 +186,9 @@ class SkinVectorTest extends MediaWikiIntegrationTestCase {
 				false
 			],
 			'When the feature is enabled and languages should be hidden, do not show alert' => [
-				$this->enableLanguageAlertFeatureConfig(),
+				self::enableLanguageInHeaderFeatureConfig(),
 				$testTitle,
 				[], true, true, false
-			],
-			'When the language alert feature is disabled, do not show alert' => [
-				[
-					'VectorLanguageInHeader' => [
-						'logged_in' => true,
-						'logged_out' => true
-					],
-					'VectorLanguageAlertInSidebar' => [
-						'logged_in' => false,
-						'logged_out' => false
-					]
-				],
-				$testTitle,
-				[ 'fr', 'en', 'ko' ], true, false, false
 			],
 			'When the language in header feature is disabled, do not show alert' => [
 				[
@@ -299,21 +196,17 @@ class SkinVectorTest extends MediaWikiIntegrationTestCase {
 						'logged_in' => false,
 						'logged_out' => false
 					],
-					'VectorLanguageAlertInSidebar' => [
-						'logged_in' => true,
-						'logged_out' => true
-					]
 				],
 				$testTitle,
 				[ 'fr', 'en', 'ko' ], true, false, false
 			],
 			'When it is a main page, feature is enabled, and there are no languages, do not show alert' => [
-				$this->enableLanguageAlertFeatureConfig(),
+				self::enableLanguageInHeaderFeatureConfig(),
 				$testTitleMainPage,
 				[], true, true, false
 			],
 			'When it is a non-main page, feature is enabled, and there are no languages, do not show alert' => [
-				$this->enableLanguageAlertFeatureConfig(),
+				self::enableLanguageInHeaderFeatureConfig(),
 				$testTitle,
 				[], true, true, false
 			],
@@ -323,45 +216,27 @@ class SkinVectorTest extends MediaWikiIntegrationTestCase {
 						'logged_in' => false,
 						'logged_out' => false
 					],
-					'VectorLanguageAlertInSidebar' => [
-						'logged_in' => true,
-						'logged_out' => true
-					]
 				],
 				$testTitleMainPage,
 				[ 'fr', 'en', 'ko' ], true, true, false
 			],
-			'When it is a non-main page, alert feature is disabled, there are languages, do not show alert' => [
-				[
-					'VectorLanguageInHeader' => [
-						'logged_in' => true,
-						'logged_out' => true
-					],
-					'VectorLanguageAlertInSidebar' => [
-						'logged_in' => false,
-						'logged_out' => false
-					]
-				],
-				$testTitle,
-				[ 'fr', 'en', 'ko' ], true, true, false
-			],
 			'When most requirements are present but languages are not at the top, do not show alert' => [
-				$this->enableLanguageAlertFeatureConfig(),
+				self::enableLanguageInHeaderFeatureConfig(),
 				$testTitle,
 				[ 'fr', 'en', 'ko' ], false, false, false
 			],
 			'When most requirements are present but languages should be hidden, do not show alert' => [
-				$this->enableLanguageAlertFeatureConfig(),
+				self::enableLanguageInHeaderFeatureConfig(),
 				$testTitle,
 				[ 'fr', 'en', 'ko' ], true, true, false
 			],
 			'When it is a main page, features are enabled, and there are languages, show alert' => [
-				$this->enableLanguageAlertFeatureConfig(),
+				self::enableLanguageInHeaderFeatureConfig(),
 				$testTitleMainPage,
 				[ 'fr', 'en', 'ko' ], true, false, true
 			],
 			'When all the requirements are present on a non-main page, show alert' => [
-				$this->enableLanguageAlertFeatureConfig(),
+				self::enableLanguageInHeaderFeatureConfig(),
 				$testTitle,
 				[ 'fr', 'en', 'ko' ], true, false, true
 			],
@@ -370,7 +245,7 @@ class SkinVectorTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @dataProvider providerLanguageAlertRequirements
-	 * @covers ::shouldLanguageAlertBeInSidebar
+	 * @covers \MediaWiki\Skins\Vector\SkinVector22::shouldLanguageAlertBeInSidebar
 	 * @param array $requirements
 	 * @param Title $title
 	 * @param array $getLanguagesCached
@@ -387,14 +262,13 @@ class SkinVectorTest extends MediaWikiIntegrationTestCase {
 		bool $shouldHideLanguages,
 		bool $expected
 	) {
-		$config = new HashConfig( array_merge( $requirements, [
+		$this->overrideConfigValues( array_merge( $requirements, [
 			'DefaultSkin' => 'vector-2022',
 			'VectorDefaultSkinVersion' => '2',
 			'VectorSkinMigrationMode' => true,
 		] ) );
-		$this->installMockMwServices( $config );
 
-		$mockSkinVector = $this->getMockBuilder( SkinVector::class )
+		$mockSkinVector = $this->getMockBuilder( SkinVector22::class )
 			->disableOriginalConstructor()
 			->onlyMethods( [ 'getTitle', 'getLanguagesCached','isLanguagesInContentAt', 'shouldHideLanguages' ] )
 			->getMock();
@@ -408,15 +282,14 @@ class SkinVectorTest extends MediaWikiIntegrationTestCase {
 			->willReturn( $shouldHideLanguages );
 
 		$shouldLanguageAlertBeInSidebarMethod = new ReflectionMethod(
-			SkinVector::class,
+			SkinVector22::class,
 			'shouldLanguageAlertBeInSidebar'
 		);
 		$shouldLanguageAlertBeInSidebarMethod->setAccessible( true );
 
 		$this->assertSame(
-			$shouldLanguageAlertBeInSidebarMethod->invoke( $mockSkinVector ),
-			$expected
+			$expected,
+			$shouldLanguageAlertBeInSidebarMethod->invoke( $mockSkinVector )
 		);
 	}
-
 }

@@ -19,8 +19,9 @@
  * @ingroup RevisionDelete
  */
 
-use MediaWiki\MediaWikiServices;
-use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\CommentStore\CommentStore;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
 
 /**
  * Item class for a logging table row
@@ -66,7 +67,7 @@ class RevDelLogItem extends RevDelItem {
 
 	public function canView() {
 		return LogEventsList::userCan(
-			$this->row, RevisionRecord::DELETED_RESTRICTED, $this->list->getUser()
+			$this->row, LogPage::DELETED_RESTRICTED, $this->list->getAuthority()
 		);
 	}
 
@@ -81,31 +82,31 @@ class RevDelLogItem extends RevDelItem {
 	public function setBits( $bits ) {
 		$dbw = wfGetDB( DB_PRIMARY );
 
-		$dbw->update( 'logging',
-			[ 'log_deleted' => $bits ],
-			[
+		$dbw->newUpdateQueryBuilder()
+			->update( 'logging' )
+			->set( [ 'log_deleted' => $bits ] )
+			->where( [
 				'log_id' => $this->row->log_id,
 				'log_deleted' => $this->getBits() // cas
-			],
-			__METHOD__
-		);
+			] )
+			->caller( __METHOD__ )->execute();
 
 		if ( !$dbw->affectedRows() ) {
 			// Concurrent fail!
 			return false;
 		}
 
-		$dbw->update( 'recentchanges',
-			[
+		$dbw->newUpdateQueryBuilder()
+			->update( 'recentchanges' )
+			->set( [
 				'rc_deleted' => $bits,
 				'rc_patrolled' => RecentChange::PRC_AUTOPATROLLED
-			],
-			[
+			] )
+			->where( [
 				'rc_logid' => $this->row->log_id,
 				'rc_timestamp' => $this->row->log_timestamp // index
-			],
-			__METHOD__
-		);
+			] )
+			->caller( __METHOD__ )->execute();
 
 		return true;
 	}
@@ -129,21 +130,26 @@ class RevDelLogItem extends RevDelItem {
 		// User links and action text
 		$action = $formatter->getActionText();
 
-		$commentRaw = $this->commentStore->getComment( 'log_comment', $this->row )->text;
-		$commentFormatter = MediaWikiServices::getInstance()->getCommentFormatter();
-		$dirMark = $this->list->getLanguage()->getDirMark();
-		$comment = $dirMark . $commentFormatter->formatBlock( $commentRaw );
+		$comment = $this->list->getLanguage()->getDirMark() .
+			$formatter->getComment();
 
-		if ( LogEventsList::isDeleted( $this->row, LogPage::DELETED_COMMENT ) ) {
-			$comment = '<span class="history-deleted">' . $comment . '</span>';
+		$content = "$loglink $date $action $comment";
+		$attribs = [];
+		if ( $this->row->ts_tags ) {
+			[ $tagSummary, $classes ] = ChangeTags::formatSummaryRow(
+				$this->row->ts_tags,
+				'revisiondelete',
+				$this->list->getContext()
+			);
+			$content .= " $tagSummary";
+			$attribs['class'] = implode( ' ', $classes );
 		}
-
-		return "<li>$loglink $date $action $comment</li>";
+		return Xml::tags( 'li', $attribs, $content );
 	}
 
 	public function getApiData( ApiResult $result ) {
 		$logEntry = DatabaseLogEntry::newFromRow( $this->row );
-		$user = $this->list->getUser();
+		$user = $this->list->getAuthority();
 		$ret = [
 			'id' => $logEntry->getId(),
 			'type' => $logEntry->getType(),

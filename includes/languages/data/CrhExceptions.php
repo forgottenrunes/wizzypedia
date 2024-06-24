@@ -1,16 +1,15 @@
 <?php
+namespace MediaWiki\Languages\Data;
+
+use CrhConverter as Crh;
+
 /**
  * Exceptions Tables for Crimean Tatar (crh / Qırımtatarca)
  *
  * Adapted from https://crh.wikipedia.org/wiki/Qullan%C4%B1c%C4%B1:Don_Alessandro/Translit
  *
- * @file
+ * @ingroup Language
  */
-
-namespace MediaWiki\Languages\Data;
-
-use CrhConverter as Crh;
-
 class CrhExceptions {
 
 	private const WB = '\b'; # default word boundary; may be updated in the future
@@ -74,7 +73,9 @@ class CrhExceptions {
 			if ( !preg_match( '/\$[1-9]/', $WordA ) ) {
 				$A2B[ $prePat . $WordA . $postPat ] = $WordB;
 				if ( !$exactCase ) {
+					// @phan-suppress-next-line PhanPossiblyUndeclaredVariable uc vars are set when used
 					$A2B[ $prePat . $ucWordA . $postPat ] = $ucWordB;
+					// @phan-suppress-next-line PhanPossiblyUndeclaredVariable uc vars are set when used
 					$A2B[ $prePat . $ucA . $postPat ] = $ucB;
 				}
 			}
@@ -82,7 +83,9 @@ class CrhExceptions {
 			if ( !preg_match( '/\$[1-9]/', $WordB ) ) {
 				$B2A[ $prePat . $WordB . $postPat ] = $WordA;
 				if ( !$exactCase ) {
+					// @phan-suppress-next-line PhanPossiblyUndeclaredVariable uc vars are set when used
 					$B2A[ $prePat . $ucWordB . $postPat ] = $ucWordA;
+					// @phan-suppress-next-line PhanPossiblyUndeclaredVariable uc vars are set when used
 					$B2A[ $prePat . $ucB . $postPat ] = $ucA;
 				}
 			}
@@ -121,9 +124,9 @@ class CrhExceptions {
 	 * variants: all lowercase, all uppercase, first letter capitalized
 	 */
 	private $ManyToOneC2LMappings = [
-		# Carefully ordered many-to-one mappings
-		# these are ordered so C2L is correct (the later Latin one)
-		# see also L2C mappings below
+		# Carefully ordered many-to-one mapping.
+		# These are ordered so that the C2L is correct (the later Latin one).
+		# See also the L2C mappings below
 		'fevqülade' => 'февкъульаде', 'fevqulade' => 'февкъульаде',
 		'beyude' => 'бейуде', 'beyüde' => 'бейуде',
 		'curat' => 'джурьат', 'cürat' => 'джурьат',
@@ -382,7 +385,7 @@ class CrhExceptions {
 
 	/**
 	 * @var string[] map Cyrillic to Latin and back, match beginning of word
-	 * variants: all lowercase, all uppercase, first letter capitalized
+	 * variants: all lowercase letters, all uppercase letters, first letter capitalized
 	 * items with capture group refs (e.g., $1) are only mapped from the
 	 * regex to the reference
 	 */
@@ -590,7 +593,7 @@ class CrhExceptions {
 			'/([' . Crh::C_CONS . '])Ё/u' => '$1Ö',
 
 			# остальные вхождения о, у, ё, ю
-			# other occurences of о, у, ё, ю
+			# other occurrences of о, у, ё, ю
 			'/Ё([' . Crh::C_UC . 'CĞÑQÖÜ])/u' => 'YO$1',
 			'/Ю([' . Crh::C_UC . 'CĞÑQÖÜ])/u' => 'YU$1',
 
@@ -813,7 +816,7 @@ class CrhExceptions {
 		'/ЙЬ/u' => 'Й',
 
 		# частичное решение проблемы слова юз - 100
-		# Partial solution of the problem of the word юз ("100")
+		# Partial solution to the problem of the word юз ("100")
 		# notice that these are cross-word patterns
 		'/эки юзь/u' => 'эки юз', '/Эки юзь/u' => 'Эки юз', '/ЭКИ ЮЗЬ/u' => 'ЭКИ ЮЗ',
 		'/учь юзь/u' => 'учь юз', '/Учь юзь/u' => 'Учь юз', '/УЧЬ ЮЗЬ/u' => 'УЧЬ ЮЗ',

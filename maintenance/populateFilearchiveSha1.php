@@ -23,8 +23,6 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
-use MediaWiki\MediaWikiServices;
-
 /**
  * Maintenance script to populate the fa_sha1 field.
  *
@@ -49,7 +47,6 @@ class PopulateFilearchiveSha1 extends LoggedUpdateMaintenance {
 		$startTime = microtime( true );
 		$dbw = $this->getDB( DB_PRIMARY );
 		$table = 'filearchive';
-		$conds = [ 'fa_sha1' => '', 'fa_storage_key IS NOT NULL' ];
 
 		if ( !$dbw->fieldExists( $table, 'fa_sha1', __METHOD__ ) ) {
 			$this->output( "fa_sha1 column does not exist\n\n", true );
@@ -58,20 +55,21 @@ class PopulateFilearchiveSha1 extends LoggedUpdateMaintenance {
 		}
 
 		$this->output( "Populating fa_sha1 field from fa_storage_key\n" );
-		$endId = $dbw->selectField( $table, 'MAX(fa_id)', '', __METHOD__ );
+		$endId = $dbw->newSelectQueryBuilder()
+			->select( 'MAX(fa_id)' )
+			->from( $table )
+			->caller( __METHOD__ )->fetchField();
 
 		$batchSize = $this->getBatchSize();
 		$done = 0;
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 
 		do {
-			$res = $dbw->select(
-				$table,
-				[ 'fa_id', 'fa_storage_key' ],
-				$conds,
-				__METHOD__,
-				[ 'LIMIT' => $batchSize ]
-			);
+			$res = $dbw->newSelectQueryBuilder()
+				->select( [ 'fa_id', 'fa_storage_key' ] )
+				->from( $table )
+				->where( [ 'fa_sha1' => '', 'fa_storage_key IS NOT NULL' ] )
+				->limit( $batchSize )
+				->caller( __METHOD__ )->fetchResultSet();
 
 			$i = 0;
 			foreach ( $res as $row ) {
@@ -96,8 +94,9 @@ class PopulateFilearchiveSha1 extends LoggedUpdateMaintenance {
 
 			// print status and let replica DBs catch up
 			$this->output( sprintf(
+				// @phan-suppress-next-line PhanPossiblyUndeclaredVariable $lastId is set for non-empty $res
 				"id %d done (up to %d), %5.3f%%  \r", $lastId, $endId, $lastId / $endId * 100 ) );
-			$lbFactory->waitForReplication();
+			$this->waitForReplication();
 		} while ( true );
 
 		$processingTime = microtime( true ) - $startTime;

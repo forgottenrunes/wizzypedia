@@ -73,16 +73,4 @@ abstract class DataUpdate implements DeferrableUpdate {
 		return $this->causeAgent;
 	}
 
-	/**
-	 * Convenience method, calls doUpdate() on every DataUpdate in the array.
-	 *
-	 * @param DataUpdate[] $updates A list of DataUpdate instances
-	 * @throws Exception
-	 * @deprecated Since 1.28 Use DeferredUpdates::execute()
-	 */
-	public static function runUpdates( array $updates ) {
-		foreach ( $updates as $update ) {
-			$update->doUpdate();
-		}
-	}
 }

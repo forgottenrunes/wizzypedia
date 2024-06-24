@@ -9,7 +9,11 @@ use MediaWiki\Block\Restriction\PageRestriction;
 use MediaWiki\Cache\LinkBatchFactory;
 use MediaWiki\CommentFormatter\RowCommentFormatter;
 use MediaWiki\Linker\LinkRenderer;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Pager\BlockListPager;
 use MediaWiki\SpecialPage\SpecialPageFactory;
+use MediaWiki\Utils\MWTimestamp;
+use Wikimedia\Rdbms\FakeResultWrapper;
 use Wikimedia\Rdbms\ILoadBalancer;
 use Wikimedia\TestingAccessWrapper;
 
@@ -56,7 +60,7 @@ class BlockListPagerTest extends MediaWikiIntegrationTestCase {
 		$this->commentStore = $services->getCommentStore();
 		$this->linkBatchFactory = $services->getLinkBatchFactory();
 		$this->linkRenderer = $services->getLinkRenderer();
-		$this->loadBalancer = $services->getDBLoadBalancer();
+		$this->dbProvider = $services->getDBLoadBalancerFactory();
 		$this->rowCommentFormatter = $services->getRowCommentFormatter();
 		$this->specialPageFactory = $services->getSpecialPageFactory();
 	}
@@ -70,7 +74,7 @@ class BlockListPagerTest extends MediaWikiIntegrationTestCase {
 			$this->commentStore,
 			$this->linkBatchFactory,
 			$this->linkRenderer,
-			$this->loadBalancer,
+			$this->dbProvider,
 			$this->rowCommentFormatter,
 			$this->specialPageFactory,
 			[]
@@ -87,7 +91,7 @@ class BlockListPagerTest extends MediaWikiIntegrationTestCase {
 		MWTimestamp::setFakeTime( MWTimestamp::time() );
 
 		$value = $name === 'ipb_timestamp' ? MWTimestamp::time() : '';
-		$expected = $expected ?? MWTimestamp::getInstance()->format( 'H:i, j F Y' );
+		$expected ??= MWTimestamp::getInstance()->format( 'H:i, j F Y' );
 
 		$row = $row ?: (object)[];
 		$pager = $this->getBlockListPager();
@@ -101,7 +105,7 @@ class BlockListPagerTest extends MediaWikiIntegrationTestCase {
 	/**
 	 * Test empty values.
 	 */
-	public function formatValueEmptyProvider() {
+	public static function formatValueEmptyProvider() {
 		return [
 			[
 				'test',
@@ -120,12 +124,11 @@ class BlockListPagerTest extends MediaWikiIntegrationTestCase {
 	/**
 	 * Test the default row values.
 	 */
-	public function formatValueDefaultProvider() {
+	public static function formatValueDefaultProvider() {
 		$row = (object)[
 			'ipb_user' => 0,
 			'ipb_address' => '127.0.0.1',
 			'ipb_by_text' => 'Admin',
-			'ipb_create_account' => 1,
 			'ipb_auto' => 0,
 			'ipb_anon_only' => 0,
 			'ipb_create_account' => 1,
@@ -171,9 +174,9 @@ class BlockListPagerTest extends MediaWikiIntegrationTestCase {
 	 * @covers ::getRestrictionListHTML
 	 */
 	public function testFormatValueRestrictions() {
-		$this->setMwGlobals( [
-			'wgArticlePath' => '/wiki/$1',
-			'wgScript' => '/w/index.php',
+		$this->overrideConfigValues( [
+			MainConfigNames::ArticlePath => '/wiki/$1',
+			MainConfigNames::Script => '/w/index.php',
 		] );
 
 		$pager = $this->getBlockListPager();
@@ -255,7 +258,7 @@ class BlockListPagerTest extends MediaWikiIntegrationTestCase {
 		];
 
 		foreach ( $links as $link ) {
-			$this->assertNull( $wrappedlinkCache->badLinks->get( $link ) );
+			$this->assertNull( $wrappedlinkCache->entries->get( $link ) );
 		}
 
 		$row = (object)[
@@ -271,7 +274,7 @@ class BlockListPagerTest extends MediaWikiIntegrationTestCase {
 		$pager->preprocessResults( new FakeResultWrapper( [ $row ] ) );
 
 		foreach ( $links as $link ) {
-			$this->assertSame( 1, $wrappedlinkCache->badLinks->get( $link ), "Bad link [[$link]]" );
+			$this->assertTrue( $wrappedlinkCache->isBadLink( $link ), "Bad link [[$link]]" );
 		}
 
 		// Test sitewide blocks.
@@ -286,9 +289,8 @@ class BlockListPagerTest extends MediaWikiIntegrationTestCase {
 		$pager = $this->getBlockListPager();
 		$pager->preprocessResults( new FakeResultWrapper( [ $row ] ) );
 
-		$this->assertObjectNotHasAttribute( 'ipb_restrictions', $row );
+		$this->assertObjectNotHasProperty( 'ipb_restrictions', $row );
 
-		$pageName = 'Victor Frankenstein';
 		$page = $this->getExistingTestPage( 'Victor Frankenstein' );
 		$title = $page->getTitle();
 

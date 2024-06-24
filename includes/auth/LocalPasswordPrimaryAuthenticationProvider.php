@@ -21,9 +21,10 @@
 
 namespace MediaWiki\Auth;
 
-use MediaWiki\User\UserNameUtils;
-use User;
-use Wikimedia\Rdbms\ILoadBalancer;
+use MediaWiki\MainConfigNames;
+use MediaWiki\User\User;
+use MediaWiki\User\UserRigorOptions;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * A primary authentication provider that uses the password field in the 'user' table.
@@ -37,20 +38,20 @@ class LocalPasswordPrimaryAuthenticationProvider
 	/** @var bool If true, this instance is for legacy logins only. */
 	protected $loginOnly = false;
 
-	/** @var ILoadBalancer */
-	private $loadBalancer;
+	/** @var IConnectionProvider */
+	private $dbProvider;
 
 	/**
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param array $params Settings
 	 *  - loginOnly: If true, the local passwords are for legacy logins only:
 	 *    the local password will be invalidated when authentication is changed
 	 *    and new users will not have a valid local password set.
 	 */
-	public function __construct( ILoadBalancer $loadBalancer, $params = [] ) {
+	public function __construct( IConnectionProvider $dbProvider, $params = [] ) {
 		parent::__construct( $params );
 		$this->loginOnly = !empty( $params['loginOnly'] );
-		$this->loadBalancer = $loadBalancer;
+		$this->dbProvider = $dbProvider;
 	}
 
 	/**
@@ -67,16 +68,16 @@ class LocalPasswordPrimaryAuthenticationProvider
 			return null;
 		}
 
-		$grace = $this->config->get( 'PasswordExpireGrace' );
+		$grace = $this->config->get( MainConfigNames::PasswordExpireGrace );
 		if ( (int)$expiration + $grace < $now ) {
 			$data = [
 				'hard' => true,
-				'msg' => \Status::newFatal( 'resetpass-expired' )->getMessage(),
+				'msg' => \MediaWiki\Status\Status::newFatal( 'resetpass-expired' )->getMessage(),
 			];
 		} else {
 			$data = [
 				'hard' => false,
-				'msg' => \Status::newFatal( 'resetpass-expired-soft' )->getMessage(),
+				'msg' => \MediaWiki\Status\Status::newFatal( 'resetpass-expired-soft' )->getMessage(),
 			];
 		}
 
@@ -85,30 +86,21 @@ class LocalPasswordPrimaryAuthenticationProvider
 
 	public function beginPrimaryAuthentication( array $reqs ) {
 		$req = AuthenticationRequest::getRequestByClass( $reqs, PasswordAuthenticationRequest::class );
-		if ( !$req ) {
+		if ( !$req || $req->username === null || $req->password === null ) {
 			return AuthenticationResponse::newAbstain();
 		}
 
-		if ( $req->username === null || $req->password === null ) {
-			return AuthenticationResponse::newAbstain();
-		}
-
-		$username = $this->userNameUtils->getCanonical( $req->username, UserNameUtils::RIGOR_USABLE );
+		$username = $this->userNameUtils->getCanonical(
+			$req->username, UserRigorOptions::RIGOR_USABLE );
 		if ( $username === false ) {
 			return AuthenticationResponse::newAbstain();
 		}
 
-		$fields = [
-			'user_id', 'user_password', 'user_password_expires',
-		];
-
-		$dbr = $this->loadBalancer->getConnectionRef( DB_REPLICA );
-		$row = $dbr->selectRow(
-			'user',
-			$fields,
-			[ 'user_name' => $username ],
-			__METHOD__
-		);
+		$row = $this->dbProvider->getReplicaDatabase()->newSelectQueryBuilder()
+			->select( [ 'user_id', 'user_password', 'user_password_expires' ] )
+			->from( 'user' )
+			->where( [ 'user_name' => $username ] )
+			->caller( __METHOD__ )->fetchRow();
 		if ( !$row ) {
 			// Do not reveal whether its bad username or
 			// bad password to prevent username enumeration
@@ -125,13 +117,12 @@ class LocalPasswordPrimaryAuthenticationProvider
 
 		$status = $this->checkPasswordValidity( $username, $req->password );
 		if ( !$status->isOK() ) {
-			// Fatal, can't log in
-			return AuthenticationResponse::newFail( $status->getMessage() );
+			return $this->getFatalPasswordErrorResponse( $username, $status );
 		}
 
 		$pwhash = $this->getPassword( $row->user_password );
 		if ( !$pwhash->verify( $req->password ) ) {
-			if ( $this->config->get( 'LegacyEncoding' ) ) {
+			if ( $this->config->get( MainConfigNames::LegacyEncoding ) ) {
 				// Some wikis were converted from ISO 8859-1 to UTF-8, the passwords can't be converted
 				// Check for this with iconv
 				$cp1252Password = iconv( 'UTF-8', 'WINDOWS-1252//TRANSLIT', $req->password );
@@ -148,16 +139,15 @@ class LocalPasswordPrimaryAuthenticationProvider
 			$newHash = $this->getPasswordFactory()->newFromPlaintext( $req->password );
 			$fname = __METHOD__;
 			\DeferredUpdates::addCallableUpdate( function () use ( $newHash, $oldRow, $fname ) {
-				$dbw = $this->loadBalancer->getConnectionRef( DB_PRIMARY );
-				$dbw->update(
-					'user',
-					[ 'user_password' => $newHash->toString() ],
-					[
+				$dbw = $this->dbProvider->getPrimaryDatabase();
+				$dbw->newUpdateQueryBuilder()
+					->update( 'user' )
+					->set( [ 'user_password' => $newHash->toString() ] )
+					->where( [
 						'user_id' => $oldRow->user_id,
-						'user_password' => $oldRow->user_password
-					],
-					$fname
-				);
+						'user_password' => $oldRow->user_password,
+					] )
+					->caller( $fname )->execute();
 			} );
 		}
 		// @codeCoverageIgnoreEnd
@@ -168,18 +158,17 @@ class LocalPasswordPrimaryAuthenticationProvider
 	}
 
 	public function testUserCanAuthenticate( $username ) {
-		$username = $this->userNameUtils->getCanonical( $username, UserNameUtils::RIGOR_USABLE );
+		$username = $this->userNameUtils->getCanonical(
+			$username, UserRigorOptions::RIGOR_USABLE );
 		if ( $username === false ) {
 			return false;
 		}
 
-		$dbr = $this->loadBalancer->getConnectionRef( DB_REPLICA );
-		$row = $dbr->selectRow(
-			'user',
-			[ 'user_password' ],
-			[ 'user_name' => $username ],
-			__METHOD__
-		);
+		$row = $this->dbProvider->getReplicaDatabase()->newSelectQueryBuilder()
+			->select( [ 'user_password' ] )
+			->from( 'user' )
+			->where( [ 'user_name' => $username ] )
+			->caller( __METHOD__ )->fetchRow();
 		if ( !$row ) {
 			return false;
 		}
@@ -194,19 +183,20 @@ class LocalPasswordPrimaryAuthenticationProvider
 	}
 
 	public function testUserExists( $username, $flags = User::READ_NORMAL ) {
-		$username = $this->userNameUtils->getCanonical( $username, UserNameUtils::RIGOR_USABLE );
+		$username = $this->userNameUtils->getCanonical(
+			$username, UserRigorOptions::RIGOR_USABLE );
 		if ( $username === false ) {
 			return false;
 		}
 
-		list( $db, $options ) = \DBAccessObjectUtils::getDBOptions( $flags );
-		return (bool)$this->loadBalancer->getConnectionRef( $db )->selectField(
-			[ 'user' ],
-			'user_id',
-			[ 'user_name' => $username ],
-			__METHOD__,
-			$options
-		);
+		[ $mode, $options ] = \DBAccessObjectUtils::getDBOptions( $flags );
+		$db = \DBAccessObjectUtils::getDBFromIndex( $this->dbProvider, $mode );
+		return (bool)$db->newSelectQueryBuilder()
+			->select( [ 'user_id' ] )
+			->from( 'user' )
+			->where( [ 'user_name' => $username ] )
+			->options( $options )
+			->caller( __METHOD__ )->fetchField();
 	}
 
 	public function providerAllowsAuthenticationDataChange(
@@ -223,14 +213,14 @@ class LocalPasswordPrimaryAuthenticationProvider
 				return \StatusValue::newGood();
 			}
 
-			$username = $this->userNameUtils->getCanonical( $req->username, UserNameUtils::RIGOR_USABLE );
+			$username = $this->userNameUtils->getCanonical( $req->username,
+				UserRigorOptions::RIGOR_USABLE );
 			if ( $username !== false ) {
-				$row = $this->loadBalancer->getConnectionRef( DB_PRIMARY )->selectRow(
-					'user',
-					[ 'user_id' ],
-					[ 'user_name' => $username ],
-					__METHOD__
-				);
+				$row = $this->dbProvider->getPrimaryDatabase()->newSelectQueryBuilder()
+					->select( [ 'user_id' ] )
+					->from( 'user' )
+					->where( [ 'user_name' => $username ] )
+					->caller( __METHOD__ )->fetchRow();
 				if ( $row ) {
 					$sv = \StatusValue::newGood();
 					if ( $req->password !== null ) {
@@ -250,7 +240,8 @@ class LocalPasswordPrimaryAuthenticationProvider
 
 	public function providerChangeAuthenticationData( AuthenticationRequest $req ) {
 		$username = $req->username !== null ?
-			$this->userNameUtils->getCanonical( $req->username, UserNameUtils::RIGOR_USABLE ) : false;
+			$this->userNameUtils->getCanonical( $req->username, UserRigorOptions::RIGOR_USABLE )
+			: false;
 		if ( $username === false ) {
 			return;
 		}
@@ -268,16 +259,16 @@ class LocalPasswordPrimaryAuthenticationProvider
 		}
 
 		if ( $pwhash ) {
-			$dbw = $this->loadBalancer->getConnectionRef( DB_PRIMARY );
-			$dbw->update(
-				'user',
-				[
+			$dbw = $this->dbProvider->getPrimaryDatabase();
+			$dbw->newUpdateQueryBuilder()
+				->update( 'user' )
+				->set( [
 					'user_password' => $pwhash->toString(),
+					// @phan-suppress-next-line PhanPossiblyUndeclaredVariable expiry is set together with pwhash
 					'user_password_expires' => $dbw->timestampOrNull( $expiry ),
-				],
-				[ 'user_name' => $username ],
-				__METHOD__
-			);
+				 ] )
+				->where( [ 'user_name' => $username ] )
+				->caller( __METHOD__ )->execute();
 		}
 	}
 

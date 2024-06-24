@@ -1,8 +1,5 @@
 <?php
 /**
- * A content object represents page content, e.g. the text to show on a page.
- * Content objects have no knowledge about how they relate to wiki pages.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,19 +15,26 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  * http://www.gnu.org/copyleft/gpl.html
  *
- * @since 1.21
- *
  * @file
- * @ingroup Content
- *
- * @author Daniel Kinzler
  */
 
+use MediaWiki\Parser\MagicWord;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
+
 /**
- * Base interface for content objects.
+ * Base interface for representing page content.
  *
+ * A content object represents page content, e.g. the text to show on a page.
+ * Content objects have no knowledge about how they relate to wiki pages.
+ *
+ * Must not be implemented directly by extensions, extend AbstractContent instead.
+ *
+ * @stable to type
+ * @since 1.21
  * @ingroup Content
- * @unstable for implementation, extensions should extend AbstractContent instead.
+ * @author Daniel Kinzler
  */
 interface Content {
 
@@ -49,7 +53,7 @@ interface Content {
 	/**
 	 * @since 1.21
 	 *
-	 * @return string|bool The wikitext to include when another page includes this
+	 * @return string|false The wikitext to include when another page includes this
 	 * content, or false if the content is not includable in a wikitext page.
 	 *
 	 * @todo Allow native handling, bypassing wikitext representation, like
@@ -66,7 +70,8 @@ interface Content {
 	 *
 	 * @since 1.21
 	 *
-	 * @param int $maxLength Maximum length of the summary text.
+	 * @param int $maxLength Maximum length of the summary text, in bytes.
+	 * Usually implemented using {@link Language::truncateForDatabase()}.
 	 *
 	 * @return string The summary text.
 	 */
@@ -288,49 +293,14 @@ interface Content {
 	// TODO: make RenderOutput and RenderOptions base classes
 
 	/**
-	 * Construct the redirect destination from this content and return an
-	 * array of Titles, or null if this content doesn't represent a redirect.
-	 * The last element in the array is the final destination after all redirects
-	 * have been resolved (up to $wgMaxRedirects times).
-	 *
-	 * @since 1.21
-	 * @deprecated since 1.38 Support for $wgMaxRedirect will be removed
-	 *   soon so this will go away with it. See T296430.
-	 *
-	 * @return Title[]|null List of Titles, with the destination last.
-	 */
-	public function getRedirectChain();
-
-	/**
 	 * Construct the redirect destination from this content and return a Title,
 	 * or null if this content doesn't represent a redirect.
-	 * This will only return the immediate redirect target, useful for
-	 * the redirect table and other checks that don't need full recursion.
 	 *
 	 * @since 1.21
 	 *
 	 * @return Title|null
 	 */
 	public function getRedirectTarget();
-
-	/**
-	 * Construct the redirect destination from this content and return the
-	 * Title, or null if this content doesn't represent a redirect.
-	 *
-	 * This will recurse down $wgMaxRedirects times or until a non-redirect
-	 * target is hit in order to provide (hopefully) the Title of the final
-	 * destination instead of another redirect.
-	 *
-	 * There is usually no need to override the default behavior, subclasses that
-	 * want to implement redirects should override getRedirectTarget().
-	 *
-	 * @since 1.21
-	 * @deprecated since 1.38 Support for $wgMaxRedirect will be removed
-	 *   soon so this will go away with it. See T296430.
-	 *
-	 * @return Title|null
-	 */
-	public function getUltimateRedirectTarget();
 
 	/**
 	 * Returns whether this Content represents a redirect.
@@ -366,7 +336,7 @@ interface Content {
 	 * (e.g. 0, 1 or 'T-1'). The ID "0" retrieves the section before the first heading, "1" the
 	 * text between the first heading (included) and the second heading (excluded), etc.
 	 *
-	 * @return Content|bool|null The section, or false if no such section
+	 * @return Content|false|null The section, or false if no such section
 	 *    exist, or null if sections are not supported.
 	 */
 	public function getSection( $sectionId );
@@ -377,7 +347,7 @@ interface Content {
 	 *
 	 * @since 1.21
 	 *
-	 * @param string|int|null|bool $sectionId Section identifier as a number or string
+	 * @param string|int|null|false $sectionId Section identifier as a number or string
 	 * (e.g. 0, 1 or 'T-1'), null/false or an empty string for the whole page
 	 * or 'new' for a new section.
 	 * @param Content $with New content of the section
@@ -479,7 +449,7 @@ interface Content {
 	 * conversion is not allowed, full round-trip conversion is expected to work without losing
 	 * information.
 	 *
-	 * @return Content|bool A content object with the content model $toModel, or false if
+	 * @return Content|false A content object with the content model $toModel, or false if
 	 * that conversion is not supported.
 	 */
 	public function convert( $toModel, $lossy = '' );

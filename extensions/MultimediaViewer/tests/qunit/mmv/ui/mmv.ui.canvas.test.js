@@ -15,24 +15,26 @@
  * along with MediaViewer.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+const { Canvas, LightboxImage } = require( 'mmv' );
+
 ( function () {
 	QUnit.module( 'mmv.ui.Canvas', QUnit.newMwEnvironment() );
 
 	QUnit.test( 'Constructor sense check', function ( assert ) {
 		var $qf = $( '#qunit-fixture' ),
-			canvas = new mw.mmv.ui.Canvas( $qf, $qf, $qf );
+			canvas = new Canvas( $qf, $qf, $qf );
 
-		assert.ok( canvas.$imageDiv, 'Image container is created.' );
+		assert.strictEqual( canvas.$imageDiv.length, 1, 'Image container is created.' );
 		assert.strictEqual( canvas.$imageWrapper, $qf, '$imageWrapper is set correctly.' );
 		assert.strictEqual( canvas.$mainWrapper, $qf, '$mainWrapper is set correctly.' );
 	} );
 
 	QUnit.test( 'empty() and set()', function ( assert ) {
 		var $qf = $( '#qunit-fixture' ),
-			canvas = new mw.mmv.ui.Canvas( $qf ),
+			canvas = new Canvas( $qf ),
 			image = new Image(),
 			$imageElem = $( image ),
-			imageRawMetadata = new mw.mmv.LightboxImage( 'foo.png' );
+			imageRawMetadata = new LightboxImage( 'foo.png' );
 
 		canvas.empty();
 
@@ -57,8 +59,8 @@
 			$mainWrapper = $( '<div>' ).appendTo( $qf ),
 			$innerWrapper = $( '<div>' ).appendTo( $mainWrapper ),
 			$imageWrapper = $( '<div>' ).appendTo( $innerWrapper ),
-			canvas = new mw.mmv.ui.Canvas( $innerWrapper, $imageWrapper, $mainWrapper ),
-			imageRawMetadata = new mw.mmv.LightboxImage( 'foo.png' ),
+			canvas = new Canvas( $innerWrapper, $imageWrapper, $mainWrapper ),
+			imageRawMetadata = new LightboxImage( 'foo.png' ),
 			image = new Image(),
 			$imageElem = $( image ),
 			image2 = new Image(),
@@ -99,8 +101,8 @@
 		var $image,
 			blurredThumbnailShown,
 			$qf = $( '#qunit-fixture' ),
-			imageRawMetadata = new mw.mmv.LightboxImage( 'foo.svg' ),
-			canvas = new mw.mmv.ui.Canvas( $qf );
+			imageRawMetadata = new LightboxImage( 'foo.svg' ),
+			canvas = new Canvas( $qf );
 
 		imageRawMetadata.filePageTitle = {
 			getExtension: function () { return 'svg'; }
@@ -108,7 +110,7 @@
 		canvas.imageRawMetadata = imageRawMetadata;
 
 		canvas.set = function () {
-			assert.ok( false, 'Placeholder is not shown' );
+			assert.true( false, 'Placeholder is not shown' );
 		};
 
 		$image = $( '<img>' ).width( 10 ).height( 5 );
@@ -129,8 +131,8 @@
 		var $image,
 			blurredThumbnailShown,
 			$qf = $( '#qunit-fixture' ),
-			imageRawMetadata = new mw.mmv.LightboxImage( 'foo.png' ),
-			canvas = new mw.mmv.ui.Canvas( $qf );
+			imageRawMetadata = new LightboxImage( 'foo.png' ),
+			canvas = new Canvas( $qf );
 
 		imageRawMetadata.filePageTitle = {
 			getExtension: function () { return 'png'; }
@@ -138,7 +140,7 @@
 		canvas.imageRawMetadata = imageRawMetadata;
 
 		canvas.set = function () {
-			assert.ok( true, 'Placeholder shown' );
+			assert.true( true, 'Placeholder shown' );
 		};
 
 		$image = $( '<img>' ).width( 200 ).height( 100 );
@@ -159,8 +161,8 @@
 		var $image,
 			blurredThumbnailShown,
 			$qf = $( '#qunit-fixture' ),
-			imageRawMetadata = new mw.mmv.LightboxImage( 'foo.png' ),
-			canvas = new mw.mmv.ui.Canvas( $qf );
+			imageRawMetadata = new LightboxImage( 'foo.png' ),
+			canvas = new Canvas( $qf );
 
 		imageRawMetadata.filePageTitle = {
 			getExtension: function () { return 'png'; }
@@ -168,7 +170,7 @@
 		canvas.imageRawMetadata = imageRawMetadata;
 
 		canvas.set = function () {
-			assert.ok( true, 'Placeholder shown' );
+			assert.true( true, 'Placeholder shown' );
 		};
 
 		$image = $( '<img>' ).width( 100 ).height( 50 );
@@ -189,8 +191,8 @@
 		var $image,
 			blurredThumbnailShown,
 			$qf = $( '#qunit-fixture' ),
-			imageRawMetadata = new mw.mmv.LightboxImage( 'foo.png' ),
-			canvas = new mw.mmv.ui.Canvas( $qf );
+			imageRawMetadata = new LightboxImage( 'foo.png' ),
+			canvas = new Canvas( $qf );
 
 		imageRawMetadata.filePageTitle = {
 			getExtension: function () { return 'png'; }
@@ -198,7 +200,7 @@
 		canvas.imageRawMetadata = imageRawMetadata;
 
 		canvas.set = function () {
-			assert.ok( true, 'Placeholder shown' );
+			assert.true( true, 'Placeholder shown' );
 		};
 
 		$image = $( '<img>' ).width( 100 ).height( 50 );
@@ -219,8 +221,8 @@
 		var $image,
 			blurredThumbnailShown,
 			$qf = $( '#qunit-fixture' ),
-			imageRawMetadata = new mw.mmv.LightboxImage( 'foo.png' ),
-			canvas = new mw.mmv.ui.Canvas( $qf );
+			imageRawMetadata = new LightboxImage( 'foo.png' ),
+			canvas = new Canvas( $qf );
 
 		imageRawMetadata.filePageTitle = {
 			getExtension: function () { return 'png'; }
@@ -228,7 +230,7 @@
 		canvas.imageRawMetadata = imageRawMetadata;
 
 		canvas.set = function () {
-			assert.ok( false, 'Placeholder shown when it should not' );
+			assert.true( false, 'Placeholder shown when it should not' );
 		};
 
 		$image = $( '<img>' ).width( 10 ).height( 5 );
@@ -247,7 +249,7 @@
 
 	QUnit.test( 'unblurWithAnimation', function ( assert ) {
 		var $qf = $( '#qunit-fixture' ),
-			canvas = new mw.mmv.ui.Canvas( $qf ),
+			canvas = new Canvas( $qf ),
 			oldAnimate = $.fn.animate;
 
 		$.fn.animate = function ( target, options ) {
@@ -270,9 +272,9 @@
 
 		canvas.unblurWithAnimation();
 
-		assert.ok( !canvas.$image.css( '-webkit-filter' ) || !canvas.$image.css( '-webkit-filter' ).length,
+		assert.true( !canvas.$image.css( '-webkit-filter' ) || !canvas.$image.css( '-webkit-filter' ).length,
 			'Image has no -webkit-filter left' );
-		assert.ok( !canvas.$image.css( 'filter' ) || !canvas.$image.css( 'filter' ).length || canvas.$image.css( 'filter' ) === 'none',
+		assert.true( !canvas.$image.css( 'filter' ) || !canvas.$image.css( 'filter' ).length || canvas.$image.css( 'filter' ) === 'none',
 			'Image has no filter left' );
 		assert.strictEqual( parseInt( canvas.$image.css( 'opacity' ), 10 ), 1,
 			'Image is fully opaque' );

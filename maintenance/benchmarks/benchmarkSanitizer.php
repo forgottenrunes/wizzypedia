@@ -19,6 +19,9 @@
  * @ingroup Benchmark
  */
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\Parser\Sanitizer;
+
 require_once __DIR__ . '/../includes/Benchmarker.php';
 
 /**
@@ -94,9 +97,10 @@ class BenchmarkSanitizer extends Benchmarker {
 			$lg = round( strlen( $textWithHtmlLg ) / 1000 ) . 'K';
 			$doit = static function ( $text ) {
 				return static function () use ( $text ) {
-					$tidy = new \MediaWiki\Tidy\RemexDriver( new \MediaWiki\Config\ServiceOptions( [ 'TidyConfig' ], [
-						'TidyConfig' => [ 'pwrap' => false ],
-					] ) );
+					$tidy = new \MediaWiki\Tidy\RemexDriver(
+						new \MediaWiki\Config\ServiceOptions( [ MainConfigNames::TidyConfig ], [
+							MainConfigNames::TidyConfig => [ 'pwrap' => false ],
+						] ) );
 					$textWithTags = $tidy->tidy( $text, [ Sanitizer::class, 'armorFrenchSpaces' ] );
 					$textWithTags = Sanitizer::normalizeCharReferences(
 						Sanitizer::internalRemoveHtmlTags( $textWithTags )

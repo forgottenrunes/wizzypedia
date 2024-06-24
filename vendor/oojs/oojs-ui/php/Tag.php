@@ -112,6 +112,9 @@ class Tag {
 		return $this;
 	}
 
+	/**
+	 * @return string
+	 */
 	public function getTag() {
 		return $this->tag;
 	}
@@ -142,7 +145,7 @@ class Tag {
 	/**
 	 * Set value of input element ('value' attribute for most, element content for textarea).
 	 *
-	 * @param string $value Value to set
+	 * @param mixed $value New value should usually be a string
 	 * @return $this
 	 */
 	public function setValue( $value ) {
@@ -178,10 +181,13 @@ class Tag {
 	 * @return $this
 	 */
 	public function removeContent( ...$content ) {
-		if ( $content && is_array( $content[ 0 ] ) ) {
+		if ( isset( $content[0] ) && is_array( $content[0] ) ) {
 			return $this->removeContent( ...$content[0] );
 		}
-		foreach ( $content as $item ) {
+		foreach ( $content as $i => $item ) {
+			if ( !is_int( $i ) ) {
+				throw new \AssertionError( '$content cannot have string keys' );
+			}
 			if ( !is_string( $item ) ) {
 				// Use strict type comparions so we don't
 				// compare objects with existing strings
@@ -213,7 +219,7 @@ class Tag {
 	 * @return $this
 	 */
 	public function appendContent( ...$content ) {
-		if ( $content && is_array( $content[ 0 ] ) ) {
+		if ( isset( $content[0] ) && is_array( $content[0] ) ) {
 			return $this->appendContent( ...$content[0] );
 		}
 		$this->removeContent( ...$content );
@@ -241,7 +247,7 @@ class Tag {
 	 * @return $this
 	 */
 	public function prependContent( ...$content ) {
-		if ( $content && is_array( $content[ 0 ] ) ) {
+		if ( isset( $content[0] ) && is_array( $content[0] ) ) {
 			return $this->prependContent( ...$content[0] );
 		}
 		$this->removeContent( ...$content );
@@ -299,6 +305,7 @@ class Tag {
 		return $this->infusable;
 	}
 
+	/** @var int */
 	private static $elementId = 0;
 
 	/**
@@ -309,6 +316,13 @@ class Tag {
 	public static function generateElementId() {
 		self::$elementId++;
 		return 'ooui-php-' . self::$elementId;
+	}
+
+	/**
+	 * Reset the unique ID, for consistent test output
+	 */
+	public static function resetElementId() {
+		self::$elementId = 0;
 	}
 
 	/**
@@ -328,7 +342,7 @@ class Tag {
 	 * Return an augmented `attributes` array, including synthetic attributes
 	 * which are created from other properties (like the `classes` array)
 	 * but which shouldn't be retained in the user-visible `attributes`.
-	 * @return array An attributes array.
+	 * @return string[]
 	 */
 	protected function getGeneratedAttributes() {
 		// Copy attributes, add `class` attribute from `$this->classes` array.
@@ -409,7 +423,6 @@ class Tag {
 	/**
 	 * Render element into HTML.
 	 * @return string HTML serialization
-	 * @throws Exception
 	 */
 	public function toString() {
 		// List of void elements from HTML5, section 8.1.2 as of 2016-09-19

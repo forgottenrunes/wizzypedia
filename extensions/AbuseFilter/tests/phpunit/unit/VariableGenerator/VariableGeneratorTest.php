@@ -8,8 +8,9 @@ use MediaWiki\Extension\AbuseFilter\Parser\AFPData;
 use MediaWiki\Extension\AbuseFilter\VariableGenerator\VariableGenerator;
 use MediaWiki\Extension\AbuseFilter\Variables\LazyLoadedVariable;
 use MediaWiki\Extension\AbuseFilter\Variables\VariableHolder;
+use MediaWiki\Title\Title;
+use MediaWiki\User\UserIdentity;
 use MediaWikiUnitTestCase;
-use Title;
 use User;
 use WikiPage;
 
@@ -120,7 +121,7 @@ class VariableGeneratorTest extends MediaWikiUnitTestCase {
 		$this->assertArrayEquals( $expectedKeys, $lazyVars );
 	}
 
-	public function provideTitleVarsLazy(): Generator {
+	public static function provideTitleVarsLazy(): Generator {
 		$prefixes = [ 'page', 'moved_from', 'moved_to' ];
 		foreach ( $prefixes as $prefix ) {
 			$expectedKeys = [
@@ -141,6 +142,7 @@ class VariableGeneratorTest extends MediaWikiUnitTestCase {
 	 */
 	public function testAddGenericVars() {
 		$expectedKeys = [
+			'timestamp',
 			'wiki_name',
 			'wiki_language',
 		];
@@ -148,13 +150,19 @@ class VariableGeneratorTest extends MediaWikiUnitTestCase {
 		$generator = new VariableGenerator( $this->createMock( AbuseFilterHookRunner::class ) );
 		$actualVars = $generator->addGenericVars()->getVariableHolder()->getVars();
 		$this->assertArrayEquals( $expectedKeys, array_keys( $actualVars ) );
-		$this->assertContainsOnlyInstancesOf( LazyLoadedVariable::class, $actualVars, 'lazy-loaded vars' );
+	}
+
+	public static function provideForFilter() {
+		yield [ true ];
+		yield [ false ];
 	}
 
 	/**
 	 * @covers ::addEditVars
+	 * @covers ::addDerivedEditVars
+	 * @dataProvider provideForFilter
 	 */
-	public function testAddEditVars() {
+	public function testAddEditVars( bool $forFilter ) {
 		$expectedKeys = [
 			'edit_diff',
 			'edit_diff_pst',
@@ -175,7 +183,8 @@ class VariableGeneratorTest extends MediaWikiUnitTestCase {
 		$generator = new VariableGenerator( $this->createMock( AbuseFilterHookRunner::class ) );
 		$actualVars = $generator->addEditVars(
 			$this->createMock( WikiPage::class ),
-			$this->createMock( User::class )
+			$this->createMock( UserIdentity::class ),
+			$forFilter
 		)->getVariableHolder()->getVars();
 		$this->assertArrayEquals( $expectedKeys, array_keys( $actualVars ) );
 		$this->assertContainsOnlyInstancesOf( LazyLoadedVariable::class, $actualVars, 'lazy-loaded vars' );

@@ -22,6 +22,9 @@ use MediaWiki\Page\PageIdentityValue;
 use MediaWiki\Page\PageSelectQueryBuilder;
 use MediaWiki\Page\PageStore;
 use MediaWiki\Preferences\MultiTitleFilter;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleFactory;
+use MediaWiki\Title\TitleFormatter;
 
 /**
  * @group Preferences
@@ -142,9 +145,7 @@ class MultiTitleFilterTest extends MediaWikiUnitTestCase {
 	}
 
 	private function getMockTitle( $getTextResult, $articleId = 0 ) {
-		$title = $this->getMockBuilder( Title::class )
-			->disableOriginalConstructor()
-			->getMock();
+		$title = $this->createMock( Title::class );
 		$title->method( 'getPrefixedText' )->willReturn( $getTextResult );
 		$title->method( 'getArticleID' )->willReturn( $articleId );
 		return $title;

@@ -22,7 +22,10 @@
  */
 
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\Html\Html;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Parser\Sanitizer;
 
 /**
  * Various tag hooks, registered in every Parser
@@ -35,7 +38,7 @@ class CoreTagHooks {
 	 */
 	public const REGISTER_OPTIONS = [
 		// See documentation for the corresponding config options
-		'RawHtml',
+		MainConfigNames::RawHtml,
 	];
 
 	/**
@@ -43,12 +46,11 @@ class CoreTagHooks {
 	 * @param ServiceOptions $options
 	 *
 	 * @return void
-	 * @throws MWException
 	 * @internal
 	 */
 	public static function register( Parser $parser, ServiceOptions $options ) {
 		$options->assertRequiredOptions( self::REGISTER_OPTIONS );
-		$rawHtml = $options->get( 'RawHtml' );
+		$rawHtml = $options->get( MainConfigNames::RawHtml );
 		$parser->setHook( 'pre', [ __CLASS__, 'pre' ] );
 		$parser->setHook( 'nowiki', [ __CLASS__, 'nowiki' ] );
 		$parser->setHook( 'gallery', [ __CLASS__, 'gallery' ] );
@@ -82,7 +84,7 @@ class CoreTagHooks {
 			[ '&gt;', '&lt;' ],
 			$content
 		);
-		// @phan-suppress-next-line SecurityCheck-XSS
+		// @phan-suppress-next-line SecurityCheck-XSS Ad-hoc escaping above.
 		return Html::rawElement( 'pre', $attribs, $content );
 	}
 
@@ -99,12 +101,11 @@ class CoreTagHooks {
 	 * @param ?string $content
 	 * @param array $attributes
 	 * @param Parser $parser
-	 * @throws MWException
 	 * @return array|string Output of tag hook
 	 * @internal
 	 */
 	public static function html( ?string $content, array $attributes, Parser $parser ) {
-		$rawHtml = MediaWikiServices::getInstance()->getMainConfig()->get( 'RawHtml' );
+		$rawHtml = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::RawHtml );
 		if ( $rawHtml ) {
 			if ( $parser->getOptions()->getAllowUnsafeRawHtml() ) {
 				return [ $content ?? '', 'markerType' => 'nowiki' ];
@@ -117,11 +118,11 @@ class CoreTagHooks {
 					[ 'class' => 'error' ],
 					// Using ->text() not ->parse() as
 					// a paranoia measure against a loop.
-					wfMessage( 'rawhtml-notallowed' )->escaped()
+					$parser->msg( 'rawhtml-notallowed' )->escaped()
 				);
 			}
 		} else {
-			throw new MWException( '<html> extension tag encountered unexpectedly' );
+			throw new UnexpectedValueException( '<html> extension tag encountered unexpectedly' );
 		}
 	}
 
@@ -173,7 +174,6 @@ class CoreTagHooks {
 	 * @internal
 	 */
 	public static function gallery( ?string $content, array $attributes, Parser $parser ): string {
-		// @phan-suppress-next-line SecurityCheck-XSS
 		return $parser->renderImageGallery( $content ?? '', $attributes );
 	}
 
@@ -192,7 +192,7 @@ class CoreTagHooks {
 	public static function indicator( ?string $content, array $attributes, Parser $parser, PPFrame $frame ): string {
 		if ( !isset( $attributes['name'] ) || trim( $attributes['name'] ) === '' ) {
 			return '<span class="error">' .
-				wfMessage( 'invalid-indicator-name' )->inContentLanguage()->parse() .
+				$parser->msg( 'invalid-indicator-name' )->parse() .
 				'</span>';
 		}
 
@@ -235,7 +235,6 @@ class CoreTagHooks {
 					$toVariant = $converter->validateVariant( $toArg );
 
 					if ( $toVariant ) {
-						// @phan-suppress-next-line SecurityCheck-XSS
 						return $converter->autoConvert(
 							$parser->recursiveTagParse( $content ?? '', $frame ),
 							$toVariant
@@ -248,7 +247,7 @@ class CoreTagHooks {
 		return Html::rawElement(
 			'span',
 			[ 'class' => 'error' ],
-			wfMessage( 'invalid-langconvert-attrs' )->inContentLanguage()->parse()
+			$parser->msg( 'invalid-langconvert-attrs' )->parse()
 		);
 	}
 

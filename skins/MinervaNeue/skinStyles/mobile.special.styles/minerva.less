@@ -1,6 +1,7 @@
 // stylelint-disable selector-max-id
 @import '../../minerva.less/minerva.variables.less';
 @import '../../minerva.less/minerva.mixins.less';
+@import 'mediawiki.mixins.less';
 
 .mw-mf-special-page {
 	#bodyContent.content {
@@ -24,20 +25,6 @@
 				max-width: none;
 			}
 		}
-	}
-}
-
-// FIXME [mediawiki ui] These rules should not be needed in the mobile context
-.mw-ui-button-group {
-	text-align: center;
-
-	* {
-		float: none !important;
-	}
-
-	// For talk and CTA drawer
-	.mw-ui-block {
-		width: auto;
 	}
 }
 
@@ -66,7 +53,7 @@
 			text-align: center;
 		}
 
-		.mw-mf-user:before {
+		.mw-mf-user::before {
 			opacity: @opacity-icon-subtle;
 		}
 	}

@@ -16,19 +16,20 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup FileRepo
  */
 
 use MediaWiki\Linker\LinkTarget;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\PageIdentity;
+use MediaWiki\Title\Title;
 
 /**
  * A foreign repository for a remote MediaWiki accessible through api.php requests.
  *
- * Example config:
- *
+ * @par Example config:
+ * @code
  * $wgForeignFileRepos[] = [
  *   'class'                  => ForeignAPIRepo::class,
  *   'name'                   => 'shared',
@@ -36,6 +37,7 @@ use MediaWiki\Page\PageIdentity;
  *   'fetchDescription'       => true, // Optional
  *   'descriptionCacheExpiry' => 3600,
  * ];
+ * @endcode
  *
  * @ingroup FileRepo
  */
@@ -83,7 +85,8 @@ class ForeignAPIRepo extends FileRepo implements IForeignRepoWithMWApi {
 	 * @param array|null $info
 	 */
 	public function __construct( $info ) {
-		$localFileRepo = MediaWikiServices::getInstance()->getMainConfig()->get( 'LocalFileRepo' );
+		$localFileRepo = MediaWikiServices::getInstance()->getMainConfig()
+			->get( MainConfigNames::LocalFileRepo );
 		parent::__construct( $info );
 
 		// https://commons.wikimedia.org/w/api.php
@@ -123,7 +126,7 @@ class ForeignAPIRepo extends FileRepo implements IForeignRepoWithMWApi {
 	 * files. Well, we don't.
 	 *
 	 * @param PageIdentity|LinkTarget|string $title
-	 * @param string|bool $time
+	 * @param string|false $time
 	 * @return File|false
 	 */
 	public function newFile( $title, $time = false ) {
@@ -204,7 +207,8 @@ class ForeignAPIRepo extends FileRepo implements IForeignRepoWithMWApi {
 	 * @return array|null
 	 */
 	public function fetchImageQuery( $query ) {
-		$languageCode = MediaWikiServices::getInstance()->getMainConfig()->get( 'LanguageCode' );
+		$languageCode = MediaWikiServices::getInstance()->getMainConfig()
+			->get( MainConfigNames::LanguageCode );
 
 		$query = array_merge( $query,
 			[
@@ -228,7 +232,7 @@ class ForeignAPIRepo extends FileRepo implements IForeignRepoWithMWApi {
 
 	/**
 	 * @param array $data
-	 * @return bool|array
+	 * @return array|false
 	 */
 	public function getImageInfo( $data ) {
 		if ( $data && isset( $data['query']['pages'] ) ) {
@@ -307,7 +311,7 @@ class ForeignAPIRepo extends FileRepo implements IForeignRepoWithMWApi {
 	 * @param int $height
 	 * @param string $otherParams
 	 * @param string|null $lang Language code for language of error
-	 * @return bool|MediaTransformError
+	 * @return MediaTransformError|false
 	 * @since 1.22
 	 */
 	public function getThumbError(
@@ -350,7 +354,7 @@ class ForeignAPIRepo extends FileRepo implements IForeignRepoWithMWApi {
 	 * @param int $height
 	 * @param string $params Other rendering parameters (page number, etc)
 	 *   from handler's makeParamString.
-	 * @return bool|string
+	 * @return string|false
 	 */
 	public function getThumbUrlFromCache( $name, $width, $height, $params = "" ) {
 		// We can't check the local cache using FileRepo functions because
@@ -463,7 +467,7 @@ class ForeignAPIRepo extends FileRepo implements IForeignRepoWithMWApi {
 	/**
 	 * Get the local directory corresponding to one of the basic zones
 	 * @param string $zone
-	 * @return bool|null|string
+	 * @return null|string|false
 	 */
 	public function getZonePath( $zone ) {
 		$supported = [ 'public', 'thumb' ];
@@ -535,9 +539,12 @@ class ForeignAPIRepo extends FileRepo implements IForeignRepoWithMWApi {
 		$url, $timeout = 'default', $options = [], &$mtime = false
 	) {
 		$options['timeout'] = $timeout;
-		/* Http::get */
-		$url = wfExpandUrl( $url, PROTO_HTTP );
+		$url = MediaWikiServices::getInstance()->getUrlUtils()
+			->expand( $url, PROTO_HTTP );
 		wfDebug( "ForeignAPIRepo: HTTP GET: $url" );
+		if ( !$url ) {
+			return false;
+		}
 		$options['method'] = "GET";
 
 		if ( !isset( $options['timeout'] ) ) {
@@ -589,7 +596,10 @@ class ForeignAPIRepo extends FileRepo implements IForeignRepoWithMWApi {
 		}
 
 		return $this->wanCache->getWithSetCallback(
-			$this->getLocalCacheKey( $attribute, sha1( $url ) ),
+			// Allow reusing the same cached data across wikis (T285271).
+			// This does not use getSharedCacheKey() because caching here
+			// is transparent to client wikis (which are not expected to issue purges).
+			$this->wanCache->makeGlobalKey( "filerepo-$attribute", sha1( $url ) ),
 			$cacheTTL,
 			function ( $curValue, &$ttl ) use ( $url ) {
 				$html = self::httpGet( $url, 'default', [], $mtime );
@@ -610,17 +620,14 @@ class ForeignAPIRepo extends FileRepo implements IForeignRepoWithMWApi {
 
 	/**
 	 * @param callable $callback
-	 * @throws MWException
 	 */
 	public function enumFiles( $callback ) {
 		// @phan-suppress-previous-line PhanPluginNeverReturnMethod
-		throw new MWException( 'enumFiles is not supported by ' . static::class );
+		throw new RuntimeException( 'enumFiles is not supported by ' . static::class );
 	}
 
-	/**
-	 * @throws MWException
-	 */
 	protected function assertWritableRepo() {
+		// @phan-suppress-previous-line PhanPluginNeverReturnMethod
 		throw new MWException( static::class . ': write operations are not supported.' );
 	}
 }

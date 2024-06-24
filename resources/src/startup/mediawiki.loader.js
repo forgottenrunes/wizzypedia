@@ -9,34 +9,8 @@
 ( function () {
 	'use strict';
 
-	var StringSet,
-		store,
+	var store,
 		hasOwn = Object.hasOwnProperty;
-
-	function defineFallbacks() {
-		// <https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Set>
-		/**
-		 * @private
-		 * @class StringSet
-		 */
-		StringSet = window.Set || function () {
-			var set = Object.create( null );
-			return {
-				add: function ( value ) {
-					set[ value ] = true;
-				},
-				has: function ( value ) {
-					return value in set;
-				}
-			};
-		};
-	}
-
-	defineFallbacks();
-
-	// In test mode, this generates `mw.redefineFallbacksForTest = defineFallbacks;`.
-	// Otherwise, it produces nothing. See also ResourceLoaderStartUpModule::getScript().
-	$CODE.maybeRedefineFallbacksForTest();
 
 	/**
 	 * Client for ResourceLoader server end point.
@@ -62,7 +36,7 @@
 	 *
 	 * @private
 	 * @param {string} str String to hash
-	 * @return {string} hash as an five-character base 36 string
+	 * @return {string} hash as a five-character base 36 string
 	 */
 	function fnv132( str ) {
 		var hash = 0x811C9DC5;
@@ -74,45 +48,13 @@
 		}
 
 		hash = ( hash >>> 0 ).toString( 36 ).slice( 0, 5 );
+		/* eslint-enable no-bitwise */
+
 		while ( hash.length < 5 ) {
 			hash = '0' + hash;
 		}
-		/* eslint-enable no-bitwise */
-
 		return hash;
 	}
-
-	// Check whether the browser supports ES6.
-	// We are feature detecting Promises and Arrow Functions with default params
-	// (which are good indicators of overall support). An additional test for
-	// regex behavior filters out Android 4.4.4 and Edge 18 or lower.
-	// This check doesn't quite guarantee full ES6 support: Safari 11-13 don't
-	// support non-BMP characters in identifiers, but support all other ES6
-	// features we care about. To guard against accidentally breaking these
-	// Safari versions with code they can't parse, we have an eslint rule
-	// prohibiting non-BMP characters from being used in identifiers.
-	var isES6Supported =
-		// Check for Promise support (filters out most non-ES6 browsers)
-		typeof Promise === 'function' &&
-		// eslint-disable-next-line no-undef
-		Promise.prototype.finally &&
-
-		// Check for RegExp.prototype.flags (filters out Android 4.4.4 and Edge <= 18)
-		/./g.flags === 'g' &&
-
-		// Test for arrow functions and default arguments, a good proxy for a
-		// wide range of ES6 support. Borrowed from Benjamin De Cock's snippet here:
-		// https://gist.github.com/bendc/d7f3dbc83d0f65ca0433caf90378cd95
-		// This will exclude Safari and Mobile Safari prior to version 10.
-		( function () {
-			try {
-				// eslint-disable-next-line no-new, no-new-func
-				new Function( '(a = 0) => a' );
-				return true;
-			} catch ( e ) {
-				return false;
-			}
-		}() );
 
 	/**
 	 * Fired via mw.track on various resource loading errors.
@@ -144,46 +86,23 @@
 	 *     {
 	 *         'moduleName': {
 	 *             // From mw.loader.register()
-	 *             'version': '########' (hash)
+	 *             'version': '#####' (five-character hash)
 	 *             'dependencies': ['required.foo', 'bar.also', ...]
 	 *             'group': string, integer, (or) null
 	 *             'source': 'local', (or) 'anotherwiki'
 	 *             'skip': 'return !!window.Example;', (or) null, (or) boolean result of skip
 	 *             'module': export Object
 	 *
-	 *             // Set from execute() or mw.loader.state()
+	 *             // Set by execute() or mw.loader.state()
+	 *             // See mw.loader.getState() for documentation of the state machine
 	 *             'state': 'registered', 'loading', 'loaded', 'executing', 'ready', 'error', or 'missing'
 	 *
-	 *             // Optionally added at run-time by mw.loader.implement()
+	 *             // Optionally added at run-time by mw.loader.impl()
 	 *             'script': closure, array of urls, or string
 	 *             'style': { ... } (see #execute)
 	 *             'messages': { 'key': 'value', ... }
 	 *         }
 	 *     }
-	 *
-	 * State machine:
-	 *
-	 * - `registered`:
-	 *    The module is known to the system but not yet required.
-	 *    Meta data is registered via mw.loader#register. Calls to that method are
-	 *    generated server-side by the startup module.
-	 * - `loading`:
-	 *    The module was required through mw.loader (either directly or as dependency of
-	 *    another module). The client will fetch module contents from the server.
-	 *    The contents are then stashed in the registry via mw.loader#implement.
-	 * - `loaded`:
-	 *    The module has been loaded from the server and stashed via mw.loader#implement.
-	 *    Once the module has no more dependencies in-flight, the module will be executed,
-	 *    controlled via #setAndPropagate and #doPropagation.
-	 * - `executing`:
-	 *    The module is being executed.
-	 * - `ready`:
-	 *    The module has been successfully executed.
-	 * - `error`:
-	 *    The module (or one of its dependencies) produced an error during execution.
-	 * - `missing`:
-	 *    The module was registered client-side and requested, but the server denied knowledge
-	 *    of the module's existence.
 	 *
 	 * @property {Object}
 	 * @private
@@ -245,8 +164,22 @@
 		marker = document.querySelector( 'meta[name="ResourceLoaderDynamicStyles"]' ),
 
 		// For #addEmbeddedCSS()
-		lastCssBuffer,
-		rAF = window.requestAnimationFrame || setTimeout;
+		lastCssBuffer;
+
+	/**
+	 * Append an HTML element to `document.head` or before a specified node.
+	 *
+	 * @private
+	 * @param {HTMLElement} el
+	 * @param {Node|null} [nextNode]
+	 */
+	function addToHead( el, nextNode ) {
+		if ( nextNode && nextNode.parentNode ) {
+			nextNode.parentNode.insertBefore( el, nextNode );
+		} else {
+			document.head.appendChild( el );
+		}
+	}
 
 	/**
 	 * Create a new style element and add it to the DOM.
@@ -255,16 +188,12 @@
 	 * @param {string} text CSS text
 	 * @param {Node|null} [nextNode] The element where the style tag
 	 *  should be inserted before
-	 * @return {HTMLElement} Reference to the created style element
+	 * @return {HTMLStyleElement} Reference to the created style element
 	 */
 	function newStyleTag( text, nextNode ) {
 		var el = document.createElement( 'style' );
 		el.appendChild( document.createTextNode( text ) );
-		if ( nextNode && nextNode.parentNode ) {
-			nextNode.parentNode.insertBefore( el, nextNode );
-		} else {
-			document.head.appendChild( el );
-		}
+		addToHead( el, nextNode );
 		return el;
 	}
 
@@ -312,14 +241,12 @@
 		// - We've never started a buffer before, this will be our first.
 		// - The last buffer we created was flushed meanwhile, so start a new one.
 		// - The next CSS chunk syntactically needs to be at the start of a stylesheet (T37562).
-		//
-		// Optimization: Avoid computing the string length each time ('@import'.length === 7)
-		if ( !lastCssBuffer || cssText.slice( 0, 7 ) === '@import' ) {
+		if ( !lastCssBuffer || cssText.startsWith( '@import' ) ) {
 			lastCssBuffer = {
 				cssText: '',
 				callbacks: []
 			};
-			rAF( flushCssBuffer.bind( null, lastCssBuffer ) );
+			requestAnimationFrame( flushCssBuffer.bind( null, lastCssBuffer ) );
 		}
 
 		// Linebreak for somewhat distinguishable sections
@@ -398,7 +325,7 @@
 	 *   module from mw.loader.using() should be called.
 	 * - When a module reaches the 'ready' state from #execute(), consider
 	 *   executing dependent modules now having their dependencies satisfied.
-	 * - When a module reaches the 'loaded' state from mw.loader.implement,
+	 * - When a module reaches the 'loaded' state from mw.loader.impl,
 	 *   consider executing it, if it has no unsatisfied dependencies.
 	 *
 	 * @private
@@ -503,7 +430,7 @@
 		}
 		willPropagate = true;
 		// Yield for two reasons:
-		// * Allow successive calls to mw.loader.implement() from the same
+		// * Allow successive calls to mw.loader.impl() from the same
 		//   load.php response, or from the same asyncEval() to be in the
 		//   propagation batch.
 		// * Allow the browser to breathe between the reception of
@@ -525,7 +452,7 @@
 	 *  dependencies, such that later modules depend on earlier modules. The array
 	 *  contains the module names. If the array contains already some module names,
 	 *  this function appends its result to the pre-existing array.
-	 * @param {StringSet} [unresolved] Used to detect loops in the dependency graph.
+	 * @param {Set} [unresolved] Used to detect loops in the dependency graph.
 	 * @throws {Error} If an unknown module or a circular dependency is encountered
 	 */
 	function sortDependencies( module, resolved, unresolved ) {
@@ -546,7 +473,7 @@
 
 		// Create unresolved if not passed in
 		if ( !unresolved ) {
-			unresolved = new StringSet();
+			unresolved = new Set();
 		}
 
 		// Track down dependencies
@@ -605,15 +532,14 @@
 				//
 				// Most likely due to a cached reference after the module was
 				// removed, otherwise made redundant, or omitted from the registry
-				// by the ResourceLoader "target" system or "requiresES6" flag.
+				// by the ResourceLoader "target" system.
 				//
-				// These errors can be comon common, e.g. queuing an ES6-only module
-				// unconditionally from the server-side is OK and should fail gracefully
-				// in ES5 browsers.
+				// These errors can be common, e.g. queuing an unavailable module
+				// unconditionally from the server-side is OK and should fail gracefully.
 				mw.log.warn( 'Skipped unavailable module ' + modules[ i ] );
+
 				// Do not track this error as an exception when the module:
 				// - Is valid, but gracefully filtered out by target system.
-				// - Is valid, but gracefully filtered out by requiresES6 flag.
 				// - Was recently valid, but is still referenced in stale cache.
 				//
 				// Basically the only reason to track this as exception is when the error
@@ -642,6 +568,7 @@
 	 * @return {string|null} Resolved path, or null if relativePath does not start with ./ or ../
 	 */
 	function resolveRelativePath( relativePath, basePath ) {
+		// eslint-disable-next-line security/detect-unsafe-regex
 		var relParts = relativePath.match( /^((?:\.\.?\/)+)(.*)$/ );
 		if ( !relParts ) {
 			return null;
@@ -681,7 +608,8 @@
 		return function require( moduleName ) {
 			var fileName = resolveRelativePath( moduleName, basePath );
 			if ( fileName === null ) {
-				// Not a relative path, so it's a module name
+				// Not a relative path, so it's either a module name or,
+				// (if in test mode) a private file imported from another module.
 				return mw.loader.require( moduleName );
 			}
 
@@ -716,8 +644,11 @@
 	 * @private
 	 * @param {string} src URL to script, will be used as the src attribute in the script tag
 	 * @param {Function} [callback] Callback to run after request resolution
+	 * @param {string[]} [modules] List of modules being requested, for state to be marked as error
+	 * in case the script fails to load
+	 * @return {HTMLElement}
 	 */
-	function addScript( src, callback ) {
+	function addScript( src, callback, modules ) {
 		// Use a <script> element rather than XHR. Using XHR changes the request
 		// headers (potentially missing a cache hit), and reduces caching in general
 		// since browsers cache XHR much less (if at all). And XHR means we retrieve
@@ -726,7 +657,7 @@
 		// only given after downloading, parsing, and execution have completed.
 		var script = document.createElement( 'script' );
 		script.src = src;
-		script.onload = script.onerror = function () {
+		function onComplete() {
 			if ( script.parentNode ) {
 				script.parentNode.removeChild( script );
 			}
@@ -734,8 +665,18 @@
 				callback();
 				callback = null;
 			}
+		}
+		script.onload = onComplete;
+		script.onerror = function () {
+			onComplete();
+			if ( modules ) {
+				for ( var i = 0; i < modules.length; i++ ) {
+					setAndPropagate( modules[ i ], 'error' );
+				}
+			}
 		};
 		document.head.appendChild( script );
+		return script;
 	}
 
 	/**
@@ -782,6 +723,7 @@
 	 * @param {string} url URL
 	 * @param {string} [media] Media attribute
 	 * @param {Node|null} [nextNode]
+	 * @return {HTMLElement}
 	 */
 	function addLink( url, media, nextNode ) {
 		var el = document.createElement( 'link' );
@@ -794,25 +736,44 @@
 		// see #addEmbeddedCSS, T33676, T43331, and T49277 for details.
 		el.href = url;
 
-		if ( nextNode && nextNode.parentNode ) {
-			nextNode.parentNode.insertBefore( el, nextNode );
-		} else {
-			document.head.appendChild( el );
-		}
+		addToHead( el, nextNode );
+		return el;
 	}
 
 	/**
+	 * Evaluate in the global scope.
+	 *
+	 * This is used by MediaWiki user scripts, where it is (for example)
+	 * important that `var` makes a global variable.
+	 *
 	 * @private
 	 * @param {string} code JavaScript code
 	 */
-	function domEval( code ) {
+	function globalEval( code ) {
 		var script = document.createElement( 'script' );
-		if ( mw.config.get( 'wgCSPNonce' ) !== false ) {
-			script.nonce = mw.config.get( 'wgCSPNonce' );
-		}
 		script.text = code;
 		document.head.appendChild( script );
 		script.parentNode.removeChild( script );
+	}
+
+	/**
+	 * Evaluate JS code using indirect eval().
+	 *
+	 * This is used by mw.loader.store. It is important that we protect the
+	 * integrity of mw.loader's private variables (from accidental clashes
+	 * or re-assignment), which means we can't use regular `eval()`.
+	 *
+	 * Optimization: This exists separately from globalEval(), because that
+	 * involves slow DOM overhead.
+	 *
+	 * @private
+	 * @param {string} code JavaScript code
+	 */
+	function indirectEval( code ) {
+		// See http://perfectionkills.com/global-eval-what-are-the-options/
+		// for an explanation of this syntax.
+		// eslint-disable-next-line no-eval
+		( 1, eval )( code );
 	}
 
 	/**
@@ -942,7 +903,7 @@
 					// Site and user modules are legacy scripts that run in the global scope.
 					// This is transported as a string instead of a function to avoid needing
 					// to use string manipulation to undo the function wrapper.
-					domEval( script );
+					globalEval( script );
 					markModuleReady();
 
 				} else {
@@ -961,6 +922,11 @@
 				} );
 			}
 		};
+
+		// Emit deprecation warnings
+		if ( registry[ module ].deprecationWarning ) {
+			mw.log.warn( registry[ module ].deprecationWarning );
+		}
 
 		// Add localizations to message system
 		if ( registry[ module ].messages ) {
@@ -987,7 +953,7 @@
 					// Paranoia:
 					// This callback is exposed to addEmbeddedCSS, which is outside the execute()
 					// function and is not concerned with state-machine integrity. In turn,
-					// addEmbeddedCSS() actually exposes stuff further into the browser (rAF).
+					// addEmbeddedCSS() actually exposes stuff further via requestAnimationFrame.
 					// If increment and decrement callbacks happen in the wrong order, or start
 					// again afterwards, then this branch could be reached multiple times.
 					// To protect the integrity of the state-machine, prevent that from happening
@@ -1001,27 +967,26 @@
 			};
 		};
 
-		// Process styles (see also mw.loader.implement)
+		// Process styles (see also mw.loader.impl)
 		// * { "css": [css, ..] }
 		// * { "url": { <media>: [url, ..] } }
-		if ( registry[ module ].style ) {
-			for ( var key in registry[ module ].style ) {
-				var value = registry[ module ].style[ key ];
+		var style = registry[ module ].style;
+		if ( style ) {
+			// Array of CSS strings under key 'css'
+			// { "css": [css, ..] }
+			if ( 'css' in style ) {
+				for ( var i = 0; i < style.css.length; i++ ) {
+					addEmbeddedCSS( style.css[ i ], cssHandle() );
+				}
+			}
 
-				// Array of CSS strings under key 'css'
-				// { "css": [css, ..] }
-				if ( key === 'css' ) {
-					for ( var i = 0; i < value.length; i++ ) {
-						addEmbeddedCSS( value[ i ], cssHandle() );
-					}
-				// Plain object with array of urls under a media-type key
-				// { "url": { <media>: [url, ..] } }
-				} else if ( key === 'url' ) {
-					for ( var media in value ) {
-						var urls = value[ media ];
-						for ( var j = 0; j < urls.length; j++ ) {
-							addLink( urls[ j ], media, marker );
-						}
+			// Plain object with array of urls under a media-type key
+			// { "url": { <media>: [url, ..] } }
+			if ( 'url' in style ) {
+				for ( var media in style.url ) {
+					var urls = style.url[ media ];
+					for ( var j = 0; j < urls.length; j++ ) {
+						addLink( urls[ j ], media, marker );
 					}
 				}
 			}
@@ -1113,11 +1078,16 @@
 	function makeQueryString( params ) {
 		// Optimisation: This is a fairly hot code path with batchRequest() loops.
 		// Avoid overhead from Object.keys and Array.forEach.
-		var chunks = [];
+		// String concatenation is faster than array pushing and joining, see
+		// https://phabricator.wikimedia.org/P19931
+		var str = '';
 		for ( var key in params ) {
-			chunks.push( encodeURIComponent( key ) + '=' + encodeURIComponent( params[ key ] ) );
+			// Parameters are separated by &, added before all parameters other than
+			// the first
+			str += ( str ? '&' : '' ) + encodeURIComponent( key ) + '=' +
+				encodeURIComponent( params[ key ] );
 		}
-		return chunks.join( '&' );
+		return str;
 	}
 
 	/**
@@ -1149,12 +1119,12 @@
 			query.modules = packed.str;
 			// The packing logic can change the effective order, even if the input was
 			// sorted. As such, the call to getCombinedVersion() must use this
-			// effective order, instead of currReqModules, as otherwise the combined
-			// version will not match the hash expected by the server based on
-			// combining versions from the module query string in-order. (T188076)
+			// effective order to ensure that the combined version will match the hash
+			// expected by the server based on combining versions from the module
+			// query string in-order. (T188076)
 			query.version = getCombinedVersion( packed.list );
 			query = sortQuery( query );
-			addScript( sourceLoadScript + '?' + makeQueryString( query ) );
+			addScript( sourceLoadScript + '?' + makeQueryString( query ), null, packed.list );
 		}
 
 		// Always order modules alphabetically to help reduce cache
@@ -1202,9 +1172,9 @@
 				var currReqBaseLength = makeQueryString( currReqBase ).length + 23;
 
 				// We may need to split up the request to honor the query string length limit,
-				// so build it piece by piece.
-				var length = currReqBaseLength;
-				var currReqModules = [];
+				// so build it piece by piece. `length` does not include the characters from
+				// the request base, see below
+				var length = 0;
 				moduleMap = Object.create( null ); // { prefix: [ suffixes ] }
 
 				for ( var i = 0; i < modules.length; i++ ) {
@@ -1216,26 +1186,31 @@
 							suffix.length + 3 : // '%2C'.length == 3
 							modules[ i ].length + 3; // '%7C'.length == 3
 
-					// If the url would become too long, create a new one, but don't create empty requests
-					if ( currReqModules.length && length + bytesAdded > mw.loader.maxQueryLength ) {
+					// If the url would become too long, create a new one, but don't create empty requests.
+					// The value of `length` only reflects the request-specific bytes relating to the
+					// accumulated entries in moduleMap so far. It does not include the base length,
+					// which we account for separately with `currReqBaseLength` so that length is 0
+					// when moduleMap is empty.
+					if ( length && length + currReqBaseLength + bytesAdded > mw.loader.maxQueryLength ) {
 						// Dispatch what we've got...
 						doRequest();
-						// .. and start again.
-						length = currReqBaseLength;
+						// .. and start preparing a new request.
+						length = 0;
 						moduleMap = Object.create( null );
-						currReqModules = [];
 					}
 					if ( !moduleMap[ prefix ] ) {
 						moduleMap[ prefix ] = [];
 					}
 					length += bytesAdded;
 					moduleMap[ prefix ].push( suffix );
-					currReqModules.push( modules[ i ] );
 				}
-				// If there's anything left in moduleMap, request that too
-				if ( currReqModules.length ) {
-					doRequest();
-				}
+				// Optimization: Skip `length` check.
+				// moduleMap will contain at least one module here. The loop above leaves the last module
+				// undispatched (and maybe some before it), so for moduleMap to be empty here, there must
+				// have been no modules to iterate in the current group to start with, but we only create
+				// a group in `splits` when the first module in the group is seen, so there are always
+				// modules in the group when this code is reached.
+				doRequest();
 			}
 		}
 	}
@@ -1243,21 +1218,43 @@
 	/**
 	 * @private
 	 * @param {string[]} implementations Array containing pieces of JavaScript code in the
-	 *  form of calls to mw.loader#implement().
+	 *  form of calls to mw.loader#impl().
 	 * @param {Function} cb Callback in case of failure
 	 * @param {Error} cb.err
+	 * @param {number} [offset] Integer offset into implementations to start at
 	 */
-	function asyncEval( implementations, cb ) {
+	function asyncEval( implementations, cb, offset ) {
 		if ( !implementations.length ) {
 			return;
 		}
-		mw.requestIdleCallback( function () {
+		offset = offset || 0;
+		mw.requestIdleCallback( function ( deadline ) {
+			asyncEvalTask( deadline, implementations, cb, offset );
+		} );
+	}
+
+	/**
+	 * Idle callback for asyncEval
+	 *
+	 * @private
+	 * @param {IdleDeadline} deadline
+	 * @param {string[]} implementations
+	 * @param {Function} cb
+	 * @param {Error} cb.err
+	 * @param {number} offset
+	 */
+	function asyncEvalTask( deadline, implementations, cb, offset ) {
+		for ( var i = offset; i < implementations.length; i++ ) {
+			if ( deadline.timeRemaining() <= 0 ) {
+				asyncEval( implementations, cb, i );
+				return;
+			}
 			try {
-				domEval( implementations.join( ';' ) );
+				indirectEval( implementations[ i ] );
 			} catch ( err ) {
 				cb( err );
 			}
-		} );
+		}
 	}
 
 	/**
@@ -1296,7 +1293,7 @@
 	/**
 	 * @private
 	 * @param {string} module
-	 * @param {string|number} [version]
+	 * @param {string} [version]
 	 * @param {string[]} [dependencies]
 	 * @param {string} [group]
 	 * @param {string} [source]
@@ -1307,32 +1304,15 @@
 			throw new Error( 'module already registered: ' + module );
 		}
 
-		version = String( version || '' );
-
-		// requiresES6 is encoded as a ! at the end of version
-		if ( version.slice( -1 ) === '!' ) {
-			if ( !$CODE.test( isES6Supported ) ) {
-				// Exclude ES6-only modules from the registry in ES5 browsers.
-				//
-				// These must:
-				// - be gracefully skipped if a top-level page module, in resolveStubbornly().
-				// - fail hard when otherwise used or depended on, in sortDependencies().
-				// - be detectable in the public API, per T299677.
-				return;
-			}
-			// Remove the ! at the end to get the real version
-			version = version.slice( 0, -1 );
-		}
-
 		registry[ module ] = {
-			// Exposed to execute() for mw.loader.implement() closures.
+			// Exposed to execute() for mw.loader.impl() closures.
 			// Import happens via require().
 			module: {
 				exports: {}
 			},
 			// module.export objects for each package file inside this module
 			packageExports: {},
-			version: version,
+			version: version || '',
 			dependencies: dependencies || [],
 			group: typeof group === 'undefined' ? null : group,
 			source: typeof source === 'string' ? source : 'local',
@@ -1369,6 +1349,10 @@
 		 */
 		addStyleTag: newStyleTag,
 
+		// Exposed for internal use only. Documented as @private.
+		addScriptTag: addScript,
+		addLinkTag: addLink,
+
 		enqueue: enqueue,
 
 		resolve: resolve,
@@ -1385,7 +1369,7 @@
 				storedImplementations = [],
 				storedNames = [],
 				requestNames = [],
-				batch = new StringSet();
+				batch = new Set();
 
 			// Iterate the list of requested modules, and do one of three things:
 			// - 1) Nothing (if already loaded or being loaded).
@@ -1422,10 +1406,10 @@
 			queue = [];
 
 			asyncEval( storedImplementations, function ( err ) {
-				// Not good, the cached mw.loader.implement calls failed! This should
+				// Not good, the cached mw.loader.impl calls failed! This should
 				// never happen, barring ResourceLoader bugs, browser bugs and PEBKACs.
 				// Depending on how corrupt the string is, it is likely that some
-				// modules' implement() succeeded while the ones after the error will
+				// modules' impl() succeeded while the ones after the error will
 				// never run and leave their modules in the 'loading' state forever.
 				store.stats.failed++;
 
@@ -1480,9 +1464,7 @@
 		 *
 		 * @param {string|Array} modules Module name or array of arrays, each containing
 		 *  a list of arguments compatible with this method
-		 * @param {string|number} [version] Module version hash (falls backs to empty string)
-		 *  Can also be a number (timestamp) for compatibility with MediaWiki 1.25 and earlier.
-		 *  A version string that ends with '!' signifies that the module requires ES6 support.
+		 * @param {string} [version] Module version hash (falls backs to empty string)
 		 * @param {string[]} [dependencies] Array of module names on which this module depends.
 		 * @param {string} [group=null] Group which the module is in
 		 * @param {string} [source='local'] Name of the source
@@ -1523,38 +1505,27 @@
 		},
 
 		/**
-		 * Implement a module given the components that make up the module.
+		 * Implement a module given the components of the module.
 		 *
-		 * When #load() or #using() requests one or more modules, the server
-		 * response contain calls to this function.
+		 * See #impl for a full description of the parameters.
 		 *
-		 * @param {string} module Name of module and current module version. Formatted
-		 *  as '`[name]@[version]`". This version should match the requested version
-		 *  (from #batchRequest and #registry). This avoids race conditions (T117587).
-		 *  For back-compat with MediaWiki 1.27 and earlier, the version may be omitted.
-		 * @param {Function|Array|string|Object} [script] Module code. This can be a function,
-		 *  a list of URLs to load via `<script src>`, a string for `domEval()`, or an
-		 *  object like {"files": {"foo.js":function, "bar.js": function, ...}, "main": "foo.js"}.
-		 *  If an object is provided, the main file will be executed immediately, and the other
-		 *  files will only be executed if loaded via require(). If a function or string is
-		 *  provided, it will be executed/evaluated immediately. If an array is provided, all
-		 *  URLs in the array will be loaded immediately, and executed as soon as they arrive.
-		 * @param {Object} [style] Should follow one of the following patterns:
+		 * Prior to MW 1.41, this was used internally, but now it is only kept
+		 * for backwards compatibility.
 		 *
-		 *     { "css": [css, ..] }
-		 *     { "url": { <media>: [url, ..] } }
+		 * Does not support mw.loader.store caching.
 		 *
-		 * The reason css strings are not concatenated anymore is T33676. We now check
-		 * whether it's safe to extend the stylesheet.
-		 *
-		 * @private
+		 * @param {string} module
+		 * @param {Function|Array|string|Object} [script]
+		 * @param {Object} [style]
 		 * @param {Object} [messages] List of key/value pairs to be added to mw#messages.
 		 * @param {Object} [templates] List of key/value pairs to be added to mw#templates.
+		 * @param {string|null} [deprecationWarning] Deprecation warning if any
 		 */
-		implement: function ( module, script, style, messages, templates ) {
+		implement: function ( module, script, style, messages, templates, deprecationWarning ) {
 			var split = splitModuleKey( module ),
 				name = split.name,
 				version = split.version;
+
 			// Automatically register module
 			if ( !( name in registry ) ) {
 				mw.loader.register( name );
@@ -1563,18 +1534,87 @@
 			if ( registry[ name ].script !== undefined ) {
 				throw new Error( 'module already implemented: ' + name );
 			}
-			if ( version ) {
-				// Without this reset, if there is a version mismatch between the
-				// requested and received module version, then mw.loader.store would
-				// cache the response under the requested key. Thus poisoning the cache
-				// indefinitely with a stale value. (T117587)
-				registry[ name ].version = version;
+			registry[ name ].version = version;
+			registry[ name ].declarator = null; // not supported
+			registry[ name ].script = script;
+			registry[ name ].style = style;
+			registry[ name ].messages = messages;
+			registry[ name ].templates = templates;
+			registry[ name ].deprecationWarning = deprecationWarning;
+			// The module may already have been marked as erroneous
+			if ( registry[ name ].state !== 'error' && registry[ name ].state !== 'missing' ) {
+				setAndPropagate( name, 'loaded' );
 			}
+		},
+
+		/**
+		 * Implement a module given a function which returns the components of the module
+		 *
+		 * @param {Function} declarator
+		 *
+		 * The declarator should return an array with the following keys:
+		 *
+		 *  - 0. {string} module Name of module and current module version. Formatted
+		 *    as '`[name]@[version]`". This version should match the requested version
+		 *    (from #batchRequest and #registry). This avoids race conditions (T117587).
+		 *
+		 *  - 1. {Function|Array|string|Object} [script] Module code. This can be a function,
+		 *    a list of URLs to load via `<script src>`, a string for `globalEval()`, or an
+		 *    object like {"files": {"foo.js":function, "bar.js": function, ...}, "main": "foo.js"}.
+		 *    If an object is provided, the main file will be executed immediately, and the other
+		 *    files will only be executed if loaded via require(). If a function or string is
+		 *    provided, it will be executed/evaluated immediately. If an array is provided, all
+		 *    URLs in the array will be loaded immediately, and executed as soon as they arrive.
+		 *
+		 *  - 2. {Object} [style] Should follow one of the following patterns:
+		 *
+		 *     { "css": [css, ..] }
+		 *     { "url": { (media): [url, ..] } }
+		 *
+		 *    The reason css strings are not concatenated anymore is T33676. We now check
+		 *    whether it's safe to extend the stylesheet.
+		 *
+		 *  - 3. {Object} [messages] List of key/value pairs to be added to mw#messages.
+		 *  - 4. {Object} [templates] List of key/value pairs to be added to mw#templates.
+		 *  - 5. {String|null} [deprecationWarning] Deprecation warning if any
+		 *
+		 * The declarator must not use any scope variables, since it will be serialized with
+		 * Function.prototype.toString() and later restored and executed in the global scope.
+		 *
+		 * The elements are all optional except the name.
+		 */
+		impl: function ( declarator ) {
+			var data = declarator(),
+				module = data[ 0 ],
+				script = data[ 1 ] || null,
+				style = data[ 2 ] || null,
+				messages = data[ 3 ] || null,
+				templates = data[ 4 ] || null,
+				deprecationWarning = data[ 5 ] || null,
+				split = splitModuleKey( module ),
+				name = split.name,
+				version = split.version;
+
+			// Automatically register module
+			if ( !( name in registry ) ) {
+				mw.loader.register( name );
+			}
+			// Check for duplicate implementation
+			if ( registry[ name ].script !== undefined ) {
+				throw new Error( 'module already implemented: ' + name );
+			}
+			// Without this reset, if there is a version mismatch between the
+			// requested and received module version, then mw.loader.store would
+			// cache the response under the requested key. Thus poisoning the cache
+			// indefinitely with a stale value. (T117587)
+			registry[ name ].version = version;
 			// Attach components
-			registry[ name ].script = script || null;
-			registry[ name ].style = style || null;
-			registry[ name ].messages = messages || null;
-			registry[ name ].templates = templates || null;
+			registry[ name ].declarator = declarator;
+			registry[ name ].script = script;
+			registry[ name ].style = style;
+			registry[ name ].messages = messages;
+			registry[ name ].templates = templates;
+			registry[ name ].deprecationWarning = deprecationWarning;
 			// The module may already have been marked as erroneous
 			if ( registry[ name ].state !== 'error' && registry[ name ].state !== 'missing' ) {
 				setAndPropagate( name, 'loaded' );
@@ -1601,6 +1641,7 @@
 		 * @throws {Error} If type is invalid
 		 */
 		load: function ( modules, type ) {
+			// eslint-disable-next-line security/detect-unsafe-regex
 			if ( typeof modules === 'string' && /^(https?:)?\/?\//.test( modules ) ) {
 				// Called with a url like so:
 				// - "https://example.org/x.js"
@@ -1618,7 +1659,7 @@
 			} else {
 				// One or more modules
 				modules = typeof modules === 'string' ? [ modules ] : modules;
-				// Resolve modules into flat list for internal queuing.
+				// Resolve modules into a flat list for internal queuing.
 				// This also filters out unknown modules and modules with
 				// unknown dependencies, allowing the rest to continue. (T36853)
 				// Omit ready and error parameters, we don't have callbacks
@@ -1642,6 +1683,40 @@
 
 		/**
 		 * Get the state of a module.
+		 *
+		 * Possible states for the public API:
+		 *
+		 * - `registered`: The module is available for loading but not yet requested.
+		 * - `loading`, `loaded`, or `executing`: The module is currently being loaded.
+		 * - `ready`: The module was succesfully and fully loaded.
+		 * - `error`: The module or one its dependencies has failed to load, e.g. due to
+		 *    uncaught error from the module's script files.
+		 * - `missing`: The module was requested but is not defined according to the server.
+		 *
+		 * Internal mw.loader state machine:
+		 *
+		 * - `registered`:
+		 *    The module is known to the system but not yet required.
+		 *    Meta data is stored by mw.loader#register.
+		 *    Calls to that method are generated server-side by StartupModule.
+		 * - `loading`:
+		 *    The module was required through mw.loader (either directly or as dependency of
+		 *    another module). The client will fetch module contents from mw.loader.store
+		 *    or from the server. The contents should later be received by mw.loader#implement.
+		 * - `loaded`:
+		 *    The module has been received by mw.loader#implement.
+		 *    Once the module has no more dependencies in-flight, the module will be executed,
+		 *    controlled via #setAndPropagate and #doPropagation.
+		 * - `executing`:
+		 *    The module is being executed (apply messages and stylesheets, execute scripts)
+		 *    by mw.loader#execute.
+		 * - `ready`:
+		 *    The module has been successfully executed.
+		 * - `error`:
+		 *    The module (or one of its dependencies) produced an uncaught error during execution.
+		 * - `missing`:
+		 *    The module was registered client-side and requested, but the server denied knowledge
+		 *    of the module's existence.
 		 *
 		 * @param {string} module Name of module
 		 * @return {string|null} The state, or null if the module (or its state) is not
@@ -1667,13 +1742,41 @@
 		 * @return {Mixed} Exported value
 		 */
 		require: function ( moduleName ) {
+			var path;
+			if ( window.QUnit ) {
+				// Comply with Node specification
+				// https://nodejs.org/docs/v20.1.0/api/modules.html#all-together
+				//
+				// > Interpret X as a combination of NAME and SUBPATH, where the NAME
+				// > may have a "@scope/" prefix and the subpath begins with a slash (`/`).
+				//
+				// Regex inspired by Node [1], but simplified to suite our purposes
+				// and split in two in order to keep the Regex Star Height under 2,
+				// as per ESLint security/detect-unsafe-regex.
+				//
+				// These patterns match "@scope/module/dir/file.js" and "module/dir/file.js"
+				// respectively. They must not match "module.name" or "@scope/module.name".
+				//
+				// [1] https://github.com/nodejs/node/blob/v20.1.0/lib/internal/modules/cjs/loader.js#L554-L560
+				var paths = moduleName.startsWith( '@' ) ?
+					/^(@[^/]+\/[^/]+)\/(.*)$/.exec( moduleName ) :
+					// eslint-disable-next-line no-mixed-spaces-and-tabs
+					        /^([^/]+)\/(.*)$/.exec( moduleName );
+				if ( paths ) {
+					moduleName = paths[ 1 ];
+					path = paths[ 2 ];
+				}
+			}
+
 			// Only ready modules can be required
 			if ( mw.loader.getState( moduleName ) !== 'ready' ) {
 				// Module may've forgotten to declare a dependency
 				throw new Error( 'Module "' + moduleName + '" is not loaded' );
 			}
 
-			return registry[ moduleName ].module.exports;
+			return path ?
+				makeRequireFunction( registry[ moduleName ], '' )( './' + path ) :
+				registry[ moduleName ].module.exports;
 		}
 	};
 
@@ -1689,8 +1792,8 @@
 	 * @class mw.loader.store
 	 */
 
-	// Whether we have already triggered a timer for flushWrites
-	var hasPendingWrites = false;
+	var hasPendingFlush = false,
+		hasPendingWrites = false;
 
 	/**
 	 * Actually update the store
@@ -1699,31 +1802,41 @@
 	 * @private
 	 */
 	function flushWrites() {
-		// Remove anything from the in-memory store that came from previous page
-		// loads that no longer corresponds with current module names and versions.
-		store.prune();
 		// Process queued module names, serialise their contents to the in-memory store.
 		while ( store.queue.length ) {
 			store.set( store.queue.shift() );
 		}
 
-		try {
-			// Replacing the content of the module store might fail if the new
-			// contents would exceed the browser's localStorage size limit. To
-			// avoid clogging the browser with stale data, always remove the old
-			// value before attempting to set the new one.
-			localStorage.removeItem( store.key );
-			var data = JSON.stringify( store );
-			localStorage.setItem( store.key, data );
-		} catch ( e ) {
-			mw.trackError( 'resourceloader.exception', {
-				exception: e,
-				source: 'store-localstorage-update'
-			} );
+		// Optimization: Don't reserialize the entire store and rewrite localStorage,
+		// if no module was added or changed.
+		if ( hasPendingWrites ) {
+			// Remove anything from the in-memory store that came from previous page
+			// loads that no longer corresponds with current module names and versions.
+			store.prune();
+
+			try {
+				// Replacing the content of the module store might fail if the new
+				// contents would exceed the browser's localStorage size limit. To
+				// avoid clogging the browser with stale data, always remove the old
+				// value before attempting to store a new one.
+				localStorage.removeItem( store.key );
+				localStorage.setItem( store.key, JSON.stringify( {
+					items: store.items,
+					vary: store.vary,
+					// Store with 1e7 ms accuracy (1e4 seconds, or ~ 2.7 hours),
+					// which is enough for the purpose of expiring after ~ 30 days.
+					asOf: Math.ceil( Date.now() / 1e7 )
+				} ) );
+			} catch ( e ) {
+				mw.trackError( 'resourceloader.exception', {
+					exception: e,
+					source: 'store-localstorage-update'
+				} );
+			}
 		}
 
 		// Let the next call to requestUpdate() create a new timer.
-		hasPendingWrites = false;
+		hasPendingFlush = hasPendingWrites = false;
 	}
 
 	// We use a local variable `store` so that its easier to access, but also need to set
@@ -1744,21 +1857,6 @@
 		stats: { hits: 0, misses: 0, expired: 0, failed: 0 },
 
 		/**
-		 * Construct a JSON-serializable object representing the content of the store.
-		 *
-		 * @return {Object} Module store contents.
-		 */
-		toJSON: function () {
-			return {
-				items: store.items,
-				vary: store.vary,
-				// Store with 1e7 ms accuracy (1e4 seconds, or ~ 2.7 hours),
-				// which is enough for the purpose of expiring after ~ 30 days.
-				asOf: Math.ceil( Date.now() / 1e7 )
-			};
-		},
-
-		/**
 		 * The localStorage key for the entire module store. The key references
 		 * $wgDBname to prevent clashes between wikis which share a common host.
 		 *
@@ -1769,7 +1867,7 @@
 		/**
 		 * A string containing various factors by which the module cache should vary.
 		 *
-		 * Defined by ResourceLoaderStartupModule::getStoreVary() in PHP.
+		 * Defined by ResourceLoader\StartupModule::getStoreVary() in PHP.
 		 *
 		 * @property {string}
 		 */
@@ -1785,19 +1883,13 @@
 			// Init only once per page
 			if ( this.enabled === null ) {
 				this.enabled = false;
-				if (
-					$VARS.storeDisabled ||
-
-					// Disabled because localStorage quotas are tight and (in Firefox's case)
-					// shared by multiple origins.
-					// See T66721, and <https://bugzilla.mozilla.org/show_bug.cgi?id=1064466>.
-					/Firefox/.test( navigator.userAgent )
-				) {
+				if ( $VARS.storeEnabled ) {
+					this.load();
+				} else {
 					// Clear any previous store to free up space. (T66721)
 					this.clear();
-				} else {
-					this.load();
 				}
+
 			}
 		},
 
@@ -1901,9 +1993,7 @@
 		 * @param {string} module Module name
 		 */
 		set: function ( module ) {
-			var args,
-				encodedScript,
-				descriptor = registry[ module ],
+			var descriptor = registry[ module ],
 				key = getModuleKey( module );
 
 			if (
@@ -1916,61 +2006,51 @@
 				!descriptor.version ||
 				descriptor.group === $VARS.groupPrivate ||
 				descriptor.group === $VARS.groupUser ||
-				// Partial descriptor
-				// (e.g. skipped module, or style module with state=ready)
-				[ descriptor.script, descriptor.style, descriptor.messages,
-					descriptor.templates ].indexOf( undefined ) !== -1
+				// Legacy descriptor, registered with mw.loader.implement
+				!descriptor.declarator
 			) {
 				// Decline to store
 				return;
 			}
 
-			try {
-				if ( typeof descriptor.script === 'function' ) {
-					// Function literal: cast to string
-					encodedScript = String( descriptor.script );
-				} else if (
-					// Plain object: serialise as object literal (not JSON),
-					// making sure to preserve the functions.
-					typeof descriptor.script === 'object' &&
-					descriptor.script &&
-					!Array.isArray( descriptor.script )
-				) {
-					encodedScript = '{' +
-						'main:' + JSON.stringify( descriptor.script.main ) + ',' +
-						'files:{' +
-						Object.keys( descriptor.script.files ).map( function ( file ) {
-							var value = descriptor.script.files[ file ];
-							return JSON.stringify( file ) + ':' +
-								( typeof value === 'function' ? value : JSON.stringify( value ) );
-						} ).join( ',' ) +
-						'}}';
-				} else {
-					// Array of urls, or null.
-					encodedScript = JSON.stringify( descriptor.script );
-				}
-				args = [
-					JSON.stringify( key ),
-					encodedScript,
-					JSON.stringify( descriptor.style ),
-					JSON.stringify( descriptor.messages ),
-					JSON.stringify( descriptor.templates )
-				];
-			} catch ( e ) {
-				mw.trackError( 'resourceloader.exception', {
-					exception: e,
-					source: 'store-localstorage-json'
-				} );
-				return;
-			}
-
-			var src = 'mw.loader.implement(' + args.join( ',' ) + ');';
-
+			var script = String( descriptor.declarator );
 			// Modules whose serialised form exceeds 100 kB won't be stored (T66721).
-			if ( src.length > 1e5 ) {
+			if ( script.length > 1e5 ) {
 				return;
 			}
-			this.items[ key ] = src;
+
+			var srcParts = [
+				'mw.loader.impl(',
+				script,
+				');\n'
+			];
+			if ( $VARS.sourceMapLinks ) {
+				srcParts.push( '// Saved in localStorage at ', ( new Date() ).toISOString(), '\n' );
+				var sourceLoadScript = sources[ descriptor.source ];
+				var query = Object.create( $VARS.reqBase );
+				query.modules = module;
+				query.version = getCombinedVersion( [ module ] );
+				query = sortQuery( query );
+				srcParts.push(
+					'//# sourceURL=',
+					// Use absolute URL so that Firefox console stack trace links will work
+					( new URL( sourceLoadScript, location ) ).href,
+					'?',
+					makeQueryString( query ),
+					'\n'
+				);
+
+				query.sourcemap = '1';
+				query = sortQuery( query );
+				srcParts.push(
+					'//# sourceMappingURL=',
+					sourceLoadScript,
+					'?',
+					makeQueryString( query )
+				);
+			}
+			this.items[ key ] = srcParts.join( '' );
+			hasPendingWrites = true;
 		},
 
 		/**
@@ -2036,9 +2116,8 @@
 			// The main purpose is to allow the current batch of load.php
 			// responses to complete before we do anything. This batch can
 			// trigger many hundreds of calls to requestUpdate().
-			if ( !hasPendingWrites ) {
-				hasPendingWrites = true;
-				setTimeout(
+			if ( !hasPendingFlush ) {
+				hasPendingFlush = setTimeout(
 					// Defer the actual write via requestIdleCallback
 					function () {
 						mw.requestIdleCallback( flushWrites );

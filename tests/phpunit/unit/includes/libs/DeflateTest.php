@@ -22,9 +22,11 @@
  * @covers Deflate
  */
 class DeflateTest extends PHPUnit\Framework\TestCase {
+	use MediaWikiTestCaseTrait;
 
-	public function provideIsDeflated() {
+	public static function provideIsDeflated() {
 		return [
+			// mw.deflate('foobar')
 			[ 'rawdeflate,S8vPT0osAgA=', true ],
 			[ 'abcdefghijklmnopqrstuvwxyz', false ],
 		];
@@ -38,7 +40,7 @@ class DeflateTest extends PHPUnit\Framework\TestCase {
 		$this->assertSame( $expected, $actual );
 	}
 
-	public function provideInflate() {
+	public static function provideInflate() {
 		return [
 			[ 'rawdeflate,S8vPT0osAgA=', true, 'foobar' ],
 			// Fails base64_decode
@@ -54,11 +56,10 @@ class DeflateTest extends PHPUnit\Framework\TestCase {
 	public function testInflate( $data, $ok, $value ) {
 		$actual = Deflate::inflate( $data );
 		if ( $ok ) {
-			$this->assertTrue( $actual->isOK() );
-			$this->assertSame( $value, $actual->getValue() );
+			$this->assertStatusOK( $actual );
+			$this->assertStatusValue( $value, $actual );
 		} else {
-			$this->assertFalse( $actual->isOK() );
-			$this->assertTrue( $actual->hasMessage( $value ) );
+			$this->assertStatusError( $value, $actual );
 		}
 	}
 }

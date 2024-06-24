@@ -5,6 +5,9 @@ use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
 use Wikimedia\Rdbms\IDatabase;
 
+/**
+ * @group Database
+ */
 class DatabaseLogEntryTest extends MediaWikiIntegrationTestCase {
 	protected function setUp(): void {
 		parent::setUp();
@@ -61,13 +64,13 @@ class DatabaseLogEntryTest extends MediaWikiIntegrationTestCase {
 		}
 	}
 
-	public function provideNewFromId() {
+	public static function provideNewFromId() {
 		$newTables = [
 			'tables' => [
 				'logging',
-				'user',
 				'comment_log_comment' => 'comment',
-				'logging_actor' => 'actor'
+				'logging_actor' => 'actor',
+				'user' => 'user',
 			],
 			'fields' => [
 				'log_id',
@@ -80,7 +83,6 @@ class DatabaseLogEntryTest extends MediaWikiIntegrationTestCase {
 				'log_deleted',
 				'user_id',
 				'user_name',
-				'user_editcount',
 				'log_comment_text' => 'comment_log_comment.comment_text',
 				'log_comment_data' => 'comment_log_comment.comment_data',
 				'log_comment_cid' => 'comment_log_comment.comment_id',
@@ -127,7 +129,7 @@ class DatabaseLogEntryTest extends MediaWikiIntegrationTestCase {
 		];
 	}
 
-	public function provideGetPerformerIdentity() {
+	public static function provideGetPerformerIdentity() {
 		yield 'registered actor' => [
 			'actor_row_fields' => [
 				'user_id' => 42,

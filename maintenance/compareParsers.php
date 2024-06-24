@@ -28,6 +28,10 @@
  * @ingroup Maintenance
  */
 
+use MediaWiki\User\User;
+use Wikimedia\Diff\Diff;
+use Wikimedia\Diff\UnifiedDiffFormatter;
+
 require_once __DIR__ . '/dumpIterator.php';
 
 /**
@@ -39,7 +43,7 @@ require_once __DIR__ . '/dumpIterator.php';
 class CompareParsers extends DumpIterator {
 
 	private $count = 0;
-	/** @var bool */
+	/** @var string|false */
 	private $saveFailed = false;
 	/** @var bool */
 	private $stripParametersEnabled;
@@ -184,7 +188,7 @@ class CompareParsers extends DumpIterator {
 	}
 
 	private static function checkParserLocally( $parserName ) {
-		/* Look for the parser in a file appropiately named in the current folder */
+		/* Look for the parser in a file appropriately named in the current folder */
 		if ( !class_exists( $parserName ) && file_exists( "$parserName.php" ) ) {
 			global $wgAutoloadClasses;
 			$wgAutoloadClasses[$parserName] = realpath( '.' ) . "/$parserName.php";

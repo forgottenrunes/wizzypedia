@@ -3,7 +3,7 @@
 	"namemsg": "skinname-minerva",
 	"descriptionmsg": "minerva-skin-desc",
 	"author": [
-		"[https://www.mediawiki.org/wiki/Reading/Web/Team Readers Web Team]",
+		"[https://www.mediawiki.org/wiki/Readers/Web/Team Readers Web Team]",
 		"Alex Hollender",
 		"Bahodir Mansurov",
 		"Florian Schmidt",
@@ -22,7 +22,7 @@
 	"url": "https://www.mediawiki.org/wiki/Skin:MinervaNeue",
 	"license-name": "GPL-2.0-or-later",
 	"requires": {
-		"MediaWiki": ">= 1.37.0"
+		"MediaWiki": ">= 1.41"
 	},
 	"config": {
 		"MinervaDonateLink": {
@@ -76,7 +76,8 @@
 			"value": {
 				"base": false,
 				"beta": false,
-				"amc": true
+				"amc": true,
+				"loggedin": true
 			}
 		},
 		"MinervaShowCategories": {
@@ -102,7 +103,11 @@
 			"args": [ {
 				"name": "minerva",
 				"templateDirectory": "includes/Skins",
+				"tempUserBanner": true,
 				"messages": [
+					"variants",
+					"mobile-frontend-languages-not-available",
+					"minerva-page-actions-language-switcher",
 					"sitetitle",
 					"mainpage",
 					"searchbutton",
@@ -110,6 +115,11 @@
 					"mobile-frontend-main-menu-button-tooltip",
 					"mobile-frontend-footer-sitename"
 				],
+				"menus": [
+					"notifications",
+					"associated-pages"
+				],
+				"clientPrefEnabled": true,
 				"responsive": true,
 				"link": {
 					"text-wrapper": {
@@ -125,40 +135,25 @@
 	"ConfigRegistry": {
 		"minerva": "GlobalVarConfig::newInstance"
 	},
+	"HookHandlers": {
+		"main": {
+			"class": "MediaWiki\\Minerva\\Hooks"
+		},
+		"mobilefrontend": {
+			"class": "MediaWiki\\Minerva\\MobileFrontendHooks"
+		}
+	},
 	"Hooks": {
-		"BeforePageDisplay": [
-			"MediaWiki\\Minerva\\Hooks::onBeforePageDisplay"
-		],
-		"ResourceLoaderRegisterModules": [
-			"MediaWiki\\Minerva\\Hooks::onResourceLoaderRegisterModules"
-		],
-		"SkinPageReadyConfig": [
-			"MediaWiki\\Minerva\\Hooks::onSkinPageReadyConfig"
-		],
-		"UserLogoutComplete": [
-			"MediaWiki\\Minerva\\Hooks::onUserLogoutComplete"
-		],
-		"FetchChangesList": [
-			"MediaWiki\\Minerva\\Hooks::onFetchChangesList"
-		],
-		"MobileFrontendBeforeDOM": [
-			"MediaWiki\\Minerva\\Hooks::onMobileFrontendBeforeDOM"
-		],
-		"MobileFrontendFeaturesRegistration": [
-			"MediaWiki\\Minerva\\Hooks::onMobileFrontendFeaturesRegistration"
-		],
-		"RequestContextCreateSkinMobile": [
-			"MediaWiki\\Minerva\\Hooks::onRequestContextCreateSkinMobile"
-		],
-		"SpecialPageBeforeExecute": [
-			"MediaWiki\\Minerva\\Hooks::onSpecialPageBeforeExecute"
-		],
-		"ResourceLoaderGetConfigVars": [
-			"MediaWiki\\Minerva\\Hooks::onResourceLoaderGetConfigVars"
-		],
-		"OutputPageBodyAttributes": [
-			"MediaWiki\\Minerva\\Hooks::onOutputPageBodyAttributes"
-		]
+		"ResourceLoaderRegisterModules": "main",
+		"SkinPageReadyConfig": "main",
+		"UserLogoutComplete": "main",
+		"FetchChangesList": "main",
+		"MobileFrontendFeaturesRegistration": "mobilefrontend",
+		"RequestContextCreateSkinMobile": "mobilefrontend",
+		"PreferencesGetLayout": "main",
+		"SpecialPageBeforeExecute": "main",
+		"ResourceLoaderGetConfigVars": "main",
+		"OutputPageBodyAttributes": "main"
 	},
 	"SkinLessImportPaths": {
 		"minerva": "resources/mediawiki.less"
@@ -174,6 +169,9 @@
 	},
 	"ResourceModuleSkinStyles": {
 		"minerva": {
+			"ext.echo.styles.badge": [
+				"skinStyles/ext.echo.styles.badge.less"
+			],
 			"mobile.init.styles": [
 				"skinStyles/mobile.init.styles/mobile.less"
 			],
@@ -205,11 +203,11 @@
 			"mediawiki.page.gallery.styles": [
 				"skinStyles/mediawiki.page.gallery.styles/tablet.less"
 			],
-			"mediawiki.special.userlogin.common.styles": [
-				"skinStyles/mediawiki.special.userlogin.common.styles/minerva.less"
-			],
 			"mediawiki.special.search.styles": [
 				"skinStyles/mediawiki.special.search.styles/minerva.less"
+			],
+			"mediawiki.special.search.interwikiwidget.styles": [
+				"skinStyles/mediawiki.special.search.interwikiwidget.styles/minerva.less"
 			],
 			"mediawiki.skinning.content.parsoid": [
 				"skinStyles/mediawiki.skinning.content.parsoid/minerva.less"
@@ -225,6 +223,9 @@
 			],
 			"mediawiki.special": [
 				"skinStyles/mobile.special.styles/minerva.less"
+			],
+			"mediawiki.special.preferences.styles.ooui": [
+				"skinStyles/mediawiki.special.preferences.styles.ooui/minerva.less"
 			],
 			"mobile.special.styles": [
 				"skinStyles/mobile.special.styles/minerva.less"
@@ -258,10 +259,12 @@
 	"ResourceModules": {
 		"skins.minerva.base.styles": {
 			"class": "MediaWiki\\Minerva\\ResourceLoaderSkinModule",
-			"features": [ "i18n-ordered-lists", "content-body", "content-links" ],
-			"targets": [
-				"mobile",
-				"desktop"
+			"features": [
+				"accessibility",
+				"i18n-ordered-lists",
+				"content-body",
+				"content-links",
+				"interface-core"
 			],
 			"styles": [
 				"resources/skins.minerva.base.styles/skin.less",
@@ -280,8 +283,7 @@
 				}
 			},
 			"images": {
-				"toast.mw-notification-type-error, .mw-notification.mw-notification-type-error":
-					"resources/skins.minerva.content.styles.images/error.svg",
+				"toast.mw-notification-type-error, .mw-notification.mw-notification-type-error": "resources/skins.minerva.content.styles.images/error.svg",
 				"a.external, .mw-parser-output a.external": {
 					"file": {
 						"ltr": "resources/skins.minerva.content.styles.images/link-external-ltr.svg",
@@ -293,35 +295,18 @@
 				}
 			}
 		},
-		"skins.minerva.icons.loggedin": {
-			"class": "ResourceLoaderOOUIIconPackModule",
-			"targets": [
-				"mobile",
-				"desktop"
-			],
-			"useDataURI": false,
-			"defaultColor": "#54595d",
-			"variants": [],
-			"selectorWithoutVariant": ".mw-ui-icon-wikimedia-{name}-base20:before",
-			"icons": [
-				"bellOutline"
-			]
-		},
 		"skins.minerva.amc.styles": {
-			"targets": [
-				"mobile",
-				"desktop"
-			],
 			"styles": [
 				"resources/skins.minerva.amc.styles/index.less"
 			]
 		},
 		"skins.minerva.overflow.icons": {
-			"selectorWithoutVariant": ".mw-ui-icon-minerva-{name}:before",
+			"selectorWithoutVariant": ".minerva-icon--{name}",
 			"useDataURI": false,
 			"defaultColor": "#54595d",
 			"class": "ResourceLoaderOOUIIconPackModule",
 			"icons": [
+				"block",
 				"ellipsis",
 				"articleRedirect",
 				"infoFilled",
@@ -331,17 +316,20 @@
 				"trash",
 				"listBullet",
 				"logoWikidata",
+				"qrCode",
 				"quotes",
+				"unBlock",
 				"unLock",
 				"userAvatarOutline",
 				"userTalk",
 				"userAvatar",
+				"userAdd",
 				"userGroup"
 			]
 		},
 		"skins.minerva.icons.wikimedia": {
-			"selectorWithVariant": ".mw-ui-icon-wikimedia-{name}-{variant}:before",
-			"selectorWithoutVariant": ".mw-ui-icon-wikimedia-{name}-base20:before, .mw-ui-icon-minerva-{name}:before, .mw-ui-background-icon-{name}",
+			"selectorWithVariant": ".minerva-icon--{name}-{variant}",
+			"selectorWithoutVariant": ".minerva-icon--{name}-base20, .minerva-icon--{name}",
 			"useDataURI": false,
 			"defaultColor": "#54595d",
 			"variants": {
@@ -361,6 +349,7 @@
 			"class": "ResourceLoaderOOUIIconPackModule",
 			"icons": [
 				"edit",
+				"wikiText",
 				"editLock",
 				"history",
 				"language",
@@ -375,7 +364,7 @@
 		},
 		"skins.minerva.icons.images.scripts.misc": {
 			"class": "ResourceLoaderOOUIIconPackModule",
-			"selectorWithoutVariant": ".mw-ui-icon-minerva-{name}:before",
+			"selectorWithoutVariant": ".minerva-icon--{name}",
 			"defaultColor": "#54595d",
 			"icons": [
 				"download",
@@ -385,7 +374,7 @@
 		},
 		"skins.minerva.icons.page.issues.uncolored": {
 			"class": "ResourceLoaderImageModule",
-			"selector": ".mw-ui-icon-minerva-{name}:before",
+			"selector": ".mw-ui-icon-minerva-{name}",
 			"images": {
 				"issue-severity-low-lowColor": "resources/skins.minerva.icons.page.issues.uncolored/issue-severity-low.svg",
 				"issue-type-move-defaultColor": "resources/skins.minerva.icons.page.issues.uncolored/issue-type-move.svg"
@@ -393,8 +382,8 @@
 		},
 		"skins.minerva.icons.page.issues.default.color": {
 			"class": "ResourceLoaderImageModule",
-			"selectorWithoutVariant": ".mw-ui-icon-minerva-{name}-defaultColor:before",
-			"selectorWithVariant": ".mw-ui-icon-minerva-{name}-{variant}:before",
+			"selectorWithoutVariant": ".mw-ui-icon-minerva-{name}-defaultColor",
+			"selectorWithVariant": ".mw-ui-icon-minerva-{name}-{variant}",
 			"defaultColor": "#54595d",
 			"variants": {
 				"lowColor": {
@@ -416,7 +405,7 @@
 		},
 		"skins.minerva.icons.page.issues.medium.color": {
 			"class": "ResourceLoaderImageModule",
-			"selector": ".mw-ui-icon-minerva-{name}-mediumColor:before",
+			"selector": ".mw-ui-icon-minerva-{name}-mediumColor",
 			"defaultColor": "#ff5d01",
 			"images": {
 				"issue-severity-medium": "resources/skins.minerva.icons.page.issues.medium.color/issue-severity-medium.svg",
@@ -424,42 +413,27 @@
 			}
 		},
 		"skins.minerva.mainPage.styles": {
-			"targets": [
-				"mobile",
-				"desktop"
-			],
 			"styles": [
 				"resources/skins.minerva.mainPage.styles/common.less"
 			]
 		},
 		"skins.minerva.userpage.styles": {
-			"targets": [
-				"mobile",
-				"desktop"
-			],
 			"styles": [
 				"resources/skins.minerva.userpage.styles/userpage.less"
 			]
 		},
-		"skins.minerva.talk.styles": {
-			"targets": [
-				"mobile",
-				"desktop"
-			],
-			"styles": [
-				"resources/skins.minerva.talk.styles/talkpage.less"
-			]
-		},
 		"skins.minerva.personalMenu.icons": {
 			"class": "ResourceLoaderOOUIIconPackModule",
-			"selectorWithoutVariant": ".mw-ui-icon-minerva-{name}:before",
+			"selectorWithoutVariant": ".minerva-icon--{name}",
 			"defaultColor": "#54595d",
-			"icons": [ "sandbox" ],
+			"icons": [
+				"sandbox"
+			],
 			"variants": []
 		},
 		"skins.minerva.mainMenu.advanced.icons": {
 			"class": "ResourceLoaderOOUIIconPackModule",
-			"selectorWithoutVariant": ".mw-ui-icon-minerva-{name}:before",
+			"selectorWithoutVariant": ".minerva-icon--{name}",
 			"defaultColor": "#54595d",
 			"icons": [
 				"recentChanges",
@@ -471,7 +445,7 @@
 		"skins.minerva.mainMenu.icons": {
 			"class": "ResourceLoaderOOUIIconPackModule",
 			"variants": [],
-			"selectorWithoutVariant": ".mw-ui-icon-minerva-{name}:before",
+			"selectorWithoutVariant": ".minerva-icon--{name}",
 			"defaultColor": "#54595d",
 			"useDataURI": false,
 			"icons": [
@@ -488,33 +462,20 @@
 			]
 		},
 		"skins.minerva.mainMenu.styles": {
-			"targets": [
-				"mobile",
-				"desktop"
-			],
 			"styles": [
 				"resources/skins.minerva.mainMenu.styles/index.less"
 			]
 		},
 		"skins.minerva.loggedin.styles": {
-			"targets": [
-				"mobile",
-				"desktop"
-			],
 			"styles": [
 				"resources/skins.minerva.loggedin.styles/styles.less"
 			]
 		},
 		"skins.minerva.scripts": {
-			"targets": [
-				"mobile",
-				"desktop"
-			],
 			"dependencies": [
-				"mediawiki.ui.anchor",
 				"skins.minerva.mainMenu.icons",
 				"skins.minerva.mainMenu.styles",
-				"jquery.cookie",
+				"mediawiki.cookie",
 				"skins.minerva.icons.images.scripts.misc",
 				"skins.minerva.icons.page.issues.uncolored",
 				"skins.minerva.icons.page.issues.default.color",
@@ -536,10 +497,8 @@
 				"skin-minerva-issue-learn-more",
 				"mobile-frontend-meta-data-issues",
 				"minerva-meta-data-issues-section-header",
-				"mobile-frontend-meta-data-issues-talk",
 				"mobile-frontend-meta-data-issues-categories",
 				"mobile-frontend-meta-data-issues-header",
-				"mobile-frontend-meta-data-issues-header-talk",
 				"mobile-frontend-languages-not-available",
 				"mobile-frontend-cookies-required",
 				"mobile-frontend-editor-redlink-create",
@@ -547,10 +506,7 @@
 				"mobile-frontend-editor-redlink-explain",
 				"minerva-download",
 				"minerva-watchlist-cta",
-				"mobile-frontend-redirected-from",
-				"minerva-talk-full-page",
-				"minerva-talk-topic-feedback",
-				"minerva-talk-reply-success"
+				"mobile-frontend-redirected-from"
 			],
 			"styles": [
 				"resources/skins.minerva.scripts/styles.less",
@@ -586,21 +542,20 @@
 				"resources/skins.minerva.scripts/mobileRedirect.js",
 				"resources/skins.minerva.scripts/search.js",
 				"resources/skins.minerva.scripts/references.js",
-				"resources/skins.minerva.scripts/talk.js",
 				"resources/skins.minerva.scripts/watchstar.js"
 			]
 		},
 		"skins.minerva.messageBox.styles": {
 			"class": "ResourceLoaderSkinModule",
-			"features": [ "interface-message-box" ]
+			"features": [
+				"interface-message-box"
+			]
 		},
 		"skins.minerva.categories.styles": {
-			"targets": [
-				"mobile",
-				"desktop"
-			],
 			"class": "ResourceLoaderSkinModule",
-			"features": [ "interface-category" ]
+			"features": [
+				"interface-category"
+			]
 		}
 	},
 	"QUnitTestModule": {
@@ -640,5 +595,17 @@
 	"ServiceWiringFiles": [
 		"includes/ServiceWiring.php"
 	],
+	"attributes": {
+		"MobileFrontend": {
+			"EditorAvailableSkins": [
+				"minerva"
+			]
+		},
+		"VisualEditor": {
+			"IconSkins": [
+				"minerva"
+			]
+		}
+	},
 	"manifest_version": 2
 }

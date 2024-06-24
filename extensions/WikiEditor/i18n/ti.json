@@ -29,10 +29,6 @@
 	"wikieditor-toolbar-tool-file-insert": "ኣእትው",
 	"wikieditor-toolbar-tool-file-cancel": "ኣትርፍ",
 	"wikieditor-toolbar-tool-file-upload": "ጸዓን",
-	"wikieditor-toolbar-tool-reference": "መወከሲ",
-	"wikieditor-toolbar-tool-reference-cancel": "ኣትርፍ",
-	"wikieditor-toolbar-tool-reference-title": "መወከሲ ኣእትው",
-	"wikieditor-toolbar-tool-reference-insert": "ኣእትው",
 	"wikieditor-toolbar-section-advanced": "ዝማዕበለ",
 	"wikieditor-toolbar-tool-heading": "ኣርእስቲ",
 	"wikieditor-toolbar-tool-heading-1": "ደረጃ 1",
@@ -53,6 +49,7 @@
 	"wikieditor-toolbar-tool-superscript": "ልዕለ ውራቕ",
 	"wikieditor-toolbar-tool-subscript": "ትሑት ውራቕ",
 	"wikieditor-toolbar-group-insert": "ኣእትው",
+	"wikieditor-toolbar-tool-newline": "ሓድሽ መስመር",
 	"wikieditor-toolbar-tool-table-dimensions-rows": "ሪጋታት",
 	"wikieditor-toolbar-tool-table-dimensions-columns": "ዓምድታት",
 	"wikieditor-toolbar-tool-table-example": "ኣብነት",
@@ -69,5 +66,7 @@
 	"wikieditor-toolbar-tool-replace-button-replaceall": "ኩሉ ተክእ",
 	"wikieditor-toolbar-tool-replace-close": "ዕጸው",
 	"wikieditor-toolbar-section-characters": "ፍሉይ ፊደላት",
-	"wikieditor-toolbar-section-help": "ሓገዝ"
+	"wikieditor-toolbar-section-help": "ሓገዝ",
+	"wikieditor-realtimepreview-preview": "ገጽ ርኣይ",
+	"wikieditor-realtimepreview-beta-label": "ኣብ ሓቀኛ ግዜ ቅድመ ትርኢት"
 }

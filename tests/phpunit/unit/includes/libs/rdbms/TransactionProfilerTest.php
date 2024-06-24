@@ -11,54 +11,62 @@ class TransactionProfilerTest extends PHPUnit\Framework\TestCase {
 	use MediaWikiCoversValidator;
 
 	public function testAffected() {
-		$logger = $this->getMockBuilder( LoggerInterface::class )->getMock();
+		$logger = $this->createMock( LoggerInterface::class );
 		$logger->expects( $this->exactly( 3 ) )->method( 'warning' );
 
+		$now = 1668108368.0;
 		$tp = new TransactionProfiler();
+		$tp->setMockTime( $now );
 		$tp->setLogger( $logger );
 		$tp->setExpectation( 'maxAffected', 100, __METHOD__ );
 
 		$tp->transactionWritingIn( 'srv1', 'db1', '123' );
-		$tp->recordQueryCompletion( "SQL 1", microtime( true ) - 3, true, 200, '1' );
-		$tp->recordQueryCompletion( "SQL 2", microtime( true ) - 3, true, 200, '1' );
+		$tp->recordQueryCompletion( "SQL 1", $now - 3, true, 200, '1' );
+		$tp->recordQueryCompletion( "SQL 2", $now - 3, true, 200, '1' );
 		$tp->transactionWritingOut( 'srv1', 'db1', '123', 1, 400 );
 	}
 
 	public function testReadTime() {
-		$logger = $this->getMockBuilder( LoggerInterface::class )->getMock();
+		$logger = $this->createMock( LoggerInterface::class );
 		// 1 per query
 		$logger->expects( $this->exactly( 2 ) )->method( 'warning' );
 
+		$now = 1668108368.0;
 		$tp = new TransactionProfiler();
+		$tp->setMockTime( $now );
 		$tp->setLogger( $logger );
 		$tp->setExpectation( 'readQueryTime', 5, __METHOD__ );
 
 		$tp->transactionWritingIn( 'srv1', 'db1', '123' );
-		$tp->recordQueryCompletion( "SQL 1", microtime( true ) - 10, false, 1, '1' );
-		$tp->recordQueryCompletion( "SQL 2", microtime( true ) - 10, false, 1, '1' );
+		$tp->recordQueryCompletion( "SQL 1", $now - 10, false, 1, '1' );
+		$tp->recordQueryCompletion( "SQL 2", $now - 10, false, 1, '1' );
 		$tp->transactionWritingOut( 'srv1', 'db1', '123', 0, 0 );
 	}
 
 	public function testWriteTime() {
-		$logger = $this->getMockBuilder( LoggerInterface::class )->getMock();
+		$logger = $this->createMock( LoggerInterface::class );
 		// 1 per query, 1 per trx, and one "sub-optimal trx" entry
 		$logger->expects( $this->exactly( 4 ) )->method( 'warning' );
 
+		$now = 1668108368.0;
 		$tp = new TransactionProfiler();
+		$tp->setMockTime( $now );
 		$tp->setLogger( $logger );
 		$tp->setExpectation( 'writeQueryTime', 5, __METHOD__ );
 
 		$tp->transactionWritingIn( 'srv1', 'db1', '123' );
-		$tp->recordQueryCompletion( "SQL 1", microtime( true ) - 10, true, 1, '1' );
-		$tp->recordQueryCompletion( "SQL 2", microtime( true ) - 10, true, 1, '1' );
+		$tp->recordQueryCompletion( "SQL 1", $now - 10, true, 1, '1' );
+		$tp->recordQueryCompletion( "SQL 2", $now - 10, true, 1, '1' );
 		$tp->transactionWritingOut( 'srv1', 'db1', '123', 20, 1 );
 	}
 
 	public function testAffectedTrx() {
-		$logger = $this->getMockBuilder( LoggerInterface::class )->getMock();
+		$logger = $this->createMock( LoggerInterface::class );
 		$logger->expects( $this->once() )->method( 'warning' );
 
+		$now = 1668108368.0;
 		$tp = new TransactionProfiler();
+		$tp->setMockTime( $now );
 		$tp->setLogger( $logger );
 		$tp->setExpectation( 'maxAffected', 100, __METHOD__ );
 
@@ -67,11 +75,13 @@ class TransactionProfilerTest extends PHPUnit\Framework\TestCase {
 	}
 
 	public function testWriteTimeTrx() {
-		$logger = $this->getMockBuilder( LoggerInterface::class )->getMock();
+		$logger = $this->createMock( LoggerInterface::class );
 		// 1 per trx, and one "sub-optimal trx" entry
 		$logger->expects( $this->exactly( 2 ) )->method( 'warning' );
 
+		$now = 1668108368.0;
 		$tp = new TransactionProfiler();
+		$tp->setMockTime( $now );
 		$tp->setLogger( $logger );
 		$tp->setExpectation( 'writeQueryTime', 5, __METHOD__ );
 
@@ -80,10 +90,12 @@ class TransactionProfilerTest extends PHPUnit\Framework\TestCase {
 	}
 
 	public function testConns() {
-		$logger = $this->getMockBuilder( LoggerInterface::class )->getMock();
+		$logger = $this->createMock( LoggerInterface::class );
 		$logger->expects( $this->exactly( 2 ) )->method( 'warning' );
 
+		$now = 1668108368.0;
 		$tp = new TransactionProfiler();
+		$tp->setMockTime( $now );
 		$tp->setLogger( $logger );
 		$tp->setExpectation( 'conns', 2, __METHOD__ );
 
@@ -94,10 +106,12 @@ class TransactionProfilerTest extends PHPUnit\Framework\TestCase {
 	}
 
 	public function testMasterConns() {
-		$logger = $this->getMockBuilder( LoggerInterface::class )->getMock();
+		$logger = $this->createMock( LoggerInterface::class );
 		$logger->expects( $this->exactly( 2 ) )->method( 'warning' );
 
+		$now = 1668108368.0;
 		$tp = new TransactionProfiler();
+		$tp->setMockTime( $now );
 		$tp->setLogger( $logger );
 		$tp->setExpectation( 'masterConns', 2, __METHOD__ );
 
@@ -111,37 +125,119 @@ class TransactionProfilerTest extends PHPUnit\Framework\TestCase {
 	}
 
 	public function testReadQueryCount() {
-		$logger = $this->getMockBuilder( LoggerInterface::class )->getMock();
+		$logger = $this->createMock( LoggerInterface::class );
 		$logger->expects( $this->exactly( 2 ) )->method( 'warning' );
 
+		$now = 1668108368.0;
 		$tp = new TransactionProfiler();
+		$tp->setMockTime( $now );
 		$tp->setLogger( $logger );
 		$tp->setExpectation( 'queries', 2, __METHOD__ );
 
-		$tp->recordQueryCompletion( "SQL 1", microtime( true ) - 0.01, false, 0, '1' );
-		$tp->recordQueryCompletion( "SQL 2", microtime( true ) - 0.01, false, 0, '1' );
-		$tp->recordQueryCompletion( "SQL 3", microtime( true ) - 0.01, false, 0, '1' ); // warn
-		$tp->recordQueryCompletion( "SQL 4", microtime( true ) - 0.01, false, 0, '1' ); // warn
+		$tp->recordQueryCompletion( "SQL 1", $now - 0.01, false, 0, '1' );
+		$tp->recordQueryCompletion( "SQL 2", $now - 0.01, false, 0, '1' );
+		$tp->recordQueryCompletion( "SQL 3", $now - 0.01, false, 0, '1' ); // warn
+		$tp->recordQueryCompletion( "SQL 4", $now - 0.01, false, 0, '1' ); // warn
 	}
 
 	public function testWriteQueryCount() {
-		$logger = $this->getMockBuilder( LoggerInterface::class )->getMock();
+		$logger = $this->createMock( LoggerInterface::class );
 		$logger->expects( $this->exactly( 2 ) )->method( 'warning' );
 
+		$now = 1668108368.0;
 		$tp = new TransactionProfiler();
+		$tp->setMockTime( $now );
 		$tp->setLogger( $logger );
 		$tp->setExpectation( 'writes', 2, __METHOD__ );
 
-		$tp->recordQueryCompletion( "SQL 1", microtime( true ) - 0.01, false, 0, '1' );
-		$tp->recordQueryCompletion( "SQL 2", microtime( true ) - 0.01, false, 0, '1' );
-		$tp->recordQueryCompletion( "SQL 3", microtime( true ) - 0.01, false, 0, '1' );
-		$tp->recordQueryCompletion( "SQL 4", microtime( true ) - 0.01, false, 0, '1' );
+		$tp->recordQueryCompletion( "SQL 1", $now - 0.01, false, 0, '1' );
+		$tp->recordQueryCompletion( "SQL 2", $now - 0.01, false, 0, '1' );
+		$tp->recordQueryCompletion( "SQL 3", $now - 0.01, false, 0, '1' );
+		$tp->recordQueryCompletion( "SQL 4", $now - 0.01, false, 0, '1' );
 
 		$tp->transactionWritingIn( 'srv1', 'db1', '123' );
-		$tp->recordQueryCompletion( "SQL 1w", microtime( true ) - 0.01, true, 2, '1' );
-		$tp->recordQueryCompletion( "SQL 2w", microtime( true ) - 0.01, true, 5, '1' );
-		$tp->recordQueryCompletion( "SQL 3w", microtime( true ) - 0.01, true, 3, '1' );
-		$tp->recordQueryCompletion( "SQL 4w", microtime( true ) - 0.01, true, 1, '1' );
+		$tp->recordQueryCompletion( "SQL 1w", $now - 0.01, true, 2, '1' );
+		$tp->recordQueryCompletion( "SQL 2w", $now - 0.01, true, 5, '1' );
+		$tp->recordQueryCompletion( "SQL 3w", $now - 0.01, true, 3, '1' );
+		$tp->recordQueryCompletion( "SQL 4w", $now - 0.01, true, 1, '1' );
 		$tp->transactionWritingOut( 'srv1', 'db1', '123', 1, 1 );
+	}
+
+	public function testSilence() {
+		$logger = $this->createMock( LoggerInterface::class );
+		$logger->expects( $this->never() )->method( 'warning' );
+
+		$now = 1668108368.0;
+		$tp = new TransactionProfiler();
+		$tp->setMockTime( $now );
+		$tp->setLogger( $logger );
+		$tp->setExpectation( 'conns', 2, __METHOD__ );
+		$tp->setExpectation( 'masterConns', 0, __METHOD__ );
+		$tp->setExpectation( 'writes', 0, __METHOD__ );
+		$tp->setExpectation( 'writeQueryTime', 5, __METHOD__ );
+
+		$scope = $tp->silenceForScope();
+
+		$tp->recordConnection( 'srv1', 'enwiki', true );
+		$tp->transactionWritingIn( 'srv1', 'db1', '123' );
+		$tp->recordConnection( 'srv2', 'enwiki', false );
+		$tp->recordConnection( 'srv3', 'enwiki', false );
+		$tp->recordQueryCompletion( "SQL 1", $now - 10, true, 1, '1' );
+		$tp->transactionWritingOut( 'srv1', 'db1', '123', 10, 1 );
+
+		unset( $scope );
+	}
+
+	public function testUnsilence() {
+		$logger = $this->createMock( LoggerInterface::class );
+		// 1 "masterConns" entry, 1 "conns" entry, 1 "writes" entry, 1 "writeQueryTime" entry
+		$logger->expects( $this->exactly( 4 ) )->method( 'warning' );
+
+		$now = 1668108368.0;
+		$tp = new TransactionProfiler();
+		$tp->setMockTime( $now );
+		$tp->setLogger( $logger );
+
+		$tp->setExpectation( 'conns', 2, __METHOD__ );
+		$tp->setExpectation( 'masterConns', 0, __METHOD__ );
+		$tp->setExpectation( 'writes', 0, __METHOD__ );
+		$tp->setExpectation( 'writeQueryTime', 5, __METHOD__ );
+
+		$scope = $tp->silenceForScope();
+		$tp->recordConnection( 'srv1', 'enwiki', true );
+		$tp->transactionWritingIn( 'srv1', 'db1', '123' );
+		$tp->recordConnection( 'srv2', 'enwiki', false );
+		$tp->recordConnection( 'srv3', 'enwiki', false );
+		$tp->recordQueryCompletion( "SQL 1", $now - 10, true, 1, '1' );
+		$tp->transactionWritingOut( 'srv1', 'db1', '123', 10, 1 );
+		unset( $scope );
+
+		$tp->recordConnection( 'srv1', 'enwiki', true );
+		$tp->recordConnection( 'srv2', 'enwiki', false );
+		$tp->recordConnection( 'srv3', 'enwiki', false );
+		$tp->recordQueryCompletion( "SQL 2", $now - 10, true, 1, '1' );
+	}
+
+	public function testPartialSilence() {
+		$logger = $this->createMock( LoggerInterface::class );
+		// 1 entry for slow write
+		$logger->expects( $this->once() )->method( 'warning' );
+
+		$now = 1668108368.0;
+		$tp = new TransactionProfiler();
+		$tp->setMockTime( $now );
+		$tp->setLogger( $logger );
+		$tp->setExpectation( 'conns', 2, __METHOD__ );
+		$tp->setExpectation( 'masterConns', 0, __METHOD__ );
+		$tp->setExpectation( 'writes', 0, __METHOD__ );
+		$tp->setExpectation( 'writeQueryTime', 5, __METHOD__ );
+
+		$scope = $tp->silenceForScope( $tp::EXPECTATION_REPLICAS_ONLY );
+
+		$tp->recordConnection( 'srv1', 'enwiki', true );
+		$tp->recordConnection( 'srv2', 'enwiki', false );
+		$tp->recordQueryCompletion( "SQL 1", $now - 10, true, 1, '1' );
+
+		unset( $scope );
 	}
 }

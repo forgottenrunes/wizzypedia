@@ -21,31 +21,33 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
 use MediaWiki\Cache\LinkBatchFactory;
-use Wikimedia\Rdbms\ILoadBalancer;
+use MediaWiki\Html\Html;
+use MediaWiki\Pager\CategoryPager;
+use MediaWiki\SpecialPage\SpecialPage;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * @ingroup SpecialPage
  */
 class SpecialCategories extends SpecialPage {
 
-	/** @var LinkBatchFactory */
-	private $linkBatchFactory;
-
-	/** @var ILoadBalancer */
-	private $loadBalancer;
+	private LinkBatchFactory $linkBatchFactory;
+	private IConnectionProvider $dbProvider;
 
 	/**
 	 * @param LinkBatchFactory $linkBatchFactory
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 */
 	public function __construct(
 		LinkBatchFactory $linkBatchFactory,
-		ILoadBalancer $loadBalancer
+		IConnectionProvider $dbProvider
 	) {
 		parent::__construct( 'Categories' );
 		$this->linkBatchFactory = $linkBatchFactory;
-		$this->loadBalancer = $loadBalancer;
+		$this->dbProvider = $dbProvider;
 	}
 
 	public function execute( $par ) {
@@ -54,13 +56,13 @@ class SpecialCategories extends SpecialPage {
 		$this->addHelpLink( 'Help:Categories' );
 		$this->getOutput()->setPreventClickjacking( false );
 
-		$from = $this->getRequest()->getText( 'from', $par );
+		$from = $this->getRequest()->getText( 'from', $par ?? '' );
 
 		$cap = new CategoryPager(
 			$this->getContext(),
 			$this->linkBatchFactory,
 			$this->getLinkRenderer(),
-			$this->loadBalancer,
+			$this->dbProvider,
 			$from
 		);
 		$cap->doQuery();
@@ -80,3 +82,8 @@ class SpecialCategories extends SpecialPage {
 		return 'pages';
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialCategories::class, 'SpecialCategories' );

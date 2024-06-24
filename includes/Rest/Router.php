@@ -4,12 +4,18 @@ namespace MediaWiki\Rest;
 
 use AppendIterator;
 use BagOStuff;
+use Liuggio\StatsdClient\Factory\StatsdDataFactoryInterface;
+use MediaWiki\Config\ServiceOptions;
 use MediaWiki\HookContainer\HookContainer;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Permissions\Authority;
+use MediaWiki\Profiler\ProfilingContext;
 use MediaWiki\Rest\BasicAccess\BasicAuthorizerInterface;
 use MediaWiki\Rest\PathTemplateMatcher\PathMatcher;
 use MediaWiki\Rest\Reporter\ErrorReporter;
 use MediaWiki\Rest\Validator\Validator;
+use MediaWiki\Session\Session;
+use NullStatsdDataFactory;
 use Throwable;
 use Wikimedia\Message\MessageValue;
 use Wikimedia\ObjectFactory\ObjectFactory;
@@ -34,6 +40,9 @@ class Router {
 
 	/** @var string */
 	private $baseUrl;
+
+	/** @var string */
+	private $privateBaseUrl;
 
 	/** @var string */
 	private $rootPath;
@@ -71,11 +80,26 @@ class Router {
 	/** @var HookContainer */
 	private $hookContainer;
 
+	/** @var Session */
+	private $session;
+
+	/** @var StatsdDataFactoryInterface */
+	private $stats;
+
+	/**
+	 * @internal
+	 * @var array
+	 */
+	public const CONSTRUCTOR_OPTIONS = [
+		MainConfigNames::CanonicalServer,
+		MainConfigNames::InternalServer,
+		MainConfigNames::RestPath,
+	];
+
 	/**
 	 * @param string[] $routeFiles List of names of JSON files containing routes
 	 * @param array $extraRoutes Extension route array
-	 * @param string $baseUrl
-	 * @param string $rootPath The base path for routes, relative to the base URL
+	 * @param ServiceOptions $options
 	 * @param BagOStuff $cacheBag A cache in which to store the matcher trees
 	 * @param ResponseFactory $responseFactory
 	 * @param BasicAuthorizerInterface $basicAuth
@@ -84,13 +108,13 @@ class Router {
 	 * @param Validator $restValidator
 	 * @param ErrorReporter $errorReporter
 	 * @param HookContainer $hookContainer
+	 * @param Session $session
 	 * @internal
 	 */
 	public function __construct(
 		$routeFiles,
 		$extraRoutes,
-		$baseUrl,
-		$rootPath,
+		ServiceOptions $options,
 		BagOStuff $cacheBag,
 		ResponseFactory $responseFactory,
 		BasicAuthorizerInterface $basicAuth,
@@ -98,12 +122,16 @@ class Router {
 		ObjectFactory $objectFactory,
 		Validator $restValidator,
 		ErrorReporter $errorReporter,
-		HookContainer $hookContainer
+		HookContainer $hookContainer,
+		Session $session
 	) {
+		$options->assertRequiredOptions( self::CONSTRUCTOR_OPTIONS );
+
 		$this->routeFiles = $routeFiles;
 		$this->extraRoutes = $extraRoutes;
-		$this->baseUrl = $baseUrl;
-		$this->rootPath = $rootPath;
+		$this->baseUrl = $options->get( MainConfigNames::CanonicalServer );
+		$this->privateBaseUrl = $options->get( MainConfigNames::InternalServer );
+		$this->rootPath = $options->get( MainConfigNames::RestPath );
 		$this->cacheBag = $cacheBag;
 		$this->responseFactory = $responseFactory;
 		$this->basicAuth = $basicAuth;
@@ -112,6 +140,9 @@ class Router {
 		$this->restValidator = $restValidator;
 		$this->errorReporter = $errorReporter;
 		$this->hookContainer = $hookContainer;
+		$this->session = $session;
+
+		$this->stats = new NullStatsdDataFactory();
 	}
 
 	/**
@@ -246,9 +277,7 @@ class Router {
 	 * @return false|string
 	 */
 	private function getRelativePath( $path ) {
-		if ( strlen( $this->rootPath ) > strlen( $path ) ||
-			substr_compare( $path, $this->rootPath, 0, strlen( $this->rootPath ) ) !== 0
-		) {
+		if ( !str_starts_with( $path, $this->rootPath ) ) {
 			return false;
 		}
 		return substr( $path, strlen( $this->rootPath ) );
@@ -256,23 +285,70 @@ class Router {
 
 	/**
 	 * Returns a full URL for the given route.
-	 * Intended for use in redirects.
+	 * Intended for use in redirects and when including links to endpoints in output.
 	 *
 	 * @param string $route
 	 * @param array $pathParams
 	 * @param array $queryParams
 	 *
-	 * @return false|string
+	 * @return string
+	 * @see getPrivateRouteUrl
+	 *
 	 */
-	public function getRouteUrl( $route, $pathParams = [], $queryParams = [] ) {
+	public function getRouteUrl(
+		string $route,
+		array $pathParams = [],
+		array $queryParams = []
+	): string {
+		$route = $this->substPathParams( $route, $pathParams );
+		$url = $this->baseUrl . $this->rootPath . $route;
+		return wfAppendQuery( $url, $queryParams );
+	}
+
+	/**
+	 * Returns a full private URL for the given route.
+	 * Private URLs are for use within the local subnet, they may use host names or ports
+	 * or paths that are not publicly accessible.
+	 * Intended for use in redirects and when including links to endpoints in output.
+	 *
+	 * @note Only private endpoints should use this method for redirects or links to
+	 *       include on the response! Public endpoints should not expose the URLs
+	 *       of private endpoints to the public!
+	 *
+	 * @since 1.39
+	 * @see getRouteUrl
+	 *
+	 * @param string $route
+	 * @param array $pathParams
+	 * @param array $queryParams
+	 *
+	 * @return string
+	 */
+	public function getPrivateRouteUrl(
+		string $route,
+		array $pathParams = [],
+		array $queryParams = []
+	): string {
+		$route = $this->substPathParams( $route, $pathParams );
+		$url = $this->privateBaseUrl . $this->rootPath . $route;
+		return wfAppendQuery( $url, $queryParams );
+	}
+
+	/**
+	 * @param string $route
+	 * @param array $pathParams
+	 *
+	 * @return string
+	 */
+	protected function substPathParams( string $route, array $pathParams ): string {
 		foreach ( $pathParams as $param => $value ) {
 			// NOTE: we use rawurlencode here, since execute() uses rawurldecode().
 			// Spaces in path params must be encoded to %20 (not +).
-			$route = str_replace( '{' . $param . '}', rawurlencode( $value ), $route );
+			// Slashes must be encoded as %2F.
+			$route = str_replace( '{' . $param . '}', rawurlencode( (string)$value ), $route );
 		}
 
-		$url = $this->baseUrl . $this->rootPath . $route;
-		return wfAppendQuery( $url, $queryParams );
+		return $route;
 	}
 
 	/**
@@ -330,18 +406,39 @@ class Router {
 			}
 		}
 
-		// Use rawurldecode so a "+" in path params is not interpreted as a space character.
-		$request->setPathParams( array_map( 'rawurldecode', $match['params'] ) );
-		$handler = $this->createHandler( $request, $match['userData'] );
-
+		$handler = null;
 		try {
-			return $this->executeHandler( $handler );
+			// Use rawurldecode so a "+" in path params is not interpreted as a space character.
+			$request->setPathParams( array_map( 'rawurldecode', $match['params'] ) );
+			$handler = $this->createHandler( $request, $match['userData'] );
+
+			// Replace any characters that may have a special meaning in the metrics DB.
+			$pathForMetrics = $handler->getPath();
+			$pathForMetrics = strtr( $pathForMetrics, '{}:', '-' );
+			$pathForMetrics = strtr( $pathForMetrics, '/.', '_' );
+
+			$statTime = microtime( true );
+
+			$response = $this->executeHandler( $handler );
 		} catch ( HttpException $e ) {
-			return $this->responseFactory->createFromException( $e );
+			$response = $this->responseFactory->createFromException( $e );
 		} catch ( Throwable $e ) {
 			$this->errorReporter->reportError( $e, $handler, $request );
-			return $this->responseFactory->createFromException( $e );
+			$response = $this->responseFactory->createFromException( $e );
 		}
+
+		// gather metrics
+		if ( $response->getStatusCode() >= 400 ) {
+			// count how often we return which error code
+			$statusCode = $response->getStatusCode();
+			$this->stats->increment( "rest_api_errors.$pathForMetrics.$requestMethod.$statusCode" );
+		} else {
+			// measure how long it takes to generate a response
+			$microtime = ( microtime( true ) - $statTime ) * 1000;
+			$this->stats->timing( "rest_api_latency.$pathForMetrics.$requestMethod", $microtime );
+		}
+
+		return $response;
 	}
 
 	/**
@@ -383,7 +480,9 @@ class Router {
 		);
 		/** @var $handler Handler (annotation for PHPStorm) */
 		$handler = $this->objectFactory->createObject( $objectFactorySpec );
-		$handler->init( $this, $request, $spec, $this->authority, $this->responseFactory, $this->hookContainer );
+		$handler->init( $this, $request, $spec, $this->authority, $this->responseFactory,
+			$this->hookContainer, $this->session
+		);
 
 		return $handler;
 	}
@@ -395,11 +494,15 @@ class Router {
 	 * @return ResponseInterface
 	 */
 	private function executeHandler( $handler ): ResponseInterface {
+		ProfilingContext::singleton()->init( MW_ENTRY_POINT, $handler->getPath() );
 		// Check for basic authorization, to avoid leaking data from private wikis
 		$authResult = $this->basicAuth->authorize( $handler->getRequest(), $handler );
 		if ( $authResult ) {
 			return $this->responseFactory->createHttpError( 403, [ 'error' => $authResult ] );
 		}
+
+		// Check session (and session provider)
+		$handler->checkSession();
 
 		// Validate the parameters
 		$handler->validate( $this->restValidator );
@@ -419,6 +522,8 @@ class Router {
 		// Set Last-Modified and ETag headers in the response if available
 		$handler->applyConditionalResponseHeaders( $response );
 
+		$handler->applyCacheControl( $response );
+
 		return $response;
 	}
 
@@ -431,4 +536,16 @@ class Router {
 
 		return $this;
 	}
+
+	/**
+	 * @param StatsdDataFactoryInterface $stats
+	 *
+	 * @return self
+	 */
+	public function setStats( StatsdDataFactoryInterface $stats ): self {
+		$this->stats = $stats;
+
+		return $this;
+	}
+
 }

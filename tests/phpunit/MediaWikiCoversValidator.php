@@ -39,11 +39,12 @@ trait MediaWikiCoversValidator {
 	 * at that scale. Also, when using a data provider, the setUp() and tearDown()
 	 * of the host class would be re-run for every check, which becomes very
 	 * expensive for integration tests that involve databases.
+	 * @coversNothing
 	 */
 	public function testValidCovers() {
 		$class = static::class;
 		foreach ( get_class_methods( $this ) as $method ) {
-			if ( strncmp( $method, 'test', 4 ) === 0 ) {
+			if ( str_starts_with( $method, 'test' ) ) {
 				try {
 					Test::getLinesToBeCovered( $class, $method );
 				} catch ( CodeCoverageException $ex ) {

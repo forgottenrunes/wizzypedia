@@ -26,17 +26,17 @@
 
 namespace MediaWiki\Revision;
 
-use ActorMigration;
 use BagOStuff;
-use CommentStore;
+use MediaWiki\CommentStore\CommentStore;
 use MediaWiki\Content\IContentHandlerFactory;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\Page\PageStoreFactory;
 use MediaWiki\Storage\BlobStoreFactory;
 use MediaWiki\Storage\NameTableStoreFactory;
+use MediaWiki\Title\TitleFactory;
+use MediaWiki\User\ActorMigration;
 use MediaWiki\User\ActorStoreFactory;
 use Psr\Log\LoggerInterface;
-use TitleFactory;
 use WANObjectCache;
 use Wikimedia\Assert\Assert;
 use Wikimedia\Rdbms\ILBFactory;
@@ -141,12 +141,12 @@ class RevisionStoreFactory {
 	/**
 	 * @since 1.32
 	 *
-	 * @param bool|string $dbDomain DB domain of the relevant wiki or false for the current one
+	 * @param false|string $dbDomain DB domain of the relevant wiki or false for the current one
 	 *
 	 * @return RevisionStore for the given wikiId with all necessary services
 	 */
 	public function getRevisionStore( $dbDomain = false ) {
-		Assert::parameterType( 'string|boolean', $dbDomain, '$dbDomain' );
+		Assert::parameterType( [ 'string', 'false' ], $dbDomain, '$dbDomain' );
 
 		$store = new RevisionStore(
 			$this->dbLoadBalancerFactory->getMainLB( $dbDomain ),

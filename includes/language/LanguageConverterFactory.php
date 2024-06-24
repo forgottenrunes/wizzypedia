@@ -29,14 +29,16 @@ use IuConverter;
 use KkConverter;
 use KuConverter;
 use Language;
+use MediaWiki\StubObject\StubUserLang;
+use ShConverter;
 use ShiConverter;
 use SrConverter;
-use StubUserLang;
 use TgConverter;
 use TlyConverter;
 use TrivialLanguageConverter;
 use UzConverter;
 use Wikimedia\ObjectFactory\ObjectFactory;
+use WuuConverter;
 use ZhConverter;
 
 /**
@@ -73,6 +75,9 @@ class LanguageConverterFactory {
 		'shi' => [
 			'class' => ShiConverter::class,
 		],
+		'sh' => [
+			'class' => ShConverter::class,
+		],
 		'sr' => [
 			'class' => SrConverter::class,
 		],
@@ -84,6 +89,9 @@ class LanguageConverterFactory {
 		],
 		'uz' => [
 			'class' => UzConverter::class,
+		],
+		'wuu' => [
+			'class' => WuuConverter::class,
 		],
 		'zh' => [
 			'class' => ZhConverter::class,
@@ -115,7 +123,7 @@ class LanguageConverterFactory {
 	private $isTitleConversionDisabled;
 
 	/**
-	 * @var callable callback of () : Language
+	 * @var callable callback of "() : Language"
 	 */
 	private $defaultLanguage;
 
@@ -124,8 +132,8 @@ class LanguageConverterFactory {
 	 * @param bool $usePigLatinVariant should pig variant of English be used
 	 * @param bool $isConversionDisabled Whether to disable language variant conversion
 	 * @param bool $isTitleConversionDisabled Whether to disable language variant conversion for links
-	 * @param callable $defaultLanguage callback of () : Language, should return
-	 * default language. Used in getLanguageConverter when $language is null.
+	 * @param callable $defaultLanguage callback of "() : Language", should return
+	 *  default language. Used in getLanguageConverter when $language is null.
 	 *
 	 * @internal Should be called from MediaWikiServices only.
 	 */
@@ -144,7 +152,7 @@ class LanguageConverterFactory {
 	}
 
 	/**
-	 * Returns Converter instance for given language object
+	 * Returns Converter instance for a given language object
 	 *
 	 * @param Language|StubUserLang $lang
 	 * @return ILanguageConverter
@@ -153,7 +161,7 @@ class LanguageConverterFactory {
 		$code = mb_strtolower( $lang->getCode() );
 		$spec = $this->converterList[$code] ?? self::DEFAULT_CONVERTER;
 		// ObjectFactory::createObject accepts an array, not just a callable (phan bug)
-		// @phan-suppress-next-line PhanTypeInvalidCallableArrayKey,PhanTypeInvalidCallableArraySize
+		// @phan-suppress-next-line PhanTypeInvalidCallableArrayKey, PhanTypeInvalidCallableArraySize
 		return $this->objectFactory->createObject(
 			$spec,
 			[
@@ -167,7 +175,7 @@ class LanguageConverterFactory {
 	 * Provide a LanguageConverter for given language
 	 *
 	 * @param Language|StubUserLang|null $language for which a LanguageConverter should be provided.
-	 * If null then LanguageConverter provided for current content language as returned
+	 * If it is null, then the LanguageConverter provided for current content language as returned
 	 * by the callback provided to the constructor.
 	 *
 	 * @return ILanguageConverter
@@ -177,6 +185,7 @@ class LanguageConverterFactory {
 		if ( isset( $this->cache[$lang->getCode()] ) ) {
 			return $this->cache[$lang->getCode()];
 		}
+		// @phan-suppress-next-line PhanTypeMismatchArgumentNullable False positive
 		$converter = $this->instantiateConverter( $lang );
 		$this->cache[$lang->getCode()] = $converter;
 		return $converter;
@@ -184,6 +193,7 @@ class LanguageConverterFactory {
 
 	/**
 	 * Whether to disable language variant conversion.
+	 *
 	 * @return bool
 	 */
 	public function isConversionDisabled() {
@@ -192,15 +202,18 @@ class LanguageConverterFactory {
 
 	/**
 	 * Whether to disable language variant conversion for titles.
+	 *
 	 * @return bool
 	 * @deprecated since 1.36 Should use ::isLinkConversionDisabled() instead
 	 */
 	public function isTitleConversionDisabled() {
+		wfDeprecated( __METHOD__, '1.36' );
 		return $this->isTitleConversionDisabled;
 	}
 
 	/**
 	 * Whether to disable language variant conversion for links.
+	 *
 	 * @return bool
 	 */
 	public function isLinkConversionDisabled() {

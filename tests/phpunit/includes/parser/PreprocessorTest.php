@@ -1,5 +1,7 @@
 <?php
 
+use MediaWiki\User\User;
+
 /**
  * @covers Preprocessor
  *
@@ -29,9 +31,7 @@ class PreprocessorTest extends MediaWikiIntegrationTestCase {
 			$this->getServiceContainer()->getContentLanguage() );
 
 		$wanCache = new WANObjectCache( [ 'cache' => new HashBagOStuff() ] );
-		$parser = $this->getMockBuilder( Parser::class )
-			->disableOriginalConstructor()
-			->getMock();
+		$parser = $this->createMock( Parser::class );
 		$parser->method( 'getStripList' )->willReturn( [
 			'gallery', 'display map' /* Used by Maps, see r80025 CR */, '/foo'
 		] );
@@ -198,7 +198,7 @@ class PreprocessorTest extends MediaWikiIntegrationTestCase {
 	 * @dataProvider provideFiles
 	 */
 	public function testPreprocessorOutputFiles( $filename ) {
-		$folder = __DIR__ . "/../../../parser/preprocess";
+		$folder = __DIR__ . "/../../data/preprocess";
 		$wikiText = file_get_contents( "$folder/$filename.txt" );
 		$output = $this->preprocessToXml( $wikiText );
 

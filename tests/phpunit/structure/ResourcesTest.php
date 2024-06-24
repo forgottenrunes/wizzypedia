@@ -1,6 +1,8 @@
 <?php
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Request\FauxRequest;
+use MediaWiki\ResourceLoader as RL;
 use Wikimedia\Minify\CSSMin;
 use Wikimedia\TestingAccessWrapper;
 
@@ -13,19 +15,22 @@ use Wikimedia\TestingAccessWrapper;
  * @copyright © 2012, Antoine Musso
  * @copyright © 2012, Niklas Laxström
  * @copyright © 2012, Santhosh Thottingal
+ *
+ * @coversNothing
+ * @group Database
  */
 class ResourcesTest extends MediaWikiIntegrationTestCase {
 
-	/**
-	 * @dataProvider provideMediaStylesheets
-	 */
-	public function testStyleMedia( $moduleName, $media, $filename, $css ) {
-		$cssText = CSSMin::minify( $css->cssText );
+	public function testStyleMedia() {
+		foreach ( self::provideMediaStylesheets() as [ $moduleName, $media, $filename, $css ] ) {
+			$cssText = CSSMin::minify( $css->cssText );
 
-		$this->assertTrue(
-			strpos( $cssText, '@media' ) === false,
-			'Stylesheets should not both specify "media" and contain @media'
-		);
+			$this->assertStringNotContainsString(
+				'@media',
+				$cssText,
+				'Stylesheets should not both specify "media" and contain @media'
+			);
+		}
 	}
 
 	/**
@@ -39,15 +44,13 @@ class ResourcesTest extends MediaWikiIntegrationTestCase {
 		$data = self::getAllModules();
 		$illegalDeps = [ 'startup' ];
 		// Can't depend on modules in the `noscript` group, find all such module names
-		// to add to $ilegalDeps. See T291735
-		/** @var ResourceLoaderModule $module */
+		// to add to $illegalDeps. See T291735
+		/** @var RL\Module $module */
 		foreach ( $data['modules'] as $moduleName => $module ) {
 			if ( $module->getGroup() === 'noscript' ) {
 				$illegalDeps[] = $moduleName;
 			}
 		}
-
-		$knownDeps = array_keys( $data['modules'] );
 
 		// Avoid an assert for each module to keep the test fast.
 		// Instead, perform a single assertion against everything at once.
@@ -60,10 +63,10 @@ class ResourcesTest extends MediaWikiIntegrationTestCase {
 		$actualIllegal = [];
 		$expectedIllegal = [];
 
-		/** @var ResourceLoaderModule $module */
+		/** @var RL\Module $module */
 		foreach ( $data['modules'] as $moduleName => $module ) {
 			foreach ( $module->getDependencies( $data['context'] ) as $dep ) {
-				if ( !in_array( $dep, $knownDeps, true ) ) {
+				if ( !isset( $data['modules'][$dep] ) ) {
 					$actualUnknown[$moduleName][] = $dep;
 					$expectedUnknown[$moduleName] = [];
 				}
@@ -84,7 +87,7 @@ class ResourcesTest extends MediaWikiIntegrationTestCase {
 		$data = self::getAllModules();
 		$lang = MediaWikiServices::getInstance()->getLanguageFactory()->getLanguage( 'en' );
 
-		/** @var ResourceLoaderModule $module */
+		/** @var RL\Module $module */
 		foreach ( $data['modules'] as $moduleName => $module ) {
 			foreach ( $module->getMessages() as $msgKey ) {
 				$this->assertTrue(
@@ -96,34 +99,80 @@ class ResourcesTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * Verify that all dependencies of all modules are always satisfiable with the 'targets' defined
-	 * for the involved modules.
+	 * Verify that dependencies of all modules are actually registered in the same client context.
 	 *
-	 * Example: A depends on B. A has targets: mobile, desktop. B has targets: desktop. Therefore the
-	 * dependency is sometimes unsatisfiable: it's impossible to load module A on mobile.
+	 * Example:
+	 * - A depends on B. A has targets: mobile, desktop. B has targets: desktop. Therefore the
+	 *   dependency is sometimes unregistered: it's impossible to load module A on mobile.
 	 */
 	public function testUnsatisfiableDependencies() {
 		$data = self::getAllModules();
 
-		/** @var ResourceLoaderModule $module */
+		/** @var RL\Module $module */
+		$incompatibleTargetNames = [];
+		$targetsErrMsg = '';
 		foreach ( $data['modules'] as $moduleName => $module ) {
+			$depNames = $module->getDependencies( $data['context'] );
 			$moduleTargets = $module->getTargets();
-			foreach ( $module->getDependencies( $data['context'] ) as $dep ) {
-				if ( !isset( $data['modules'][$dep] ) ) {
+
+			foreach ( $depNames as $depName ) {
+				$dep = $data['modules'][$depName] ?? null;
+				if ( !$dep ) {
 					// Missing dependencies reported by testMissingDependencies
 					continue;
 				}
-				$targets = $data['modules'][$dep]->getTargets();
+				if ( $moduleTargets === [ 'test' ] ) {
+					// Target filter does not apply under tests, which may include
+					// both mobile-only and desktop-only dependencies.
+					continue;
+				}
+				$targets = $dep->getTargets();
 				foreach ( $moduleTargets as $moduleTarget ) {
-					$this->assertContains(
-						$moduleTarget,
-						$targets,
-						"The module '$moduleName' must not have target '$moduleTarget' "
-							. "because its dependency '$dep' does not have it"
-					);
+					if ( !in_array( $moduleTarget, $targets ) ) {
+						$incompatibleTargetNames[] = $moduleName;
+						$targetsErrMsg .= "* The module '$moduleName' must not have target '$moduleTarget' "
+								. "because its dependency '$depName' does not have it\n";
+					}
 				}
 			}
 		}
+		$this->assertEquals( [], $incompatibleTargetNames, $targetsErrMsg );
+	}
+
+	/**
+	 * Verify that dependencies of all modules are actually registered in the same client context.
+	 *
+	 * Example:
+	 * - A depends on B. A has targets: mobile, desktop. B has targets: desktop. Therefore the
+	 *   dependency is sometimes unregistered: it's impossible to load module A on mobile.
+	 * - A depends on B. B has requiresES6=true but A does not. In some browsers, B will be
+	 *   unregistered at startup and thus impossible to satisfy as dependency.
+	 */
+	public function testRedundantTargets() {
+		$targetsBad = [];
+		$data = self::getAllModules();
+
+		// This makes sure that new modules are not added in a way that goes against
+		// the current plan to dismantle the targets system.
+		// Modules should only be removed from the list, not added.
+		$knownExceptions = [];
+		foreach ( $data['modules'] as $moduleName => $module ) {
+			$definedTargets = $module->getTargets();
+			if (
+				!in_array( $moduleName, $knownExceptions ) &&
+				!str_starts_with( $moduleName, 'test.' ) &&
+				(
+					!in_array( 'desktop', $definedTargets ) ||
+					!in_array( 'mobile', $definedTargets )
+				)
+			) {
+				$targetsBad[] = $moduleName;
+			}
+		}
+		$this->assertEquals( [], $targetsBad,
+			'All modules should load on both mobile and desktop target. '
+			. 'The following modules have redundant targets definitions:' . implode( ' ', $targetsBad )
+		);
 	}
 
 	/**
@@ -169,20 +218,20 @@ class ResourcesTest extends MediaWikiIntegrationTestCase {
 		return [
 			'modules' => $modules,
 			'resourceloader' => $rl,
-			'context' => new ResourceLoaderContext( $rl, new FauxRequest() )
+			'context' => new RL\Context( $rl, new FauxRequest() )
 		];
 	}
 
 	/**
 	 * Get all stylesheet files from modules that are an instance of
-	 * ResourceLoaderFileModule (or one of its subclasses).
+	 * RL\FileModule (or one of its subclasses).
 	 */
 	public static function provideMediaStylesheets() {
 		$data = self::getAllModules();
 		$context = $data['context'];
 
 		foreach ( $data['modules'] as $moduleName => $module ) {
-			if ( !$module instanceof ResourceLoaderFileModule ) {
+			if ( !$module instanceof RL\FileModule ) {
 				continue;
 			}
 
@@ -209,12 +258,12 @@ class ResourcesTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * Check all resource files from ResourceLoaderFileModule modules.
+	 * Check all resource files from RL\FileModule modules.
 	 */
 	public function testResourceFiles() {
 		$data = self::getAllModules();
 
-		// See also ResourceLoaderFileModule::__construct
+		// See also RL\FileModule::__construct
 		$filePathProps = [
 			// Lists of file paths
 			'lists' => [
@@ -232,7 +281,7 @@ class ResourcesTest extends MediaWikiIntegrationTestCase {
 		];
 
 		foreach ( $data['modules'] as $moduleName => $module ) {
-			if ( !$module instanceof ResourceLoaderFileModule ) {
+			if ( !$module instanceof RL\FileModule ) {
 				continue;
 			}
 
@@ -270,10 +319,15 @@ class ResourcesTest extends MediaWikiIntegrationTestCase {
 				}
 			}
 
-			foreach ( $files as $file ) {
-				$relativePath = ( $file instanceof ResourceLoaderFilePath ? $file->getPath() : $file );
+			foreach ( $files as $key => $file ) {
+				$fileInfo = $moduleProxy->expandFileInfo( $data['context'], $file, "files[$key]" );
+				if ( !isset( $fileInfo['filePath'] ) ) {
+					continue;
+				}
+				$relativePath = $fileInfo['filePath']->getPath();
+				$localPath = $fileInfo['filePath']->getLocalPath();
 				$this->assertFileExists(
-					$moduleProxy->getLocalPath( $file ),
+					$localPath,
 					"File '$relativePath' referenced by '$moduleName' must exist."
 				);
 			}
@@ -296,13 +350,13 @@ class ResourcesTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * Check all image files from ResourceLoaderImageModule modules.
+	 * Check all image files from RL\ImageModule modules.
 	 */
 	public function testImageFiles() {
 		$data = self::getAllModules();
 
 		foreach ( $data['modules'] as $moduleName => $module ) {
-			if ( !$module instanceof ResourceLoaderImageModule ) {
+			if ( !$module instanceof RL\ImageModule ) {
 				continue;
 			}
 
@@ -315,5 +369,36 @@ class ResourcesTest extends MediaWikiIntegrationTestCase {
 				);
 			}
 		}
+	}
+
+	public static function provideRespond() {
+		$rl = MediaWikiServices::getInstance()->getResourceLoader();
+		foreach ( $rl->getModuleNames() as $moduleName ) {
+			yield $moduleName => [ $moduleName ];
+		}
+	}
+
+	/**
+	 * @dataProvider provideRespond
+	 * @param string $moduleName
+	 */
+	public function testRespond( $moduleName ) {
+		$rl = $this->getServiceContainer()->getResourceLoader();
+		$module = $rl->getModule( $moduleName );
+		if ( $module->getGroup() === RL\Module::GROUP_PRIVATE ) {
+			// Private modules cannot be served from load.php
+			$this->assertTrue( true );
+			return;
+		}
+		// Test only general (scripts) or only=styles responses.
+		$only = $module->getType() === RL\Module::LOAD_STYLES ? 'styles' : null;
+		$context = new RL\Context(
+			$rl,
+			new FauxRequest( [ 'modules' => $moduleName, 'only' => $only ] )
+		);
+		ob_start();
+		$rl->respond( $context );
+		ob_end_clean();
+		$this->assertSame( [], $rl->getErrors() );
 	}
 }

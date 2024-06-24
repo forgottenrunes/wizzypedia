@@ -10,6 +10,7 @@ use JobQueueGroup;
 use MediaWiki\Cache\BacklinkCacheFactory;
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\Linker\LinkTarget;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Page\DeletePage;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Page\PageIdentityValue;
@@ -21,16 +22,17 @@ use MediaWiki\Permissions\UltimateAuthority;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\RevisionStore;
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
+use MediaWiki\Title\NamespaceInfo;
+use MediaWiki\Title\Title;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserIdentityValue;
 use MediaWikiUnitTestCase;
-use NamespaceInfo;
 use PHPUnit\Framework\MockObject\MockObject;
 use Wikimedia\Message\ITextFormatter;
 use Wikimedia\Rdbms\IDatabase;
-use Wikimedia\Rdbms\ILoadBalancer;
 use Wikimedia\Rdbms\IResultWrapper;
 use Wikimedia\Rdbms\LBFactory;
+use Wikimedia\Rdbms\SelectQueryBuilder;
 use WikiPage;
 
 /**
@@ -45,6 +47,13 @@ class DeletePageTest extends MediaWikiUnitTestCase {
 		$ret->method( 'exists' )->willReturn( true );
 		$ret->method( 'getId' )->willReturn( 123 );
 		$ret->method( 'getRevisionRecord' )->willReturn( $this->createMock( RevisionRecord::class ) );
+
+		$title = $this->createMock( Title::class );
+		$title->method( 'getPrefixedText' )->willReturn( 'Foo' );
+		$title->method( 'getText' )->willReturn( 'Foo' );
+		$title->method( 'getDBkey' )->willReturn( 'Foo' );
+		$title->method( 'getNamespace' )->willReturn( 0 );
+		$ret->method( 'getTitle' )->willReturn( $title );
 		return $ret;
 	}
 
@@ -61,9 +70,8 @@ class DeletePageTest extends MediaWikiUnitTestCase {
 		return new ServiceOptions(
 			DeletePage::CONSTRUCTOR_OPTIONS,
 			[
-				'DeleteRevisionsBatchSize' => 100,
-				'ActorTableSchemaMigrationStage' => SCHEMA_COMPAT_NEW,
-				'DeleteRevisionsLimit' => $deleteLimit
+				MainConfigNames::DeleteRevisionsBatchSize => 100,
+				MainConfigNames::DeleteRevisionsLimit => $deleteLimit
 			]
 		);
 	}
@@ -85,10 +93,10 @@ class DeletePageTest extends MediaWikiUnitTestCase {
 		$db = $this->createMock( IDatabase::class );
 		$db->method( 'select' )->willReturn( $this->createMock( IResultWrapper::class ) );
 		$db->method( 'selectRowCount' )->willReturn( 42 );
-		$lb = $this->createMock( ILoadBalancer::class );
-		$lb->method( 'getConnectionRef' )->willReturn( $db );
+		$db->method( 'newSelectQueryBuilder' )->willReturn( new SelectQueryBuilder( $db ) );
+
 		$lbFactory = $this->createMock( LBFactory::class );
-		$lbFactory->method( 'getMainLB' )->willReturn( $lb );
+		$lbFactory->method( 'getPrimaryDatabase' )->willReturn( $db );
 
 		$ret = new DeletePage(
 			$this->createHookContainer(),
@@ -134,7 +142,7 @@ class DeletePageTest extends MediaWikiUnitTestCase {
 		$status = $dp->deleteIfAllowed( 'foobar' );
 		$this->assertSame( $expectedGood, $status->isGood() );
 		if ( $expectedMessage !== null ) {
-			$this->assertTrue( $status->hasMessage( $expectedMessage ) );
+			$this->assertStatusError( $expectedMessage, $status );
 		}
 	}
 
@@ -257,29 +265,32 @@ class DeletePageTest extends MediaWikiUnitTestCase {
 
 		$res = $delPage->canProbablyDeleteAssociatedTalk();
 		if ( $expectedMsg === null ) {
-			$this->assertTrue( $res->isGood() );
+			$this->assertStatusGood( $res );
 		} else {
-			$this->assertFalse( $res->isOK() );
-			$this->assertTrue( $res->hasMessage( $expectedMsg ) );
+			$this->assertStatusError( $expectedMsg, $res );
 		}
 	}
 
 	public function provideAssociatedTalk(): Generator {
 		$getWpFactory = function ( bool $talkExists ): WikiPageFactory {
 			$wpFactory = $this->createMock( WikiPageFactory::class );
-			$wpFactory->method( 'newFromTitle' )->willReturnCallback( static function ( $t ) {
-				return new WikiPage( $t );
+			$wpFactory->method( 'newFromTitle' )->willReturnCallback( function ( $t ) {
+				$title = Title::castFromPageReference( $t );
+				$wikiPage = $this->createMock( WikiPage::class );
+				$wikiPage->method( 'getTitle' )->willReturn( $title );
+				$wikiPage->method( 'getNamespace' )->willReturn( $title->getNamespace() );
+				return $wikiPage;
 			} );
 			$wpFactory->method( 'newFromLinkTarget' )->willReturnCallback(
 				function ( LinkTarget $t ) use ( $talkExists ) {
-					$existingTalk = $this->createMock( PageIdentity::class );
+					$existingTalk = $this->createMock( WikiPage::class );
 					$existingTalk->expects( $this->atLeastOnce() )->method( 'exists' )->willReturn( $talkExists );
 					return $existingTalk;
 				}
 			);
 			return $wpFactory;
 		};
-		$nsInfo = new NamespaceInfo( $this->createMock( ServiceOptions::class ), $this->createHookContainer() );
+		$nsInfo = new NamespaceInfo( $this->createMock( ServiceOptions::class ), $this->createHookContainer(), [], [] );
 
 		$talkPage = new PageIdentityValue( 42, NS_TALK, 'Test talk page', PageIdentity::LOCAL );
 		yield 'Talk page' => [ $talkPage, $getWpFactory( false ), $nsInfo, 'delete-error-associated-alreadytalk' ];

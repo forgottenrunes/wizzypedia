@@ -1,8 +1,23 @@
 List of changes between releases of Extension:AWS.
 
-== master branch (will become AWS 0.12.1 or 0.13.0, depending on magnitude of changes) ==
+== master branch (will become AWS 0.13.1 or 0.14.0, depending on magnitude of changes) ==
 
-No changes since AWS 0.12.0.
+No changes since AWS 0.13.0.
+
+== AWS 0.13.0 ==
+
+* Added support for MediaWiki 1.39.
+* Added support for PHP 8.1.
+
+Minor features:
+* Added $wgAWSLocalCacheExcludeFileExtensions, which allows to exclude some files (e.g. audio)
+from the local cache.
+* Added support for path-style endpoints: $wgFileBackends['s3']['use_path_style_endpoint'] setting.
+* $wgAWSBucketDomain now supports values that start with http:// (to not use HTTPS).
+* Added $wgAWSRepoZones, which can be used to add non-standard zones to $wgLocalFileRepo.
+
+Troubleshooting tools:
+* Debug log now warns if some extension tries to use non-standard zones (not in $wgAWSRepoZones).
 
 == AWS 0.12.0 ==
 

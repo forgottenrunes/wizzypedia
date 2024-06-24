@@ -37,7 +37,7 @@ class TraceProxy extends TokenHandler {
 	 * @param string|Token $token
 	 * @return TokenHandlerResult|null
 	 */
-	private function traceEvent( $func, $token ) {
+	private function traceEvent( string $func, $token ) {
 		$this->env->log(
 			$this->traceType, $this->pipelineId,
 			function () {
@@ -52,7 +52,7 @@ class TraceProxy extends TokenHandler {
 		if ( $profile ) {
 			$s = microtime( true );
 			$res = $this->handler->$func( $token );
-			$t = ( microtime( true ) - $s ) * 1000;
+			$t = (int)( ( microtime( true ) - $s ) * 1000 );
 			$traceName = "{$this->name}::$func";
 			$profile->bumpTimeUse( $traceName, $t, "TT" );
 			$profile->bumpCount( $traceName );
@@ -102,6 +102,8 @@ class TraceProxy extends TokenHandler {
 	 */
 	public function resetState( array $options ): void {
 		$this->handler->resetState( $options );
+		// Copy onAnyEnabled for TraceProxy::process() to read
+		$this->onAnyEnabled = $this->handler->onAnyEnabled;
 	}
 
 	/**

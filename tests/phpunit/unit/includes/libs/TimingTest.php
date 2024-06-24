@@ -19,14 +19,13 @@
  * @author Ori Livneh <ori@wikimedia.org>
  */
 
+/**
+ * @covers Timing
+ */
 class TimingTest extends PHPUnit\Framework\TestCase {
 
 	use MediaWikiCoversValidator;
 
-	/**
-	 * @covers Timing::clearMarks
-	 * @covers Timing::getEntries
-	 */
 	public function testClearMarks() {
 		$timing = new Timing;
 		$this->assertCount( 1, $timing->getEntries() );
@@ -43,10 +42,6 @@ class TimingTest extends PHPUnit\Framework\TestCase {
 		$this->assertCount( 1, $timing->getEntries() );
 	}
 
-	/**
-	 * @covers Timing::mark
-	 * @covers Timing::getEntryByName
-	 */
 	public function testMark() {
 		$timing = new Timing;
 		$timing->mark( 'a' );
@@ -63,9 +58,6 @@ class TimingTest extends PHPUnit\Framework\TestCase {
 		$this->assertGreaterThan( $entry['startTime'], $newEntry['startTime'] );
 	}
 
-	/**
-	 * @covers Timing::measure
-	 */
 	public function testMeasure() {
 		$timing = new Timing;
 
@@ -85,9 +77,6 @@ class TimingTest extends PHPUnit\Framework\TestCase {
 		$this->assertEquals( $b['startTime'] - $a['startTime'], $entry['duration'] );
 	}
 
-	/**
-	 * @covers Timing::getEntriesByType
-	 */
 	public function testGetEntriesByType() {
 		$timing = new Timing;
 
@@ -100,15 +89,11 @@ class TimingTest extends PHPUnit\Framework\TestCase {
 		$timing->measure( 'measure_a', 'mark_a', 'mark_b' );
 		$timing->measure( 'measure_b', 'mark_b', 'mark_c' );
 
-		$marks = array_map( static function ( $entry ) {
-			return $entry['name'];
-		}, $timing->getEntriesByType( 'mark' ) );
+		$marks = array_column( $timing->getEntriesByType( 'mark' ), 'name' );
 
 		$this->assertEquals( [ 'requestStart', 'mark_a', 'mark_b', 'mark_c' ], $marks );
 
-		$measures = array_map( static function ( $entry ) {
-			return $entry['name'];
-		}, $timing->getEntriesByType( 'measure' ) );
+		$measures = array_column( $timing->getEntriesByType( 'measure' ), 'name' );
 
 		$this->assertEquals( [ 'measure_a', 'measure_b' ], $measures );
 	}

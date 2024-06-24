@@ -19,8 +19,14 @@
  * @ingroup Installer
  */
 
+use MediaWiki\Config\HashConfig;
+use MediaWiki\Installer\Pingback;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
-use MediaWiki\User\UserNameUtils;
+use MediaWiki\Parser\Sanitizer;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
+use MediaWiki\User\UserRigorOptions;
 
 class WebInstallerName extends WebInstallerPage {
 
@@ -54,7 +60,7 @@ class WebInstallerName extends WebInstallerPage {
 		// Database isn't available in config yet, so take it
 		// from the installer
 		$pingbackConf = new HashConfig( [
-			'DBtype' => $this->getVar( 'wgDBtype' ),
+			MainConfigNames::DBtype => $this->getVar( 'wgDBtype' ),
 		] );
 		$pingbackInfo = Pingback::getSystemInfo( $pingbackConf );
 
@@ -205,7 +211,7 @@ class WebInstallerName extends WebInstallerPage {
 			$retVal = false;
 		} else {
 			$userNameUtils = MediaWikiServices::getInstance()->getUserNameUtils();
-			$cname = $userNameUtils->getCanonical( $name, UserNameUtils::RIGOR_CREATABLE );
+			$cname = $userNameUtils->getCanonical( $name, UserRigorOptions::RIGOR_CREATABLE );
 			if ( $cname === false ) {
 				$this->parent->showError( 'config-admin-name-invalid', $name );
 				$retVal = false;

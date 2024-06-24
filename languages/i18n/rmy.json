@@ -1,6 +1,7 @@
 {
 	"@metadata": {
 		"authors": [
+			"1233qwer1234qwer4",
 			"Adehertogh",
 			"Desiphral",
 			"לערי ריינהארט",
@@ -175,7 +176,6 @@
 	"prevn": "mai neve {{PLURAL:$1|$1}}",
 	"nextn": "mai purane {{PLURAL:$1|$1}}",
 	"viewprevnext": "Dikh ($1 {{int:pipe-separator}} $2) ($3).",
-	"showingresults": "Tele si <b>$1</b> rezultaturya shirdindoi le ginestar <b>$2</b>.",
 	"preferences": "Kamimata",
 	"prefs-skin": "Dikhimos",
 	"datedefault": "Ni ekh kamipen",
@@ -260,7 +260,7 @@
 	"deletepage-submit": "Khos i patrin",
 	"confirm": "Ja",
 	"excontent": "o ander sas: '$1'",
-	"excontentauthor": "o ander sas: '$1' (thai o korkoro butyarno sas '$2')",
+	"excontentauthor": "o ander sas: '$1' (thai o korkoro butyarno sas '[[Special:Contributions/$2|$2]]')",
 	"historywarning": "Dikh! La patrya so kames to khoses la si la puranipen:",
 	"actioncomplete": "Agorisardi buti",
 	"deletedtext": "\"$1\" sas khosli.\nDikh ando $2 ek patrinipen le palutne butyange khosle.",
@@ -349,5 +349,6 @@
 	"confirm_purge_button": "Va",
 	"version": "Versiya",
 	"specialpages": "Uzalutne patrya",
-	"deletepage": "Khos i patrin"
+	"deletepage": "Khos i patrin",
+	"renameusersubmit": "De le jeneske aver nav"
 }

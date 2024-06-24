@@ -3,13 +3,13 @@
 namespace MediaWiki\Tests\Revision;
 
 use MediaWiki\Revision\ContributionsSegment;
-use MediaWiki\Storage\MutableRevisionRecord;
+use MediaWiki\Revision\MutableRevisionRecord;
 use MockTitleTrait;
 
 class ContributionsSegmentTest extends \MediaWikiUnitTestCase {
 	use MockTitleTrait;
 
-	public function provideFlags() {
+	public static function provideFlags() {
 		yield [
 			[]
 		];

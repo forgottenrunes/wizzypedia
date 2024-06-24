@@ -3,6 +3,7 @@
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\Languages\LanguageNameUtils;
+use MediaWiki\MainConfigNames;
 
 class LanguageNameUtilsTest extends MediaWikiUnitTestCase {
 	use LanguageNameUtilsTestTrait;
@@ -21,15 +22,16 @@ class LanguageNameUtilsTest extends MediaWikiUnitTestCase {
 	 */
 	private function newObj( array $optionsArray = [] ): LanguageNameUtils {
 		// TODO Why is hookContainer unset here sometimes?
-		$this->hookContainer = $this->hookContainer ?? $this->createHookContainer();
+		$this->hookContainer ??= $this->createHookContainer();
 		return new LanguageNameUtils(
 			new ServiceOptions(
 				LanguageNameUtils::CONSTRUCTOR_OPTIONS,
 				$optionsArray,
 				[
-					'ExtraLanguageNames' => [],
-					'LanguageCode' => 'en',
-					'UsePigLatinVariant' => false,
+					MainConfigNames::ExtraLanguageNames => [],
+					MainConfigNames::LanguageCode => 'en',
+					MainConfigNames::UsePigLatinVariant => true,
+					MainConfigNames::UseXssLanguage => false,
 				]
 			),
 			$this->hookContainer
@@ -38,6 +40,10 @@ class LanguageNameUtilsTest extends MediaWikiUnitTestCase {
 
 	protected function setLanguageTemporaryHook( string $hookName, $handler ): void {
 		$this->hookContainer->register( $hookName, $handler );
+	}
+
+	protected function clearLanguageHook( string $hookName ): void {
+		$this->hookContainer->clear( $hookName );
 	}
 
 	private function isSupportedLanguage( $code ) {

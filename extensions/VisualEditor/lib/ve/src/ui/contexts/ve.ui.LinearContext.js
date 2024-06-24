@@ -27,6 +27,7 @@ ve.ui.LinearContext = function VeUiLinearContext() {
 	this.afterContextChangeTimeout = null;
 	this.afterContextChangeHandler = this.afterContextChange.bind( this );
 	this.updateDimensionsDebounced = ve.debounce( this.updateDimensions.bind( this ) );
+	this.persistentSources = [];
 
 	// Events
 	this.surface.getModel().connect( this, {
@@ -41,44 +42,6 @@ ve.ui.LinearContext = function VeUiLinearContext() {
 OO.inheritClass( ve.ui.LinearContext, ve.ui.Context );
 
 /* Static Properties */
-
-/**
- * Context items should show a delete button
- *
- * @static
- * @inheritable
- * @property {Object}
- */
-ve.ui.LinearContext.static.showDeleteButton = false;
-
-/**
- * Context items should show a copy button
- *
- * @static
- * @inheritable
- * @property {Object}
- */
-ve.ui.LinearContext.static.showCopyButton = false;
-
-/* Methods */
-
-/**
- * Check if context items should show a delete button
- *
- * @return {boolean} Context items should show a delete button
- */
-ve.ui.LinearContext.prototype.showDeleteButton = function () {
-	return this.constructor.static.showDeleteButton;
-};
-
-/**
- * Check if context items should show a copy button
- *
- * @return {boolean} Context items should show a copy button
- */
-ve.ui.LinearContext.prototype.showCopyButton = function () {
-	return this.constructor.static.showCopyButton;
-};
 
 /**
  * Handle context change event.
@@ -243,7 +206,36 @@ ve.ui.LinearContext.prototype.isInspectable = function () {
 };
 
 /**
+ * Add a persistent source that will stay visible until manually removed.
+ *
+ * @param {Object} source Object containing `name`, `model` and `config` properties.
+ *   See #getRelatedSources.
+ */
+ve.ui.LinearContext.prototype.addPersistentSource = function ( source ) {
+	this.persistentSources.push(
+		ve.extendObject( { type: 'persistent' }, source )
+	);
+
+	this.onContextChange();
+};
+
+/**
+ * Remove a persistent source by name
+ *
+ * @param {string} name Source name
+ */
+ve.ui.LinearContext.prototype.removePersistentSource = function ( name ) {
+	this.persistentSources = this.persistentSources.filter( function ( source ) {
+		return source.name !== name;
+	} );
+
+	this.onContextChange();
+};
+
+/**
  * @inheritdoc
+ *
+ * Also adds the `embeddable` property to each object.
  */
 ve.ui.LinearContext.prototype.getRelatedSources = function () {
 	var surfaceModel = this.surface.getModel(),
@@ -260,6 +252,7 @@ ve.ui.LinearContext.prototype.getRelatedSources = function () {
 		if ( selectedModels.length ) {
 			this.relatedSources = this.getRelatedSourcesFromModels( selectedModels );
 		}
+		this.relatedSources = this.relatedSources.concat( this.persistentSources );
 	}
 
 	return this.relatedSources;
@@ -303,18 +296,6 @@ ve.ui.LinearContext.prototype.getRelatedSourcesFromModels = function ( selectedM
 				embeddable: !toolClass || toolClass.static.makesEmbeddableContextItem,
 				name: tools[ i ].name,
 				model: tools[ i ].model
-			} );
-		}
-	}
-	if ( !relatedSources.length ) {
-		var selectedNode = this.surface.getModel().getSelectedNode();
-		// For now we only need alien contexts to show the delete button
-		if ( selectedNode && selectedNode.isFocusable() && this.showDeleteButton() && ve.ui.contextItemFactory.lookup( 'alien' ) ) {
-			relatedSources.push( {
-				type: 'item',
-				embeddable: ve.ui.contextItemFactory.isEmbeddable( 'alien' ),
-				name: 'alien',
-				model: selectedNode
 			} );
 		}
 	}

@@ -8,7 +8,6 @@
 		]
 	},
 	"visualeditor": "VisualEditor",
-	"visualeditor-aliencontextitem-title": "Элемент",
 	"visualeditor-aliennode-tooltip": "Бехк мабаккха, хIанза, дIадолалу текста хувцам бара режиме мара из элемент хувца йиш яц",
 	"visualeditor-align-widget-center": "Юкъе",
 	"visualeditor-align-widget-left": "Аьрдехьа",
@@ -28,7 +27,6 @@
 	"visualeditor-clipboard-cut": "Хьахоададе",
 	"visualeditor-clipboard-paste": "Хьачудаккха",
 	"visualeditor-clipboard-paste-special": "Хьачудаккха цхьалха текст санна",
-	"visualeditor-commentinspector-edit": "Алар нийсде",
 	"visualeditor-commentinspector-title": "Алар",
 	"visualeditor-commentinspector-tooltip": "Алар",
 	"visualeditor-content-select-all": "Харжа деррига",

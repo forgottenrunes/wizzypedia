@@ -2,31 +2,25 @@
 
 namespace MediaWiki\Tests\Rest\Handler;
 
-use BagOStuff;
 use DeferredUpdates;
-use EmptyBagOStuff;
 use Exception;
-use ExtensionRegistry;
 use HashBagOStuff;
-use HashConfig;
-use MediaWiki\Config\ServiceOptions;
-use MediaWiki\Json\JsonCodec;
-use MediaWiki\Parser\ParserCacheFactory;
+use MediaWiki\Hook\ParserLogLinterDataHook;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Rest\Handler\PageHTMLHandler;
 use MediaWiki\Rest\LocalizedHttpException;
 use MediaWiki\Rest\RequestData;
+use MediaWiki\Title\Title;
+use MediaWiki\Utils\MWTimestamp;
 use MediaWikiIntegrationTestCase;
-use MWTimestamp;
-use NullStatsdDataFactory;
 use PHPUnit\Framework\MockObject\MockObject;
-use Psr\Log\NullLogger;
-use WANObjectCache;
+use Psr\Http\Message\StreamInterface;
 use Wikimedia\Message\MessageValue;
 use Wikimedia\Parsoid\Core\ClientError;
-use Wikimedia\Parsoid\Core\PageBundle;
 use Wikimedia\Parsoid\Core\ResourceLimitExceededException;
 use Wikimedia\Parsoid\Parsoid;
-use Wikimedia\TestingAccessWrapper;
+use Wikimedia\Parsoid\Utils\ContentUtils;
+use Wikimedia\Parsoid\Utils\DOMUtils;
 use WikiPage;
 
 /**
@@ -35,10 +29,15 @@ use WikiPage;
  */
 class PageHTMLHandlerTest extends MediaWikiIntegrationTestCase {
 	use HandlerTestTrait;
+	use PageHandlerTestTrait;
+	use HTMLHandlerTestTrait;
 
 	private const WIKITEXT = 'Hello \'\'\'World\'\'\'';
 
-	private const HTML = '<p>Hello <b>World</b></p>';
+	private const HTML = '>World</';
+
+	/** @var HashBagOStuff */
+	private $parserCacheBagOStuff;
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -51,68 +50,25 @@ class PageHTMLHandlerTest extends MediaWikiIntegrationTestCase {
 			'text',
 			'content'
 		];
+
+		$this->parserCacheBagOStuff = new HashBagOStuff();
 	}
 
 	/**
-	 * Checks whether Parsoid extension is installed and skips the test if it's not.
-	 */
-	private function checkParsoidInstalled() {
-		if ( !ExtensionRegistry::getInstance()->isLoaded( 'Parsoid' ) ) {
-			$this->markTestSkipped( 'Skip test, since parsoid is not configured' );
-		}
-	}
-
-	/**
-	 * @param BagOStuff|null $cache
 	 * @param Parsoid|MockObject|null $parsoid
+	 *
 	 * @return PageHTMLHandler
-	 * @throws Exception
 	 */
-	private function newHandler( BagOStuff $cache = null, Parsoid $parsoid = null ): PageHTMLHandler {
-		$parserCacheFactoryOptions = new ServiceOptions( ParserCacheFactory::CONSTRUCTOR_OPTIONS, [
-			'ParserCacheUseJson' => true,
-			'CacheEpoch' => '20200202112233',
-			'OldRevisionParserCacheExpireTime' => 60,
-		] );
-
-		$parserCacheFactory = new ParserCacheFactory(
-			$cache ?: new EmptyBagOStuff(),
-			new WANObjectCache( [ 'cache' => $cache ?: new EmptyBagOStuff() ] ),
-			$this->createHookContainer(),
-			new JsonCodec(),
-			new NullStatsdDataFactory(),
-			new NullLogger(),
-			$parserCacheFactoryOptions,
-			$this->getServiceContainer()->getTitleFactory(),
-			$this->getServiceContainer()->getWikiPageFactory()
-		);
-
-		$handler = new PageHTMLHandler(
-			new HashConfig( [
-				'RightsUrl' => 'https://example.com/rights',
-				'RightsText' => 'some rights',
-			] ),
-			$this->getServiceContainer()->getRevisionLookup(),
-			$this->getServiceContainer()->getTitleFormatter(),
-			$parserCacheFactory,
-			$this->getServiceContainer()->getGlobalIdGenerator(),
-			$this->getServiceContainer()->getPageStore()
-		);
-
-		if ( $parsoid !== null ) {
-			$handlerWrapper = TestingAccessWrapper::newFromObject( $handler );
-			$helperWrapper = TestingAccessWrapper::newFromObject( $handlerWrapper->htmlHelper );
-			$helperWrapper->parsoid = $parsoid;
+	private function newHandler( ?Parsoid $parsoid = null ): PageHTMLHandler {
+		if ( $parsoid ) {
+			$this->resetServicesWithMockedParsoid( $parsoid );
 		}
-
-		return $handler;
+		return $this->newPageHtmlHandler();
 	}
 
 	public function testExecuteWithHtml() {
-		$this->checkParsoidInstalled();
 		$page = $this->getExistingTestPage( 'HtmlEndpointTestPage/with/slashes' );
-		$this->assertTrue(
-			$this->editPage( $page, self::WIKITEXT )->isGood(),
+		$this->assertStatusGood( $this->editPage( $page, self::WIKITEXT ),
 			'Edited a page'
 		);
 
@@ -131,11 +87,63 @@ class PageHTMLHandlerTest extends MediaWikiIntegrationTestCase {
 		$this->assertStringContainsString( self::HTML, $data['html'] );
 	}
 
-	public function testExecuteHtmlOnly() {
-		$this->checkParsoidInstalled();
+	public function testExecuteWillLint() {
+		$this->overrideConfigValue( MainConfigNames::ParsoidSettings, [
+			'linting' => true
+		] );
+
+		$mockHandler = $this->createMock( ParserLogLinterDataHook::class );
+		$mockHandler->expects( $this->once() ) // this is the critical assertion in this test case!
+		->method( 'onParserLogLinterData' );
+
+		$this->setTemporaryHook(
+			'ParserLogLinterData',
+			$mockHandler
+		);
+
 		$page = $this->getExistingTestPage( 'HtmlEndpointTestPage/with/slashes' );
-		$this->assertTrue(
-			$this->editPage( $page, self::WIKITEXT )->isGood(),
+
+		$request = new RequestData(
+			[ 'pathParams' => [ 'title' => $page->getTitle()->getPrefixedText() ] ]
+		);
+
+		$handler = $this->newHandler();
+		$data = $this->executeHandlerAndGetBodyData( $handler, $request, [
+			'format' => 'with_html'
+		] );
+	}
+
+	public function testExecuteWithHtmlForSystemMessagePage() {
+		$title = Title::newFromText( 'MediaWiki:Logouttext' );
+		$page = $this->getNonexistingTestPage( $title );
+
+		$request = new RequestData(
+			[ 'pathParams' => [ 'title' => $page->getTitle()->getPrefixedText() ] ]
+		);
+
+		$handler = $this->newHandler();
+		$data = $this->executeHandlerAndGetBodyData( $handler, $request, [
+			'format' => 'with_html'
+		] );
+
+		// Let's create and test on a full HTML document since system message pages
+		// will not return a full HTML document by default.
+		$data['html'] = ContentUtils::toXML( DOMUtils::parseHTML( $data['html'] ) );
+
+		$this->assertSame( $title->getPrefixedDBkey(), $data['key'] );
+		$this->assertSame( $title->getPrefixedText(), $data['title'] );
+		$this->assertStringContainsString( '<!DOCTYPE html>', $data['html'] );
+		$this->assertStringContainsString( '<html', $data['html'] );
+		$this->assertStringContainsString( '<meta http-equiv', $data['html'] );
+		$this->assertStringContainsString( 'content="en"', $data['html'] );
+
+		$msg = wfMessage( 'logouttext' )->inLanguage( 'en' )->useDatabase( false );
+		$this->assertStringContainsString( $msg->parse(), $data['html'] );
+	}
+
+	public function testExecuteHtmlOnly() {
+		$page = $this->getExistingTestPage( 'HtmlEndpointTestPage/with/slashes' );
+		$this->assertStatusGood( $this->editPage( $page, self::WIKITEXT ),
 			'Edited a page'
 		);
 
@@ -154,39 +162,94 @@ class PageHTMLHandlerTest extends MediaWikiIntegrationTestCase {
 		$this->assertStringContainsString( self::HTML, $htmlResponse );
 	}
 
-	public function testHtmlIsCached() {
-		$this->checkParsoidInstalled();
+	public function testExecuteHtmlOnlyForSystemMessagePage() {
+		$title = Title::newFromText( 'MediaWiki:Logouttext/de' );
+		$page = $this->getNonexistingTestPage( $title );
 
-		$page = $this->getExistingTestPage( 'HtmlEndpointTestPage/with/slashes' );
 		$request = new RequestData(
 			[ 'pathParams' => [ 'title' => $page->getTitle()->getPrefixedText() ] ]
 		);
 
-		$cache = new HashBagOStuff();
-		$parsoid = $this->createNoOpMock( Parsoid::class, [ 'wikitext2html' ] );
-		$parsoid->expects( $this->once() )
-			->method( 'wikitext2html' )
-			->willReturn( new PageBundle( 'mocked HTML', null, null, '1.0' ) );
-
-		$handler = $this->newHandler( $cache, $parsoid );
+		$handler = $this->newHandler();
 		$response = $this->executeHandler( $handler, $request, [
 			'format' => 'html'
 		] );
-		$htmlResponse = (string)$response->getBody();
-		$this->assertStringContainsString( 'mocked HTML', $htmlResponse );
 
-		// check that we can run the test again and ensure that the parse is only run once
-		$handler = $this->newHandler( $cache, $parsoid );
-		$response = $this->executeHandler( $handler, $request, [
-			'format' => 'html'
-		] );
 		$htmlResponse = (string)$response->getBody();
-		$this->assertStringContainsString( 'mocked HTML', $htmlResponse );
+		// Let's create and test on a full HTML document since system message pages
+		// will not return a full HTML document by default.
+		$htmlResponse = ContentUtils::toXML( DOMUtils::parseHTML( $htmlResponse ) );
+
+		$this->assertStringContainsString( '<!DOCTYPE html>', $htmlResponse );
+		$this->assertStringContainsString( '<html', $htmlResponse );
+		$this->assertStringContainsString( '<meta http-equiv', $htmlResponse );
+		$this->assertStringContainsString( 'content="de"', $htmlResponse );
+
+		$msg = wfMessage( 'logouttext' )->inLanguage( 'de' )->useDatabase( false );
+		$this->assertStringContainsString( $msg->parse(), $htmlResponse );
+	}
+
+	/**
+	 * @dataProvider provideExecuteWithVariant
+	 */
+	public function testExecuteWithVariant(
+		string $format,
+		callable $bodyHtmlHandler,
+		string $expectedContentLanguage,
+		string $expectedVaryHeader
+	) {
+		$this->overrideConfigValue( 'UsePigLatinVariant', true );
+		$page = $this->getExistingTestPage( 'HtmlVariantConversion' );
+		$this->assertStatusGood( $this->editPage( $page, '<p>test language conversion</p>' ),
+			'Edited a page'
+		);
+
+		$acceptLanguage = 'en-x-piglatin';
+		$request = new RequestData(
+			[
+				'pathParams' => [ 'title' => $page->getTitle()->getPrefixedText() ],
+				'headers' => [
+					'Accept-Language' => $acceptLanguage
+				]
+			]
+		);
+
+		$handler = $this->newHandler();
+		$response = $this->executeHandler( $handler, $request, [
+			'format' => $format
+		] );
+
+		$htmlBody = $bodyHtmlHandler( $response->getBody() );
+		$contentLanguageHeader = $response->getHeaderLine( 'Content-Language' );
+		$varyHeader = $response->getHeaderLine( 'Vary' );
+
+		$this->assertStringContainsString( '>esttay anguagelay onversioncay<', $htmlBody );
+		$this->assertEquals( $expectedContentLanguage, $contentLanguageHeader );
+		$this->assertStringContainsStringIgnoringCase( $expectedVaryHeader, $varyHeader );
+		$this->assertStringContainsString( $acceptLanguage, $response->getHeaderLine( 'ETag' ) );
+	}
+
+	public static function provideExecuteWithVariant() {
+		yield 'with_html request should contain accept language but not content language' => [
+			'with_html',
+			static function ( StreamInterface $response ) {
+				return json_decode( $response->getContents(), true )['html'];
+			},
+			'',
+			'accept-language'
+		];
+
+		yield 'html request should contain accept and content language' => [
+			'html',
+			static function ( StreamInterface $response ) {
+				return $response->getContents();
+			},
+			'en-x-piglatin',
+			'accept-language'
+		];
 	}
 
 	public function testEtagLastModified() {
-		$this->checkParsoidInstalled();
-
 		$time = time();
 		MWTimestamp::setFakeTime( $time );
 
@@ -195,32 +258,30 @@ class PageHTMLHandlerTest extends MediaWikiIntegrationTestCase {
 			[ 'pathParams' => [ 'title' => $page->getTitle()->getPrefixedText() ] ]
 		);
 
-		$cache = new HashBagOStuff();
-
 		// First, test it works if nothing was cached yet.
 		// Make some time pass since page was created:
 		$time += 10;
 		MWTimestamp::setFakeTime( $time );
-		$handler = $this->newHandler( $cache );
+		$handler = $this->newHandler();
 		$response = $this->executeHandler( $handler, $request, [
 			'format' => 'html'
 		] );
 		$this->assertArrayHasKey( 'ETag', $response->getHeaders() );
 		$etag = $response->getHeaderLine( 'ETag' );
-		$this->assertStringMatchesFormat( '"' . $page->getLatest() . '/%x-%x-%x-%x-%x"', $etag );
+		$this->assertStringMatchesFormat( '"' . $page->getLatest() . '/%x-%x-%x-%x-%x/%s"', $etag );
 		$this->assertArrayHasKey( 'Last-Modified', $response->getHeaders() );
 		$this->assertSame( MWTimestamp::convert( TS_RFC2822, $time ),
 			$response->getHeaderLine( 'Last-Modified' ) );
 
 		// Now, test that headers work when getting from cache too.
-		$handler = $this->newHandler( $cache );
+		$handler = $this->newHandler();
 		$response = $this->executeHandler( $handler, $request, [
 			'format' => 'html'
 		] );
 		$this->assertArrayHasKey( 'ETag', $response->getHeaders() );
 		$this->assertSame( $etag, $response->getHeaderLine( 'ETag' ) );
 		$etag = $response->getHeaderLine( 'ETag' );
-		$this->assertStringMatchesFormat( '"' . $page->getLatest() . '/%x-%x-%x-%x-%x"', $etag );
+		$this->assertStringMatchesFormat( '"' . $page->getLatest() . '/%x-%x-%x-%x-%x/%s"', $etag );
 		$this->assertArrayHasKey( 'Last-Modified', $response->getHeaders() );
 		$this->assertSame( MWTimestamp::convert( TS_RFC2822, $time ),
 			$response->getHeaderLine( 'Last-Modified' ) );
@@ -234,20 +295,20 @@ class PageHTMLHandlerTest extends MediaWikiIntegrationTestCase {
 		);
 		DeferredUpdates::doUpdates();
 
-		$handler = $this->newHandler( $cache );
+		$handler = $this->newHandler();
 		$response = $this->executeHandler( $handler, $request, [
 			'format' => 'html'
 		] );
 		$this->assertArrayHasKey( 'ETag', $response->getHeaders() );
 		$this->assertNotSame( $etag, $response->getHeaderLine( 'ETag' ) );
 		$etag = $response->getHeaderLine( 'ETag' );
-		$this->assertStringMatchesFormat( '"' . $page->getLatest() . '/%x-%x-%x-%x-%x"', $etag );
+		$this->assertStringMatchesFormat( '"' . $page->getLatest() . '/%x-%x-%x-%x-%x/%s"', $etag );
 		$this->assertArrayHasKey( 'Last-Modified', $response->getHeaders() );
 		$this->assertSame( MWTimestamp::convert( TS_RFC2822, $time ),
 			$response->getHeaderLine( 'Last-Modified' ) );
 	}
 
-	public function provideHandlesParsoidError() {
+	public static function provideHandlesParsoidError() {
 		yield 'ClientError' => [
 			new ClientError( 'TEST_TEST' ),
 			new LocalizedHttpException(
@@ -277,8 +338,6 @@ class PageHTMLHandlerTest extends MediaWikiIntegrationTestCase {
 		Exception $parsoidException,
 		Exception $expectedException
 	) {
-		$this->checkParsoidInstalled();
-
 		$page = $this->getExistingTestPage( 'HtmlEndpointTestPage/with/slashes' );
 		$request = new RequestData(
 			[ 'pathParams' => [ 'title' => $page->getTitle()->getPrefixedText() ] ]
@@ -289,7 +348,7 @@ class PageHTMLHandlerTest extends MediaWikiIntegrationTestCase {
 			->method( 'wikitext2html' )
 			->willThrowException( $parsoidException );
 
-		$handler = $this->newHandler( null, $parsoid );
+		$handler = $this->newHandler( $parsoid );
 		$this->expectExceptionObject( $expectedException );
 		$this->executeHandler( $handler, $request, [
 			'format' => 'html'
@@ -321,7 +380,7 @@ class PageHTMLHandlerTest extends MediaWikiIntegrationTestCase {
 		);
 
 		$handler = $this->newHandler();
-		$this->executeHandler( $handler, $request );
+		$this->executeHandler( $handler, $request, [ 'format' => 'html' ] );
 	}
 
 	/**
@@ -340,6 +399,83 @@ class PageHTMLHandlerTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( CONTENT_MODEL_WIKITEXT, $data['content_model'] );
 		$this->assertSame( 'https://example.com/rights', $data['license']['url'] );
 		$this->assertSame( 'some rights', $data['license']['title'] );
+	}
+
+	/**
+	 * Request One:
+	 *
+	 * When a request is made with no stash entries in the stash and stashing
+	 * is set to false, don't stash anything. At this point, the stash is empty.
+	 *
+	 * Request Two:
+	 *
+	 * Once a request is made with stashing option set to true, we should have
+	 * one entry in parsoid stash. So at this point, the stash is no longer empty
+	 * as before.
+	 *
+	 * Request Three:
+	 *
+	 * Upon the third request, there is already a stash entry and if the 3rd request's
+	 * stashing option is set to false, we're not invalidating the stash entries that
+	 * exiting with the UUID. So, if we request a parsoid stashed object from the stash
+	 * with a given UUID that exist, we should have a hit.
+	 */
+	public function testExecuteStashParsoidOutput() {
+		$page = $this->getExistingTestPage();
+		$outputStash = $this->getParsoidOutputStash();
+
+		[ /* $html1 */, $etag1, $stashKey1 ] = $this->executePageHTMLRequest( $page );
+		$this->assertNull( $outputStash->get( $stashKey1 ) );
+
+		[ /* $html2 */, $etag2, $stashKey2 ] = $this->executePageHTMLRequest( $page, [ 'stash' => true ] );
+		$this->assertNotNull( $outputStash->get( $stashKey2 ) );
+
+		[ /* $html3 */, $etag3, $stashKey3 ] = $this->executePageHTMLRequest( $page );
+		/**
+		 * The stash for the previous request should still live at this point.
+		 */
+		$this->assertNotNull( $outputStash->get( $stashKey2 ) );
+		$this->assertNotNull( $outputStash->get( $stashKey3 ) );
+		$this->assertSame( $etag1, $etag3 );
+		$this->assertNotSame( $etag1, $etag2 );
+
+		// Make sure the output for stashed and unstashed doesn't have the same tag,
+		// since it will actually be different!
+		// FIXME: implement flavors and write test cases for them.
+	}
+
+	public function testETagVariesOnFormat() {
+		$page = $this->getExistingTestPage();
+
+		[ /* $html1 */, $etag1 ] =
+			$this->executePageHTMLRequest( $page, [], [ 'format' => 'html' ] );
+
+		[ /* $html2 */, $etag2 ] =
+			$this->executePageHTMLRequest( $page, [], [ 'format' => 'with_html' ] );
+
+		$this->assertNotSame( $etag1, $etag2 );
+	}
+
+	public function testStashingWithRateLimitExceeded() {
+		// Set the rate limit to 1 request per minute
+		$this->overrideConfigValue(
+			MainConfigNames::RateLimits,
+			[
+				'stashbasehtml' => [
+					'&can-bypass' => false,
+					'ip' => [ 1, 60 ],
+					'newbie' => [ 1, 60 ]
+				]
+			]
+		);
+
+		$page = $this->getExistingTestPage();
+
+		$this->executePageHTMLRequest( $page, [ 'stash' => true ] );
+		// In this request, the rate limit has been exceeded, so it should throw.
+		$this->expectException( LocalizedHttpException::class );
+		$this->expectExceptionCode( 429 );
+		$this->executePageHTMLRequest( $page, [ 'stash' => true ] );
 	}
 
 }

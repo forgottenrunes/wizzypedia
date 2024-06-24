@@ -1,25 +1,36 @@
 <?php
 
-use MediaWiki\MediaWikiServices;
+namespace MediaWiki\Extension\Scribunto\Tests\Engines\LuaCommon;
 
+use MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaInterpreterNotFoundError;
+use MediaWiki\Extension\Scribunto\Engines\LuaSandbox\LuaSandboxEngine;
+use MediaWiki\Extension\Scribunto\Engines\LuaStandalone\LuaStandaloneEngine;
+use MediaWiki\Extension\Scribunto\ScribuntoEngineBase;
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
+use Parser;
+use ParserOptions;
 use PHPUnit\Framework\DataProviderTestSuite;
 use PHPUnit\Framework\TestSuite;
 use PHPUnit\Framework\WarningTestCase;
 use PHPUnit\Util\Test;
+use ReflectionClass;
 
 /**
  * Trait that helps LuaEngineTestBase and LuaEngineUnitTestBase
  */
-trait Scribunto_LuaEngineTestHelper {
+trait LuaEngineTestHelper {
 	/** @var array[] */
 	private static $engineConfigurations = [
 		'LuaSandbox' => [
+			'class' => LuaSandboxEngine::class,
 			'memoryLimit' => 50000000,
 			'cpuLimit' => 30,
 			'allowEnvFuncs' => true,
 			'maxLangCacheSize' => 30,
 		],
 		'LuaStandalone' => [
+			'class' => LuaStandaloneEngine::class,
 			'errorFile' => null,
 			'luaPath' => null,
 			'memoryLimit' => 50000000,
@@ -28,6 +39,10 @@ trait Scribunto_LuaEngineTestHelper {
 			'maxLangCacheSize' => 30,
 		],
 	];
+	/** @var int[] */
+	protected $templateLoadCounts = [];
+	/** @var array */
+	protected $extraModules = [];
 
 	/**
 	 * Create a PHPUnit test suite to run the test against all engines
@@ -54,16 +69,16 @@ trait Scribunto_LuaEngineTestHelper {
 					Parser::OT_HTML,
 					true
 				);
-				$engineClass = "Scribunto_{$engineName}Engine";
+				$engineClass = $opts['class'];
 				$engine = new $engineClass(
 					self::$engineConfigurations[$engineName] + [ 'parser' => $parser ]
 				);
 				$parser->scribunto_engine = $engine;
 				$engine->setTitle( $parser->getTitle() );
 				$engine->getInterpreter();
-			} catch ( Scribunto_LuaInterpreterNotFoundError $e ) {
+			} catch ( LuaInterpreterNotFoundError $e ) {
 				$suite->addTest(
-					new Scribunto_LuaEngineTestSkip(
+					new LuaEngineTestSkip(
 						$className, "interpreter for $engineName is not available"
 					), [ 'Lua', $engineName ]
 				);
@@ -130,11 +145,20 @@ trait Scribunto_LuaEngineTestHelper {
 	 */
 	protected function getEngine() {
 		if ( !$this->engine ) {
-			$parser = MediaWikiServices::getInstance()->getParserFactory()->create();
+			$services = MediaWikiServices::getInstance();
+			$parser = $services->getParserFactory()->create();
 			$options = ParserOptions::newFromAnon();
 			$options->setTemplateCallback( [ $this, 'templateCallback' ] );
+			$options->setTargetLanguage( $services->getLanguageFactory()->getLanguage( 'en' ) );
 			$parser->startExternalParse( $this->getTestTitle(), $options, Parser::OT_HTML, true );
-			$class = "Scribunto_{$this->engineName}Engine";
+
+			// HACK
+			if ( $this->engineName === 'LuaSandbox' ) {
+				$class = LuaSandboxEngine::class;
+			} elseif ( $this->engineName === 'LuaStandalone' ) {
+				$class = LuaStandaloneEngine::class;
+			}
+
 			$this->engine = new $class(
 				self::$engineConfigurations[$this->engineName] + [ 'parser' => $parser ]
 			);
@@ -151,6 +175,8 @@ trait Scribunto_LuaEngineTestHelper {
 	 * @return array
 	 */
 	public function templateCallback( $title, $parser ) {
+		$this->templateLoadCounts[$title->getFullText()] =
+			( $this->templateLoadCounts[$title->getFullText()] ?? 0 ) + 1;
 		if ( isset( $this->extraModules[$title->getFullText()] ) ) {
 			return [
 				'text' => $this->extraModules[$title->getFullText()],

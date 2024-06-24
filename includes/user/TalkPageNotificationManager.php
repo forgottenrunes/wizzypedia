@@ -21,12 +21,16 @@
 
 namespace MediaWiki\User;
 
+use DeferredUpdates;
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\HookContainer\HookContainer;
+use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Revision\RevisionLookup;
 use MediaWiki\Revision\RevisionRecord;
-use MWTimestamp;
-use ReadOnlyMode;
-use Wikimedia\Rdbms\ILoadBalancer;
+use MediaWiki\Utils\MWTimestamp;
+use Wikimedia\Rdbms\IConnectionProvider;
+use Wikimedia\Rdbms\ReadOnlyMode;
 
 /**
  * Manages user talk page notifications
@@ -38,41 +42,40 @@ class TalkPageNotificationManager {
 	 * @internal For use by ServiceWiring
 	 */
 	public const CONSTRUCTOR_OPTIONS = [
-		'DisableAnonTalk'
+		MainConfigNames::DisableAnonTalk
 	];
 
-	/** @var array */
-	private $userMessagesCache = [];
-
-	/** @var bool */
-	private $disableAnonTalk;
-
-	/** @var ILoadBalancer */
-	private $loadBalancer;
-
-	/** @var ReadOnlyMode */
-	private $readOnlyMode;
-
-	/** @var RevisionLookup */
-	private $revisionLookup;
+	private array $userMessagesCache = [];
+	private bool $disableAnonTalk;
+	private IConnectionProvider $dbProvider;
+	private ReadOnlyMode $readOnlyMode;
+	private RevisionLookup $revisionLookup;
+	private HookRunner $hookRunner;
+	private UserFactory $userFactory;
 
 	/**
 	 * @param ServiceOptions $serviceOptions
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param ReadOnlyMode $readOnlyMode
 	 * @param RevisionLookup $revisionLookup
+	 * @param HookContainer $hookContainer
+	 * @param UserFactory $userFactory
 	 */
 	public function __construct(
 		ServiceOptions $serviceOptions,
-		ILoadBalancer $loadBalancer,
+		IConnectionProvider $dbProvider,
 		ReadOnlyMode $readOnlyMode,
-		RevisionLookup $revisionLookup
+		RevisionLookup $revisionLookup,
+		HookContainer $hookContainer,
+		UserFactory $userFactory
 	) {
 		$serviceOptions->assertRequiredOptions( self::CONSTRUCTOR_OPTIONS );
-		$this->disableAnonTalk = $serviceOptions->get( 'DisableAnonTalk' );
-		$this->loadBalancer = $loadBalancer;
+		$this->disableAnonTalk = $serviceOptions->get( MainConfigNames::DisableAnonTalk );
+		$this->dbProvider = $dbProvider;
 		$this->readOnlyMode = $readOnlyMode;
 		$this->revisionLookup = $revisionLookup;
+		$this->hookRunner = new HookRunner( $hookContainer );
+		$this->userFactory = $userFactory;
 	}
 
 	/**
@@ -97,6 +100,63 @@ class TalkPageNotificationManager {
 	}
 
 	/**
+	 * Clear notifications when the user's own talk page is viewed
+	 *
+	 * @param UserIdentity $user
+	 * @param RevisionRecord|null $oldRev If it is an old revision view, the
+	 *   old revision. If it is a current revision view, this should be null.
+	 */
+	public function clearForPageView(
+		UserIdentity $user,
+		RevisionRecord $oldRev = null
+	) {
+		// Abort if the hook says so. (Echo doesn't abort, it just queues its own update)
+		if ( !$this->hookRunner->onUserClearNewTalkNotification(
+			$user,
+			$oldRev ? $oldRev->getId() : 0
+		) ) {
+			return;
+		}
+
+		if ( $this->isTalkDisabled( $user ) ) {
+			return;
+		}
+
+		// Nothing to do if there are no messages
+		if ( !$this->userHasNewMessages( $user ) ) {
+			return;
+		}
+
+		// If there is a subsequent revision after the one being viewed, use
+		// its timestamp as the new notification timestamp. If there is no
+		// subsequent revision, the notification is cleared.
+		if ( $oldRev ) {
+			$newRev = $this->revisionLookup->getNextRevision( $oldRev );
+			if ( $newRev ) {
+				DeferredUpdates::addCallableUpdate(
+					function () use ( $user, $newRev ) {
+						$this->dbDeleteNewUserMessages( $user );
+						$this->dbUpdateNewUserMessages( $user, $newRev );
+					}
+				);
+				return;
+			}
+		}
+
+		// Update the cache now so that the skin doesn't show a notification
+		$userKey = $this->getCacheKey( $user );
+		$this->userMessagesCache[$userKey] = false;
+
+		// Defer the DB delete
+		DeferredUpdates::addCallableUpdate(
+			function () use ( $user ) {
+				$this->touchUser( $user );
+				$this->dbDeleteNewUserMessages( $user );
+			}
+		);
+	}
+
+	/**
 	 * Update the talk page messages status.
 	 *
 	 * @param UserIdentity $user
@@ -114,6 +174,7 @@ class TalkPageNotificationManager {
 
 		$userKey = $this->getCacheKey( $user );
 		$this->userMessagesCache[$userKey] = true;
+		$this->touchUser( $user );
 		$this->dbUpdateNewUserMessages( $user, $curRev );
 	}
 
@@ -150,15 +211,13 @@ class TalkPageNotificationManager {
 			return null;
 		}
 
-		$dbr = $this->loadBalancer->getConnectionRef( DB_REPLICA );
-		list( $field, $id ) = $this->getQueryFieldAndId( $user );
+		[ $field, $id ] = $this->getQueryFieldAndId( $user );
 		// Get the "last viewed rev" timestamp from the oldest message notification
-		$timestamp = $dbr->selectField(
-			'user_newtalk',
-			'MIN(user_last_timestamp)',
-			[ $field => $id ],
-			__METHOD__
-		);
+		$timestamp = $this->dbProvider->getReplicaDatabase()->newSelectQueryBuilder()
+			->select( 'MIN(user_last_timestamp)' )
+			->from( 'user_newtalk' )
+			->where( [ $field => $id ] )
+			->caller( __METHOD__ )->fetchField();
 		if ( $timestamp ) {
 			// TODO: Now that User::setNewTalk() was removed, it should be possible to
 			// cache *not* having a new message as well (if $timestamp is null).
@@ -192,14 +251,12 @@ class TalkPageNotificationManager {
 	 * @return bool True if the user has new messages
 	 */
 	private function dbCheckNewUserMessages( UserIdentity $user ): bool {
-		$dbr = $this->loadBalancer->getConnectionRef( DB_REPLICA );
-		list( $field, $id ) = $this->getQueryFieldAndId( $user );
-		$ok = $dbr->selectField(
-			'user_newtalk',
-			$field,
-			[ $field => $id ],
-			__METHOD__
-		);
+		[ $field, $id ] = $this->getQueryFieldAndId( $user );
+		$ok = $this->dbProvider->getReplicaDatabase()->newSelectQueryBuilder()
+			->select( $field )
+			->from( 'user_newtalk' )
+			->where( [ $field => $id ] )
+			->caller( __METHOD__ )->fetchField();
 		return (bool)$ok;
 	}
 
@@ -226,17 +283,13 @@ class TalkPageNotificationManager {
 		}
 
 		// Mark the user as having new messages since this revision
-		$dbw = $this->loadBalancer->getConnectionRef( DB_PRIMARY );
-		list( $field, $id ) = $this->getQueryFieldAndId( $user );
-		$dbw->insert(
-			'user_newtalk',
-			[
-				$field => $id,
-				'user_last_timestamp' => $dbw->timestampOrNull( $ts )
-			],
-			__METHOD__,
-			[ 'IGNORE' ]
-		);
+		$dbw = $this->dbProvider->getPrimaryDatabase();
+		[ $field, $id ] = $this->getQueryFieldAndId( $user );
+		$dbw->newInsertQueryBuilder()
+			->insertInto( 'user_newtalk' )
+			->ignore()
+			->row( [ $field => $id, 'user_last_timestamp' => $dbw->timestampOrNull( $ts ) ] )
+			->caller( __METHOD__ )->execute();
 		return (bool)$dbw->affectedRows();
 	}
 
@@ -249,13 +302,12 @@ class TalkPageNotificationManager {
 		if ( $this->readOnlyMode->isReadOnly() ) {
 			return false;
 		}
-		$dbw = $this->loadBalancer->getConnectionRef( DB_PRIMARY );
-		list( $field, $id ) = $this->getQueryFieldAndId( $user );
-		$dbw->delete(
-			'user_newtalk',
-			[ $field => $id ],
-			__METHOD__
-		);
+		$dbw = $this->dbProvider->getPrimaryDatabase();
+		[ $field, $id ] = $this->getQueryFieldAndId( $user );
+		$dbw->newDeleteQueryBuilder()
+			->deleteFrom( 'user_newtalk' )
+			->where( [ $field => $id ] )
+			->caller( __METHOD__ )->execute();
 		return (bool)$dbw->affectedRows();
 	}
 
@@ -282,5 +334,15 @@ class TalkPageNotificationManager {
 	 */
 	private function getCacheKey( UserIdentity $user ): string {
 		return $user->isRegistered() ? "u:{$user->getId()}" : "anon:{$user->getName()}";
+	}
+
+	/**
+	 * Update the user touched timestamp
+	 * @param UserIdentity $user
+	 */
+	private function touchUser( UserIdentity $user ) {
+		// Ideally this would not be in User, it would be in its own service
+		// or something
+		$this->userFactory->newFromUserIdentity( $user )->touch();
 	}
 }

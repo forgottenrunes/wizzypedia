@@ -21,11 +21,19 @@
  * @ingroup Parser
  */
 
+use MediaWiki\Category\Category;
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Parser\MagicWordFactory;
 use MediaWiki\Parser\ParserOutputFlags;
+use MediaWiki\Parser\Sanitizer;
 use MediaWiki\Revision\RevisionAccessException;
 use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\SiteStats\SiteStats;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 use Wikimedia\RemexHtml\Tokenizer\Attributes;
 use Wikimedia\RemexHtml\Tokenizer\PlainAttributes;
 
@@ -34,14 +42,16 @@ use Wikimedia\RemexHtml\Tokenizer\PlainAttributes;
  * @ingroup Parser
  */
 class CoreParserFunctions {
+	/** @var int Assume that no output will later be saved this many seconds after parsing */
+	private const MAX_TTS = 900;
 
 	/**
 	 * @internal
 	 */
 	public const REGISTER_OPTIONS = [
 		// See documentation for the corresponding config options
-		'AllowDisplayTitle',
-		'AllowSlowParserFunctions',
+		MainConfigNames::AllowDisplayTitle,
+		MainConfigNames::AllowSlowParserFunctions,
 	];
 
 	/**
@@ -49,13 +59,12 @@ class CoreParserFunctions {
 	 * @param ServiceOptions $options
 	 *
 	 * @return void
-	 * @throws MWException
 	 * @internal
 	 */
 	public static function register( Parser $parser, ServiceOptions $options ) {
 		$options->assertRequiredOptions( self::REGISTER_OPTIONS );
-		$allowDisplayTitle = $options->get( 'AllowDisplayTitle' );
-		$allowSlowParserFunctions = $options->get( 'AllowSlowParserFunctions' );
+		$allowDisplayTitle = $options->get( MainConfigNames::AllowDisplayTitle );
+		$allowSlowParserFunctions = $options->get( MainConfigNames::AllowSlowParserFunctions );
 
 		# Syntax for arguments (see Parser::setFunctionHook):
 		#  "name for lookup in localized magic words array",
@@ -66,29 +75,50 @@ class CoreParserFunctions {
 			'ns', 'nse', 'urlencode', 'lcfirst', 'ucfirst', 'lc', 'uc',
 			'localurl', 'localurle', 'fullurl', 'fullurle', 'canonicalurl',
 			'canonicalurle', 'formatnum', 'grammar', 'gender', 'plural', 'bidi',
-			'numberofpages', 'numberofusers', 'numberofactiveusers',
-			'numberofarticles', 'numberoffiles', 'numberofadmins',
-			'numberingroup', 'numberofedits', 'language',
+			'numberingroup', 'language',
 			'padleft', 'padright', 'anchorencode', 'defaultsort', 'filepath',
 			'pagesincategory', 'pagesize', 'protectionlevel', 'protectionexpiry',
-			'namespacee', 'namespacenumber', 'talkspace', 'talkspacee',
-			'subjectspace', 'subjectspacee', 'pagename', 'pagenamee',
-			'fullpagename', 'fullpagenamee', 'rootpagename', 'rootpagenamee',
-			'basepagename', 'basepagenamee', 'subpagename', 'subpagenamee',
-			'talkpagename', 'talkpagenamee', 'subjectpagename',
-			'subjectpagenamee', 'pageid', 'revisionid', 'revisionday',
+			# The following are the "parser function" forms of magic
+			# variables defined in CoreMagicVariables.  The no-args form will
+			# go through the magic variable code path (and be cached); the
+			# presence of arguments will cause the parser function form to
+			# be invoked. (Note that the actual implementation will pass
+			# a Parser object as first argument, in addition to the
+			# parser function parameters.)
+
+			# For this group, the first parameter to the parser function is
+			# "page title", and the no-args form (and the magic variable)
+			# defaults to "current page title".
+			'pagename', 'pagenamee',
+			'fullpagename', 'fullpagenamee',
+			'subpagename', 'subpagenamee',
+			'rootpagename', 'rootpagenamee',
+			'basepagename', 'basepagenamee',
+			'talkpagename', 'talkpagenamee',
+			'subjectpagename', 'subjectpagenamee',
+			'pageid', 'revisionid', 'revisionday',
 			'revisionday2', 'revisionmonth', 'revisionmonth1', 'revisionyear',
-			'revisiontimestamp', 'revisionuser', 'cascadingsources',
+			'revisiontimestamp',
+			'revisionuser',
+			'cascadingsources',
+			'namespace', 'namespacee', 'namespacenumber', 'talkspace', 'talkspacee',
+			'subjectspace', 'subjectspacee',
+
+			# More parser functions corresponding to CoreMagicVariables.
+			# For this group, the first parameter to the parser function is
+			# "raw" (uses the 'raw' format if present) and the no-args form
+			# (and the magic variable) defaults to 'not raw'.
+			'numberofarticles', 'numberoffiles',
+			'numberofusers',
+			'numberofactiveusers',
+			'numberofpages',
+			'numberofadmins',
+			'numberofedits',
 		];
 		foreach ( $noHashFunctions as $func ) {
 			$parser->setFunctionHook( $func, [ __CLASS__, $func ], Parser::SFH_NO_HASH );
 		}
 
-		$parser->setFunctionHook(
-			'namespace',
-			[ __CLASS__, 'mwnamespace' ],
-			Parser::SFH_NO_HASH
-		);
 		$parser->setFunctionHook( 'int', [ __CLASS__, 'intFunction' ], Parser::SFH_NO_HASH );
 		$parser->setFunctionHook( 'special', [ __CLASS__, 'special' ] );
 		$parser->setFunctionHook( 'speciale', [ __CLASS__, 'speciale' ] );
@@ -135,7 +165,7 @@ class CoreParserFunctions {
 	 * @return string
 	 */
 	public static function formatDate( $parser, $date, $defaultPref = null ) {
-		$lang = $parser->getFunctionLang();
+		$lang = $parser->getTargetLanguage();
 		$df = MediaWikiServices::getInstance()->getDateFormatterFactory()->get( $lang );
 
 		$date = trim( $date );
@@ -191,7 +221,7 @@ class CoreParserFunctions {
 			$magicWords =
 				$parser->getMagicWordFactory()->newArray( [ 'url_path', 'url_query', 'url_wiki' ] );
 		}
-		switch ( $magicWords->matchStartToEnd( $arg ) ) {
+		switch ( $magicWords->matchStartToEnd( $arg ?? '' ) ) {
 			// Encode as though it's a wiki page, '_' for ' '.
 			case 'url_wiki':
 				$func = 'wfUrlencode';
@@ -279,14 +309,11 @@ class CoreParserFunctions {
 	}
 
 	public static function urlFunction( $func, $s = '', $arg = null ) {
-		$title = Title::newFromText( $s );
 		# Due to order of execution of a lot of bits, the values might be encoded
 		# before arriving here; if that's true, then the title can't be created
 		# and the variable will fail. If we can't get a decent title from the first
 		# attempt, url-decode and try for a second.
-		if ( $title === null ) {
-			$title = Title::newFromURL( urldecode( $s ) );
-		}
+		$title = Title::newFromText( $s ) ?? Title::newFromURL( urldecode( $s ) );
 		if ( $title !== null ) {
 			# Convert NS_MEDIA -> NS_FILE
 			if ( $title->inNamespace( NS_MEDIA ) ) {
@@ -311,14 +338,14 @@ class CoreParserFunctions {
 	 */
 	public static function formatnum( $parser, $num = '', $arg = null ) {
 		if ( self::matchAgainstMagicword( $parser->getMagicWordFactory(), 'rawsuffix', $arg ) ) {
-			$func = [ $parser->getFunctionLang(), 'parseFormattedNumber' ];
+			$func = [ $parser->getTargetLanguage(), 'parseFormattedNumber' ];
 		} elseif (
 			self::matchAgainstMagicword( $parser->getMagicWordFactory(), 'nocommafysuffix', $arg )
 		) {
-			$func = [ $parser->getFunctionLang(), 'formatNumNoSeparators' ];
+			$func = [ $parser->getTargetLanguage(), 'formatNumNoSeparators' ];
 			$func = self::getLegacyFormatNum( $parser, $func );
 		} else {
-			$func = [ $parser->getFunctionLang(), 'formatNum' ];
+			$func = [ $parser->getTargetLanguage(), 'formatNum' ];
 			$func = self::getLegacyFormatNum( $parser, $func );
 		}
 		return $parser->markerSkipCallback( $num, $func );
@@ -362,7 +389,7 @@ class CoreParserFunctions {
 	 */
 	public static function grammar( $parser, $case = '', $word = '' ) {
 		$word = $parser->killMarkers( $word );
-		return $parser->getFunctionLang()->convertGrammar( $word, $case );
+		return $parser->getTargetLanguage()->convertGrammar( $word, $case );
 	}
 
 	/**
@@ -399,7 +426,7 @@ class CoreParserFunctions {
 		} elseif ( $username === '' && $parser->getOptions()->getInterfaceMessage() ) {
 			$gender = $genderCache->getGenderOf( $parser->getOptions()->getUserIdentity(), __METHOD__ );
 		}
-		$ret = $parser->getFunctionLang()->gender( $gender, $forms );
+		$ret = $parser->getTargetLanguage()->gender( $gender, $forms );
 		return $ret;
 	}
 
@@ -410,9 +437,10 @@ class CoreParserFunctions {
 	 * @return string
 	 */
 	public static function plural( $parser, $text = '', ...$forms ) {
-		$text = $parser->getFunctionLang()->parseFormattedNumber( $text );
+		$text = $parser->getTargetLanguage()->parseFormattedNumber( $text );
 		settype( $text, ctype_digit( $text ) ? 'int' : 'float' );
-		return $parser->getFunctionLang()->convertPlural( $text, $forms );
+		// @phan-suppress-next-line PhanTypeMismatchArgument Phan does not handle settype
+		return $parser->getTargetLanguage()->convertPlural( $text, $forms );
 	}
 
 	/**
@@ -421,17 +449,7 @@ class CoreParserFunctions {
 	 * @return string
 	 */
 	public static function bidi( $parser, $text = '' ) {
-		return $parser->getFunctionLang()->embedBidi( $text );
-	}
-
-	/**
-	 * Shorthand for getting a Language Converter for Target language
-	 * @param Parser $parser Parent parser
-	 * @return ILanguageConverter
-	 */
-	private static function getTargetLanguageConverter( Parser $parser ): ILanguageConverter {
-		return MediaWikiServices::getInstance()->getLanguageConverterFactory()
-			->getLanguageConverter( $parser->getTargetLanguage() );
+		return $parser->getTargetLanguage()->embedBidi( $text );
 	}
 
 	/**
@@ -444,7 +462,8 @@ class CoreParserFunctions {
 	 * @return string
 	 */
 	public static function displaytitle( $parser, $text = '', $uarg = '' ) {
-		$restrictDisplayTitle = MediaWikiServices::getInstance()->getMainConfig()->get( 'RestrictDisplayTitle' );
+		$restrictDisplayTitle = MediaWikiServices::getInstance()->getMainConfig()
+			->get( MainConfigNames::RestrictDisplayTitle );
 
 		static $magicWords = null;
 		if ( $magicWords === null ) {
@@ -510,14 +529,13 @@ class CoreParserFunctions {
 			}
 			if ( $old !== null && $old !== $text && !$arg ) {
 
-				$converter = self::getTargetLanguageConverter( $parser );
+				$converter = $parser->getTargetLanguageConverter();
 				return '<span class="error">' .
-					wfMessage( 'duplicate-displaytitle',
+					$parser->msg( 'duplicate-displaytitle',
 						// Message should be parsed, but these params should only be escaped.
 						$converter->markNoConversion( wfEscapeWikiText( $old ) ),
-						// @phan-suppress-next-line SecurityCheck-DoubleEscaped we removed escaping above
 						$converter->markNoConversion( wfEscapeWikiText( $filteredText ) )
-					)->inContentLanguage()->text() .
+					)->text() .
 					'</span>';
 			} else {
 				return '';
@@ -556,15 +574,15 @@ class CoreParserFunctions {
 	 * Formats a number according to a language.
 	 *
 	 * @param int|float $num
-	 * @param string $raw
-	 * @param Language|StubUserLang $language
+	 * @param ?string $raw
+	 * @param Language $language
 	 * @param MagicWordFactory|null $magicWordFactory To evaluate $raw
 	 * @return string
 	 */
 	public static function formatRaw(
 		$num, $raw, $language, MagicWordFactory $magicWordFactory = null
 	) {
-		if ( $raw !== null ) {
+		if ( $raw !== null && $raw !== '' ) {
 			if ( !$magicWordFactory ) {
 				$magicWordFactory = MediaWikiServices::getInstance()->getMagicWordFactory();
 			}
@@ -576,42 +594,42 @@ class CoreParserFunctions {
 	}
 
 	public static function numberofpages( $parser, $raw = null ) {
-		return self::formatRaw( SiteStats::pages(), $raw, $parser->getFunctionLang() );
+		return self::formatRaw( SiteStats::pages(), $raw, $parser->getTargetLanguage() );
 	}
 
 	public static function numberofusers( $parser, $raw = null ) {
-		return self::formatRaw( SiteStats::users(), $raw, $parser->getFunctionLang() );
+		return self::formatRaw( SiteStats::users(), $raw, $parser->getTargetLanguage() );
 	}
 
 	public static function numberofactiveusers( $parser, $raw = null ) {
-		return self::formatRaw( SiteStats::activeUsers(), $raw, $parser->getFunctionLang() );
+		return self::formatRaw( SiteStats::activeUsers(), $raw, $parser->getTargetLanguage() );
 	}
 
 	public static function numberofarticles( $parser, $raw = null ) {
-		return self::formatRaw( SiteStats::articles(), $raw, $parser->getFunctionLang() );
+		return self::formatRaw( SiteStats::articles(), $raw, $parser->getTargetLanguage() );
 	}
 
 	public static function numberoffiles( $parser, $raw = null ) {
-		return self::formatRaw( SiteStats::images(), $raw, $parser->getFunctionLang() );
+		return self::formatRaw( SiteStats::images(), $raw, $parser->getTargetLanguage() );
 	}
 
 	public static function numberofadmins( $parser, $raw = null ) {
 		return self::formatRaw(
 			SiteStats::numberingroup( 'sysop' ),
 			$raw,
-			$parser->getFunctionLang()
+			$parser->getTargetLanguage()
 		);
 	}
 
 	public static function numberofedits( $parser, $raw = null ) {
-		return self::formatRaw( SiteStats::edits(), $raw, $parser->getFunctionLang() );
+		return self::formatRaw( SiteStats::edits(), $raw, $parser->getTargetLanguage() );
 	}
 
 	public static function pagesinnamespace( $parser, $namespace = 0, $raw = null ) {
 		return self::formatRaw(
 			SiteStats::pagesInNs( intval( $namespace ) ),
 			$raw,
-			$parser->getFunctionLang()
+			$parser->getTargetLanguage()
 		);
 	}
 
@@ -619,29 +637,61 @@ class CoreParserFunctions {
 		return self::formatRaw(
 			SiteStats::numberingroup( strtolower( $name ) ),
 			$raw,
-			$parser->getFunctionLang()
+			$parser->getTargetLanguage()
 		);
+	}
+
+	/**
+	 * Helper function for preprocessing an optional argument which represents
+	 * a title.
+	 * @param Parser $parser
+	 * @param string|null $t if null, returns the Parser's Title
+	 *   for consistency with magic variable forms
+	 * @return ?Title
+	 */
+	private static function makeTitle( Parser $parser, ?string $t ) {
+		if ( $t === null ) {
+			// For consistency with magic variable forms
+			$title = $parser->getTitle();
+		} else {
+			$title = Title::newFromText( $t );
+		}
+		return $title;
 	}
 
 	/**
 	 * Given a title, return the namespace name that would be given by the
 	 * corresponding magic word
-	 * Note: function name changed to "mwnamespace" rather than "namespace"
-	 * to not break PHP 5.3
 	 * @param Parser $parser
 	 * @param string|null $title
 	 * @return mixed|string
+	 * @since 1.39
 	 */
-	public static function mwnamespace( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+	public static function namespace( $parser, $title = null ) {
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
 		return str_replace( '_', ' ', $t->getNsText() );
 	}
 
+	/**
+	 * Given a title, return the namespace name that would be given by the
+	 * corresponding magic word.
+	 * @note This function corresponded to the `namespace` parser function
+	 * and magic variable, but `namespace` was a reserved word before PHP 7.
+	 * @param Parser $parser
+	 * @param string|null $title
+	 * @return mixed|string
+	 * @deprecated Use CoreParserFunctions::namespace() instead.
+	 */
+	public static function mwnamespace( $parser, $title = null ) {
+		wfDeprecated( __METHOD__, '1.39' );
+		return self::namespace( $parser, $title );
+	}
+
 	public static function namespacee( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
@@ -649,15 +699,15 @@ class CoreParserFunctions {
 	}
 
 	public static function namespacenumber( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
-		return $t->getNamespace();
+		return (string)$t->getNamespace();
 	}
 
 	public static function talkspace( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null || !$t->canHaveTalkPage() ) {
 			return '';
 		}
@@ -665,7 +715,7 @@ class CoreParserFunctions {
 	}
 
 	public static function talkspacee( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null || !$t->canHaveTalkPage() ) {
 			return '';
 		}
@@ -673,7 +723,7 @@ class CoreParserFunctions {
 	}
 
 	public static function subjectspace( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
@@ -681,7 +731,7 @@ class CoreParserFunctions {
 	}
 
 	public static function subjectspacee( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
@@ -696,7 +746,7 @@ class CoreParserFunctions {
 	 * @return string
 	 */
 	public static function pagename( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
@@ -704,7 +754,7 @@ class CoreParserFunctions {
 	}
 
 	public static function pagenamee( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
@@ -712,23 +762,23 @@ class CoreParserFunctions {
 	}
 
 	public static function fullpagename( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
-		if ( $t === null || !$t->canHaveTalkPage() ) {
+		$t = self::makeTitle( $parser, $title );
+		if ( $t === null ) {
 			return '';
 		}
 		return wfEscapeWikiText( $t->getPrefixedText() );
 	}
 
 	public static function fullpagenamee( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
-		if ( $t === null || !$t->canHaveTalkPage() ) {
+		$t = self::makeTitle( $parser, $title );
+		if ( $t === null ) {
 			return '';
 		}
 		return wfEscapeWikiText( $t->getPrefixedURL() );
 	}
 
 	public static function subpagename( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
@@ -736,7 +786,7 @@ class CoreParserFunctions {
 	}
 
 	public static function subpagenamee( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
@@ -744,7 +794,7 @@ class CoreParserFunctions {
 	}
 
 	public static function rootpagename( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
@@ -752,7 +802,7 @@ class CoreParserFunctions {
 	}
 
 	public static function rootpagenamee( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
@@ -760,7 +810,7 @@ class CoreParserFunctions {
 	}
 
 	public static function basepagename( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
@@ -768,7 +818,7 @@ class CoreParserFunctions {
 	}
 
 	public static function basepagenamee( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
@@ -776,7 +826,7 @@ class CoreParserFunctions {
 	}
 
 	public static function talkpagename( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null || !$t->canHaveTalkPage() ) {
 			return '';
 		}
@@ -784,7 +834,7 @@ class CoreParserFunctions {
 	}
 
 	public static function talkpagenamee( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null || !$t->canHaveTalkPage() ) {
 			return '';
 		}
@@ -792,7 +842,7 @@ class CoreParserFunctions {
 	}
 
 	public static function subjectpagename( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
@@ -800,7 +850,7 @@ class CoreParserFunctions {
 	}
 
 	public static function subjectpagenamee( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
@@ -813,11 +863,11 @@ class CoreParserFunctions {
 	 * can't be called too many times per page.
 	 * @param Parser $parser
 	 * @param string $name
-	 * @param string|null $arg1
-	 * @param string|null $arg2
+	 * @param string $arg1
+	 * @param string $arg2
 	 * @return string
 	 */
-	public static function pagesincategory( $parser, $name = '', $arg1 = null, $arg2 = null ) {
+	public static function pagesincategory( $parser, $name = '', $arg1 = '', $arg2 = '' ) {
 		static $magicWords = null;
 		if ( $magicWords === null ) {
 			$magicWords = $parser->getMagicWordFactory()->newArray( [
@@ -845,7 +895,7 @@ class CoreParserFunctions {
 
 		$title = Title::makeTitleSafe( NS_CATEGORY, $name );
 		if ( !$title ) { # invalid title
-			return self::formatRaw( 0, $raw, $parser->getFunctionLang() );
+			return self::formatRaw( 0, $raw, $parser->getTargetLanguage() );
 		}
 		$languageConverter = MediaWikiServices::getInstance()
 			->getLanguageConverterFactory()
@@ -872,7 +922,7 @@ class CoreParserFunctions {
 		}
 
 		$count = $cache[$name][$type];
-		return self::formatRaw( $count, $raw, $parser->getFunctionLang() );
+		return self::formatRaw( $count, $raw, $parser->getTargetLanguage() );
 	}
 
 	/**
@@ -888,7 +938,7 @@ class CoreParserFunctions {
 		$title = Title::newFromText( $page );
 
 		if ( !is_object( $title ) ) {
-			return self::formatRaw( 0, $raw, $parser->getFunctionLang() );
+			return self::formatRaw( 0, $raw, $parser->getTargetLanguage() );
 		}
 
 		// fetch revision from cache/database and return the value
@@ -898,7 +948,7 @@ class CoreParserFunctions {
 			// We've had bugs where rev_len was not being recorded for empty pages, see T135414
 			$length = 0;
 		}
-		return self::formatRaw( $length, $raw, $parser->getFunctionLang() );
+		return self::formatRaw( $length, $raw, $parser->getTargetLanguage() );
 	}
 
 	/**
@@ -915,9 +965,10 @@ class CoreParserFunctions {
 	 */
 	public static function protectionlevel( $parser, $type = '', $title = '' ) {
 		$titleObject = Title::newFromText( $title ) ?? $parser->getTitle();
-		if ( $titleObject->areRestrictionsLoaded() || $parser->incrementExpensiveFunctionCount() ) {
-			$restrictions = $titleObject->getRestrictions( strtolower( $type ) );
-			# Title::getRestrictions returns an array, its possible it may have
+		$restrictionStore = MediaWikiServices::getInstance()->getRestrictionStore();
+		if ( $restrictionStore->areRestrictionsLoaded( $titleObject ) || $parser->incrementExpensiveFunctionCount() ) {
+			$restrictions = $restrictionStore->getRestrictions( $titleObject, strtolower( $type ) );
+			# RestrictionStore::getRestrictions returns an array, its possible it may have
 			# multiple values in the future
 			return implode( ',', $restrictions );
 		}
@@ -938,14 +989,11 @@ class CoreParserFunctions {
 	 */
 	public static function protectionexpiry( $parser, $type = '', $title = '' ) {
 		$titleObject = Title::newFromText( $title ) ?? $parser->getTitle();
-		if ( $titleObject->areRestrictionsLoaded() || $parser->incrementExpensiveFunctionCount() ) {
-			$expiry = $titleObject->getRestrictionExpiry( strtolower( $type ) );
-			// getRestrictionExpiry() returns false on invalid type; trying to
+		$restrictionStore = MediaWikiServices::getInstance()->getRestrictionStore();
+		if ( $restrictionStore->areRestrictionsLoaded( $titleObject ) || $parser->incrementExpensiveFunctionCount() ) {
+			// getRestrictionExpiry() returns null on invalid type; trying to
 			// match protectionlevel() function that returns empty string instead
-			if ( $expiry === false ) {
-				$expiry = '';
-			}
-			return $expiry;
+			return $restrictionStore->getRestrictionExpiry( $titleObject, strtolower( $type ) ) ?? '';
 		}
 		return '';
 	}
@@ -1028,7 +1076,7 @@ class CoreParserFunctions {
 	}
 
 	public static function special( $parser, $text ) {
-		list( $page, $subpage ) = MediaWikiServices::getInstance()->getSpecialPageFactory()->
+		[ $page, $subpage ] = MediaWikiServices::getInstance()->getSpecialPageFactory()->
 			resolveAlias( $text );
 		if ( $page ) {
 			$title = SpecialPage::getTitleFor( $page, $subpage );
@@ -1074,11 +1122,11 @@ class CoreParserFunctions {
 		} else {
 			$converter = $parser->getTargetLanguageConverter();
 			return '<span class="error">' .
-				wfMessage( 'duplicate-defaultsort',
+				$parser->msg( 'duplicate-defaultsort',
 					// Message should be parsed, but these params should only be escaped.
 					$converter->markNoConversion( wfEscapeWikiText( $old ) ),
 					$converter->markNoConversion( wfEscapeWikiText( $text ) )
-				)->inContentLanguage()->text() .
+				)->text() .
 				'</span>';
 		}
 	}
@@ -1140,9 +1188,10 @@ class CoreParserFunctions {
 			return '';
 		}
 		$tagName = strtolower( trim( $frame->expand( array_shift( $args ) ) ) );
+		$processNowiki = $parser->tagNeedsNowikiStrippedInTagPF( $tagName ) ? PPFrame::PROCESS_NOWIKI : 0;
 
 		if ( count( $args ) ) {
-			$inner = $frame->expand( array_shift( $args ) );
+			$inner = $frame->expand( array_shift( $args ), $processNowiki );
 		} else {
 			$inner = null;
 		}
@@ -1192,7 +1241,7 @@ class CoreParserFunctions {
 	 *
 	 * @param Parser $parser
 	 * @param Title $title
-	 * @param string $vary ParserOuput vary-* flag
+	 * @param string $vary ParserOutput vary-* flag
 	 * @return RevisionRecord|null
 	 * @since 1.23
 	 */
@@ -1208,6 +1257,12 @@ class CoreParserFunctions {
 			// Revision is for the same title that is currently being parsed. Only use the last
 			// saved revision, regardless of Parser::getRevisionId() or fake revision injection
 			// callbacks against the current title.
+
+			// FIXME (T318278): the above is the intention, but doesn't
+			// describe the actual current behavior of this code, since
+			// ->isCurrent() for the last saved revision will return
+			// false so we're going to fall through and end up calling
+			// ->getCurrentRevisionRecordOfTitle().
 			$parserRevisionRecord = $parser->getRevisionRecordObject();
 			if ( $parserRevisionRecord && $parserRevisionRecord->isCurrent() ) {
 				$revisionRecord = $parserRevisionRecord;
@@ -1261,7 +1316,7 @@ class CoreParserFunctions {
 	 * @since 1.23
 	 */
 	public static function pageid( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( !$t ) {
 			return '';
 		} elseif ( !$t->canExist() || $t->isExternal() ) {
@@ -1311,7 +1366,7 @@ class CoreParserFunctions {
 	 * @since 1.23
 	 */
 	public static function revisionid( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
@@ -1319,7 +1374,7 @@ class CoreParserFunctions {
 		$services = MediaWikiServices::getInstance();
 		if (
 			$t->equals( $parser->getTitle() ) &&
-			$services->getMainConfig()->get( 'MiserMode' ) &&
+			$services->getMainConfig()->get( MainConfigNames::MiserMode ) &&
 			!$parser->getOptions()->getInterfaceMessage() &&
 			// @TODO: disallow this word on all namespaces (T235957)
 			$services->getNamespaceInfo()->isSubject( $t->getNamespace() )
@@ -1333,9 +1388,79 @@ class CoreParserFunctions {
 				return '';
 			}
 		}
-		// fetch revision from cache/database and return the value
+		// Fetch revision from cache/database and return the value.
+		// Inform the edit saving system that getting the canonical output
+		// after revision insertion requires a parse that used that exact
+		// revision ID.
+		if ( $t->equals( $parser->getTitle() ) && $title === null ) {
+			// special handling for no-arg case: use speculative rev id
+			// for current page.
+			$parser->getOutput()->setOutputFlag( ParserOutputFlags::VARY_REVISION_ID );
+			$id = $parser->getRevisionId();
+			if ( $id === 0 ) {
+				$rev = $parser->getRevisionRecordObject();
+				if ( $rev ) {
+					$id = $rev->getId();
+				}
+			}
+			if ( !$id ) {
+				$id = $parser->getOptions()->getSpeculativeRevId();
+				if ( $id ) {
+					$parser->getOutput()->setSpeculativeRevIdUsed( $id );
+				}
+			}
+			return (string)$id;
+		}
 		$rev = self::getCachedRevisionObject( $parser, $t, ParserOutputFlags::VARY_REVISION_ID );
 		return $rev ? $rev->getId() : '';
+	}
+
+	private static function getRevisionTimestampSubstring(
+		Parser $parser,
+		Title $title,
+		int $start,
+		int $len,
+		int $mtts
+	): string {
+		// If fetching the revision timestamp of the current page, substitute the
+		// speculative timestamp to be used when this revision is saved.  This
+		// avoids having to invalidate the cache immediately by assuming the "last
+		// saved revision" will in fact be this one.
+		// Don't do this for interface messages (eg, edit notices) however; in that
+		// case fall through and use the actual timestamp of the last saved revision.
+		if ( $title->equals( $parser->getTitle() ) && !$parser->getOptions()->getInterfaceMessage() ) {
+			// Get the timezone-adjusted timestamp to be used for this revision
+			$resNow = substr( $parser->getRevisionTimestamp(), $start, $len );
+			// Possibly set vary-revision if there is not yet an associated revision
+			if ( !$parser->getRevisionRecordObject() ) {
+				// Get the timezone-adjusted timestamp $mtts seconds in the future.
+				// This future is relative to the current time and not that of the
+				// parser options. The rendered timestamp can be compared to that
+				// of the timestamp specified by the parser options.
+				$resThen = substr(
+					$parser->getContentLanguage()->userAdjust( wfTimestamp( TS_MW, time() + $mtts ), '' ),
+					$start,
+					$len
+				);
+
+				if ( $resNow !== $resThen ) {
+					// Inform the edit saving system that getting the canonical output after
+					// revision insertion requires a parse that used an actual revision timestamp
+					$parser->getOutput()->setOutputFlag( ParserOutputFlags::VARY_REVISION_TIMESTAMP );
+				}
+			}
+
+			return $resNow;
+		} else {
+			$rev = self::getCachedRevisionObject( $parser, $title, ParserOutputFlags::VARY_REVISION_TIMESTAMP );
+			if ( !$rev ) {
+				return '';
+			}
+			$resNow = substr(
+				$parser->getContentLanguage()->userAdjust( $rev->getTimestamp(), '' ), $start, $len
+			);
+			return $resNow;
+		}
 	}
 
 	/**
@@ -1346,13 +1471,13 @@ class CoreParserFunctions {
 	 * @since 1.23
 	 */
 	public static function revisionday( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
-		// fetch revision from cache/database and return the value
-		$rev = self::getCachedRevisionObject( $parser, $t, ParserOutputFlags::VARY_REVISION_TIMESTAMP );
-		return $rev ? MWTimestamp::getLocalInstance( $rev->getTimestamp() )->format( 'j' ) : '';
+		return strval( (int)self::getRevisionTimestampSubstring(
+			$parser, $t, 6, 2, self::MAX_TTS
+		) );
 	}
 
 	/**
@@ -1363,13 +1488,13 @@ class CoreParserFunctions {
 	 * @since 1.23
 	 */
 	public static function revisionday2( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
-		// fetch revision from cache/database and return the value
-		$rev = self::getCachedRevisionObject( $parser, $t, ParserOutputFlags::VARY_REVISION_TIMESTAMP );
-		return $rev ? MWTimestamp::getLocalInstance( $rev->getTimestamp() )->format( 'd' ) : '';
+		return self::getRevisionTimestampSubstring(
+			$parser, $t, 6, 2, self::MAX_TTS
+		);
 	}
 
 	/**
@@ -1380,13 +1505,13 @@ class CoreParserFunctions {
 	 * @since 1.23
 	 */
 	public static function revisionmonth( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
-		// fetch revision from cache/database and return the value
-		$rev = self::getCachedRevisionObject( $parser, $t, ParserOutputFlags::VARY_REVISION_TIMESTAMP );
-		return $rev ? MWTimestamp::getLocalInstance( $rev->getTimestamp() )->format( 'm' ) : '';
+		return self::getRevisionTimestampSubstring(
+			$parser, $t, 4, 2, self::MAX_TTS
+		);
 	}
 
 	/**
@@ -1397,13 +1522,13 @@ class CoreParserFunctions {
 	 * @since 1.23
 	 */
 	public static function revisionmonth1( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
-		// fetch revision from cache/database and return the value
-		$rev = self::getCachedRevisionObject( $parser, $t, ParserOutputFlags::VARY_REVISION_TIMESTAMP );
-		return $rev ? MWTimestamp::getLocalInstance( $rev->getTimestamp() )->format( 'n' ) : '';
+		return strval( (int)self::getRevisionTimestampSubstring(
+			$parser, $t, 4, 2, self::MAX_TTS
+		) );
 	}
 
 	/**
@@ -1414,13 +1539,13 @@ class CoreParserFunctions {
 	 * @since 1.23
 	 */
 	public static function revisionyear( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
-		// fetch revision from cache/database and return the value
-		$rev = self::getCachedRevisionObject( $parser, $t, ParserOutputFlags::VARY_REVISION_TIMESTAMP );
-		return $rev ? MWTimestamp::getLocalInstance( $rev->getTimestamp() )->format( 'Y' ) : '';
+		return self::getRevisionTimestampSubstring(
+			$parser, $t, 0, 4, self::MAX_TTS
+		);
 	}
 
 	/**
@@ -1431,13 +1556,13 @@ class CoreParserFunctions {
 	 * @since 1.23
 	 */
 	public static function revisiontimestamp( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
-		// fetch revision from cache/database and return the value
-		$rev = self::getCachedRevisionObject( $parser, $t, ParserOutputFlags::VARY_REVISION_TIMESTAMP );
-		return $rev ? MWTimestamp::getLocalInstance( $rev->getTimestamp() )->format( 'YmdHis' ) : '';
+		return self::getRevisionTimestampSubstring(
+			$parser, $t, 0, 14, self::MAX_TTS
+		);
 	}
 
 	/**
@@ -1448,16 +1573,24 @@ class CoreParserFunctions {
 	 * @since 1.23
 	 */
 	public static function revisionuser( $parser, $title = null ) {
-		$t = Title::newFromText( $title );
+		$t = self::makeTitle( $parser, $title );
 		if ( $t === null ) {
 			return '';
 		}
-		// fetch revision from cache/database and return the value
-		$rev = self::getCachedRevisionObject( $parser, $t, ParserOutputFlags::VARY_USER );
-		if ( $rev === null ) {
-			return '';
+		// VARY_USER informs the edit saving system that getting the canonical
+		// output after revision insertion requires a parse that used the
+		// actual user ID.
+		if ( $t->equals( $parser->getTitle() ) ) {
+			// Fall back to Parser's "revision user" for the current title
+			$parser->getOutput()->setOutputFlag( ParserOutputFlags::VARY_USER );
+			// Note that getRevisionUser() can return null; we need to
+			// be sure to cast this to (an empty) string, since returning
+			// null means "magic variable not handled".
+			return (string)$parser->getRevisionUser();
 		}
-		$user = $rev->getUser();
+		// Fetch revision from cache/database and return the value.
+		$rev = self::getCachedRevisionObject( $parser, $t, ParserOutputFlags::VARY_USER );
+		$user = ( $rev !== null ) ? $rev->getUser() : null;
 		return $user ? $user->getName() : '';
 	}
 
@@ -1468,20 +1601,22 @@ class CoreParserFunctions {
 	 * unless cascading protection sources for the page have already been loaded.
 	 *
 	 * @param Parser $parser
-	 * @param string $title
+	 * @param ?string $title
 	 *
 	 * @return string
 	 * @since 1.23
 	 */
 	public static function cascadingsources( $parser, $title = '' ) {
 		$titleObject = Title::newFromText( $title ) ?? $parser->getTitle();
-		if ( $titleObject->areCascadeProtectionSourcesLoaded()
+		$restrictionStore = MediaWikiServices::getInstance()->getRestrictionStore();
+		if ( $restrictionStore->areCascadeProtectionSourcesLoaded( $titleObject )
 			|| $parser->incrementExpensiveFunctionCount()
 		) {
 			$names = [];
-			$sources = $titleObject->getCascadeProtectionSources();
-			foreach ( $sources[0] as $sourceTitle ) {
-				$names[] = $sourceTitle->getPrefixedText();
+			$sources = $restrictionStore->getCascadeProtectionSources( $titleObject );
+			$titleFormatter = MediaWikiServices::getInstance()->getTitleFormatter();
+			foreach ( $sources[0] as $sourcePageIdentity ) {
+				$names[] = $titleFormatter->getPrefixedText( $sourcePageIdentity );
 			}
 			return implode( '|', $names );
 		}

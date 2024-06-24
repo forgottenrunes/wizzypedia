@@ -21,6 +21,17 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use ChangeTags;
+use HTMLForm;
+use MediaWiki\ChangeTags\ChangeTagsStore;
+use MediaWiki\CommentStore\CommentStore;
+use MediaWiki\MainConfigNames;
+use MediaWiki\SpecialPage\SpecialPage;
+use PermissionsError;
+use Xml;
+
 /**
  * A special page that lists tags for edits
  *
@@ -42,9 +53,11 @@ class SpecialTags extends SpecialPage {
 	 * @var array List of software activated tags
 	 */
 	protected $softwareActivatedTags;
+	private ChangeTagsStore $changeTagsStore;
 
-	public function __construct() {
+	public function __construct( ChangeTagsStore $changeTagsStore ) {
 		parent::__construct( 'Tags' );
+		$this->changeTagsStore = $changeTagsStore;
 	}
 
 	public function execute( $par ) {
@@ -73,7 +86,7 @@ class SpecialTags extends SpecialPage {
 
 	private function showTagList() {
 		$out = $this->getOutput();
-		$out->setPageTitle( $this->msg( 'tags-title' ) );
+		$out->setPageTitleMsg( $this->msg( 'tags-title' ) );
 		$out->wrapWikiMsg( "<div class='mw-tags-intro'>\n$1\n</div>", 'tags-intro' );
 
 		$authority = $this->getAuthority();
@@ -103,7 +116,7 @@ class SpecialTags extends SpecialPage {
 			HTMLForm::factory( 'ooui', $fields, $this->getContext() )
 				->setAction( $this->getPageTitle( 'create' )->getLocalURL() )
 				->setWrapperLegendMsg( 'tags-create-heading' )
-				->setHeaderText( $this->msg( 'tags-create-explanation' )->parseAsBlock() )
+				->setHeaderHtml( $this->msg( 'tags-create-explanation' )->parseAsBlock() )
 				->setSubmitCallback( [ $this, 'processCreateTagForm' ] )
 				->setSubmitTextMsg( 'tags-create-submit' )
 				->show();
@@ -121,18 +134,18 @@ class SpecialTags extends SpecialPage {
 		}
 
 		// Used to get hitcounts for #doTagRow()
-		$tagStats = ChangeTags::tagUsageStatistics();
+		$tagStats = $this->changeTagsStore->tagUsageStatistics();
 
 		// Used in #doTagRow()
 		$this->explicitlyDefinedTags = array_fill_keys(
-			ChangeTags::listExplicitlyDefinedTags(), true );
+			$this->changeTagsStore->listExplicitlyDefinedTags(), true );
 		$this->softwareDefinedTags = array_fill_keys(
-			ChangeTags::listSoftwareDefinedTags(), true );
+			$this->changeTagsStore->listSoftwareDefinedTags(), true );
 
 		// List all defined tags, even if they were never applied
 		$definedTags = array_keys( $this->explicitlyDefinedTags + $this->softwareDefinedTags );
 
-		// Show header only if there exists atleast one tag
+		// Show header only if there exists at least one tag
 		if ( !$tagStats && !$definedTags ) {
 			return;
 		}
@@ -153,7 +166,7 @@ class SpecialTags extends SpecialPage {
 		$tbody = '';
 		// Used in #doTagRow()
 		$this->softwareActivatedTags = array_fill_keys(
-			ChangeTags::listSoftwareActivatedTags(), true );
+			$this->changeTagsStore->listSoftwareActivatedTags(), true );
 
 		// Insert tags that have been applied at least once
 		foreach ( $tagStats as $tag => $hitcount ) {
@@ -237,7 +250,7 @@ class SpecialTags extends SpecialPage {
 		$newRow .= Xml::tags( 'td', null, $this->msg( $activeMsg )->escaped() );
 
 		$hitcountLabelMsg = $this->msg( 'tags-hitcount' )->numParams( $hitcount );
-		if ( $this->getConfig()->get( 'UseTagFilter' ) ) {
+		if ( $this->getConfig()->get( MainConfigNames::UseTagFilter ) ) {
 			$hitcountLabel = $linkRenderer->makeLink(
 				SpecialPage::getTitleFor( 'Recentchanges' ),
 				$hitcountLabelMsg->text(),
@@ -293,7 +306,7 @@ class SpecialTags extends SpecialPage {
 		$tag = trim( strval( $data['Tag'] ) );
 		$ignoreWarnings = isset( $data['IgnoreWarnings'] ) && $data['IgnoreWarnings'] === '1';
 		$status = ChangeTags::createTagWithChecks( $tag, $data['Reason'],
-			$context->getUser(), $ignoreWarnings );
+			$context->getAuthority(), $ignoreWarnings );
 
 		if ( $status->isGood() ) {
 			$out->redirect( $this->getPageTitle()->getLocalURL() );
@@ -313,7 +326,7 @@ class SpecialTags extends SpecialPage {
 				$out->parseAsInterface( $status->getWikiText() ) .
 				$this->msg( 'tags-create-warnings-below' )->parseAsBlock();
 
-			$form->setHeaderText( $headerText )
+			$form->setHeaderHtml( $headerText )
 				->setSubmitTextMsg( 'htmlform-yes' );
 
 			$out->addBacklinkSubtitle( $this->getPageTitle() );
@@ -331,7 +344,7 @@ class SpecialTags extends SpecialPage {
 		}
 
 		$out = $this->getOutput();
-		$out->setPageTitle( $this->msg( 'tags-delete-title' ) );
+		$out->setPageTitleMsg( $this->msg( 'tags-delete-title' ) );
 		$out->addBacklinkSubtitle( $this->getPageTitle() );
 
 		// is the tag actually able to be deleted?
@@ -344,7 +357,7 @@ class SpecialTags extends SpecialPage {
 		}
 
 		$preText = $this->msg( 'tags-delete-explanation-initial', $tag )->parseAsBlock();
-		$tagUsage = ChangeTags::tagUsageStatistics();
+		$tagUsage = $this->changeTagsStore->tagUsageStatistics();
 		if ( isset( $tagUsage[$tag] ) && $tagUsage[$tag] > 0 ) {
 			$preText .= $this->msg( 'tags-delete-explanation-in-use', $tag,
 				$tagUsage[$tag] )->parseAsBlock();
@@ -353,7 +366,7 @@ class SpecialTags extends SpecialPage {
 
 		// see if the tag is in use
 		$this->softwareActivatedTags = array_fill_keys(
-			ChangeTags::listSoftwareActivatedTags(), true );
+			$this->changeTagsStore->listSoftwareActivatedTags(), true );
 		if ( isset( $this->softwareActivatedTags[$tag] ) ) {
 			$preText .= $this->msg( 'tags-delete-explanation-active', $tag )->parseAsBlock();
 		}
@@ -378,7 +391,7 @@ class SpecialTags extends SpecialPage {
 			} )
 			->setSubmitTextMsg( 'tags-delete-submit' )
 			->setSubmitDestructive()
-			->addPreText( $preText )
+			->addPreHtml( $preText )
 			->show();
 	}
 
@@ -392,7 +405,7 @@ class SpecialTags extends SpecialPage {
 
 		$out = $this->getOutput();
 		// tags-activate-title, tags-deactivate-title
-		$out->setPageTitle( $this->msg( "tags-$actionStr-title" ) );
+		$out->setPageTitleMsg( $this->msg( "tags-$actionStr-title" ) );
 		$out->addBacklinkSubtitle( $this->getPageTitle() );
 
 		// is it possible to do this?
@@ -432,7 +445,7 @@ class SpecialTags extends SpecialPage {
 			} )
 			// tags-activate-submit, tags-deactivate-submit
 			->setSubmitTextMsg( "tags-$actionStr-submit" )
-			->addPreText( $preText )
+			->addPreHtml( $preText )
 			->show();
 	}
 
@@ -486,3 +499,9 @@ class SpecialTags extends SpecialPage {
 		return 'changes';
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialTags::class, 'SpecialTags' );

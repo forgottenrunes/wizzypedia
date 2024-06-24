@@ -11,9 +11,9 @@
  * @extends ve.ui.LinearContextItem
  *
  * @constructor
- * @param {ve.ui.Context} context Context item is in
- * @param {ve.dm.Model} model Model item is related to
- * @param {Object} config Configuration options
+ * @param {ve.ui.LinearContext} context Context the item is in
+ * @param {ve.dm.Model} model Model the item is related to
+ * @param {Object} [config]
  */
 ve.ui.MWMediaContextItem = function VeUiMWMediaContextItem( context, model ) {
 	// Parent constructor
@@ -22,19 +22,23 @@ ve.ui.MWMediaContextItem = function VeUiMWMediaContextItem( context, model ) {
 	// Initialization
 	this.$element.addClass( 've-ui-mwMediaContextItem' );
 
-	var mediaClass = model.getAttribute( 'mediaClass' ) || 'Image';
+	var mediaTag = model.getAttribute( 'mediaTag' ) || 'img';
 
-	this.setIcon( model.getAttribute( 'isError' ) ? 'imageBroken' : {
-		Image: 'image',
+	this.setIcon( {
+		img: 'image',
+		span: 'imageBroken',
 		// TODO: Better icons for audio/video
-		Audio: 'play',
-		Video: 'play'
-	}[ mediaClass ] );
+		audio: 'play',
+		video: 'play'
+	}[ mediaTag ] );
+
+	var messagePostfix = ( mediaTag === 'audio' || mediaTag === 'video' ) ? mediaTag : 'image';
+
 	// The following messages are used here:
 	// * visualeditor-media-title-audio
 	// * visualeditor-media-title-image
 	// * visualeditor-media-title-video
-	this.setLabel( ve.msg( 'visualeditor-media-title-' + mediaClass.toLowerCase() ) );
+	this.setLabel( ve.msg( 'visualeditor-media-title-' + messagePostfix ) );
 };
 
 /* Inheritance */
@@ -68,15 +72,16 @@ ve.ui.MWMediaContextItem.prototype.getDescription = function () {
  */
 ve.ui.MWMediaContextItem.prototype.renderBody = function () {
 	var title = mw.Title.newFromText( mw.libs.ve.normalizeParsoidResourceName( this.model.getAttribute( 'resource' ) ) );
-	this.$body.append(
-		$( '<a>' )
-			.text( this.getDescription() )
-			.attr( {
-				href: title.getUrl(),
-				target: '_blank',
-				rel: 'noopener'
-			} )
-	);
+	var $link = $( '<a>' )
+		.text( this.getDescription() )
+		.attr( {
+			target: '_blank',
+			rel: 'noopener'
+		} );
+	// T322704
+	ve.setAttributeSafe( $link[ 0 ], 'href', title.getUrl(), '#' );
+
+	this.$body.append( $link );
 };
 
 /* Registration */

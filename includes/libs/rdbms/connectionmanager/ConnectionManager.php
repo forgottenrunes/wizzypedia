@@ -16,9 +16,7 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Database
  */
-
 namespace Wikimedia\Rdbms;
 
 use InvalidArgumentException;
@@ -29,7 +27,7 @@ use InvalidArgumentException;
  * This manages access to primary and replica databases.
  *
  * @since 1.29
- *
+ * @ingroup Database
  * @author Addshore
  */
 class ConnectionManager {
@@ -53,7 +51,7 @@ class ConnectionManager {
 
 	/**
 	 * @param ILoadBalancer $loadBalancer
-	 * @param string|bool $domain Optional logical DB name, defaults to current wiki.
+	 * @param string|false $domain Optional logical DB name, defaults to current wiki.
 	 *        This follows the convention for database names used by $loadBalancer.
 	 * @param string[] $groups see LoadBalancer::getConnection
 	 *
@@ -76,7 +74,7 @@ class ConnectionManager {
 	 * @return IDatabase
 	 */
 	private function getConnection( $i, ?array $groups = null, int $flags = 0 ) {
-		$groups = $groups ?? $this->groups;
+		$groups ??= $this->groups;
 		return $this->loadBalancer->getConnection( $i, $groups, $this->domain, $flags );
 	}
 
@@ -86,37 +84,33 @@ class ConnectionManager {
 	 * @return DBConnRef
 	 */
 	private function getConnectionRef( $i, array $groups = null ) {
-		$groups = $groups ?? $this->groups;
+		$groups ??= $this->groups;
 		return $this->loadBalancer->getConnectionRef( $i, $groups, $this->domain );
 	}
 
 	/**
-	 * Returns a connection to the primary DB, for updating. The connection should later be released
-	 * by calling releaseConnection().
+	 * Returns a connection to the primary DB, for updating.
 	 *
 	 * @since 1.29
 	 * @since 1.37 Added optional $flags parameter
 	 * @param int $flags
 	 * @return IDatabase
-	 * @deprecated since 1.38; Use getWriteConnectionRef()
 	 */
 	public function getWriteConnection( int $flags = 0 ) {
 		return $this->getConnection( DB_PRIMARY, null, $flags );
 	}
 
 	/**
-	 * Returns a database connection for reading. The connection should later be released by
-	 * calling releaseConnection().
+	 * Returns a database connection for reading.
 	 *
 	 * @since 1.29
 	 * @since 1.37 Added optional $flags parameter
 	 * @param string[]|null $groups
 	 * @param int $flags
-	 * @return IDatabase
-	 * @deprecated since 1.38; Use getReadConnectionRef()
+	 * @return IReadableDatabase
 	 */
 	public function getReadConnection( ?array $groups = null, int $flags = 0 ) {
-		$groups = $groups ?? $this->groups;
+		$groups ??= $this->groups;
 		return $this->getConnection( DB_REPLICA, $groups, $flags );
 	}
 
@@ -126,6 +120,7 @@ class ConnectionManager {
 	 * @deprecated since 1.38
 	 */
 	public function releaseConnection( IDatabase $db ) {
+		wfDeprecated( 'ConnectionManager::releaseConnection()', '1.38' );
 		$this->loadBalancer->reuseConnection( $db );
 	}
 
@@ -135,8 +130,10 @@ class ConnectionManager {
 	 * @since 1.29
 	 *
 	 * @return DBConnRef
+	 * @deprecated since 1.39; Use getWriteConnection()
 	 */
 	public function getWriteConnectionRef() {
+		wfDeprecated( 'ConnectionManager::getWriteConnectionRef()', '1.39' );
 		return $this->getConnectionRef( DB_PRIMARY );
 	}
 
@@ -146,9 +143,11 @@ class ConnectionManager {
 	 * @since 1.29
 	 * @param string[]|null $groups
 	 * @return DBConnRef
+	 * @deprecated since 1.38; Use getReadConnection()
 	 */
 	public function getReadConnectionRef( array $groups = null ) {
-		$groups = $groups ?? $this->groups;
+		wfDeprecated( 'ConnectionManager::getReadConnectionRef()', '1.38' );
+		$groups ??= $this->groups;
 		return $this->getConnectionRef( DB_REPLICA, $groups );
 	}
 
@@ -157,8 +156,10 @@ class ConnectionManager {
 	 *
 	 * @since 1.38
 	 * @return DBConnRef
+	 * @deprecated since 1.39; Use getWriteConnection()
 	 */
 	public function getLazyWriteConnectionRef(): DBConnRef {
+		wfDeprecated( 'ConnectionManager::getLazyWriteConnectionRef()', '1.39' );
 		return $this->getConnectionRef( DB_PRIMARY );
 	}
 
@@ -168,9 +169,11 @@ class ConnectionManager {
 	 * @since 1.37
 	 * @param string[]|null $groups
 	 * @return DBConnRef
+	 * @deprecated since 1.39; Use getReadConnection()
 	 */
 	public function getLazyReadConnectionRef( array $groups = null ) {
-		$groups = $groups ?? $this->groups;
+		wfDeprecated( 'ConnectionManager::getLazyReadConnectionRef()', '1.39' );
+		$groups ??= $this->groups;
 		return $this->getConnectionRef( DB_REPLICA, $groups );
 	}
 

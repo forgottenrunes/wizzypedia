@@ -1,16 +1,14 @@
 <?php
 /** Tachelhit (Shilha) (Taclḥit)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Ayour2002
  * @author Amire80
  */
 
-$fallback = 'fr';
+$fallback = 'shi-latn, fr';
 
 $namespaceNames = [
 	NS_MEDIA            => 'Midya',

@@ -21,10 +21,10 @@
  * @ingroup Media
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Shell\Shell;
 use Wikimedia\AtEase\AtEase;
-use Wikimedia\RequestTimeout\TimeoutException;
 use Wikimedia\ScopedCallback;
 
 /**
@@ -34,6 +34,8 @@ use Wikimedia\ScopedCallback;
  */
 class SvgHandler extends ImageHandler {
 	public const SVG_METADATA_VERSION = 2;
+
+	private const SVG_DEFAULT_RENDER_LANG = 'en';
 
 	/** @var array A list of metadata tags that can be converted
 	 *  to the commonly used exif tags. This allows messages
@@ -47,19 +49,42 @@ class SvgHandler extends ImageHandler {
 	];
 
 	public function isEnabled() {
-		$svgConverters = MediaWikiServices::getInstance()->getMainConfig()->get( 'SVGConverters' );
-		$svgConverter = MediaWikiServices::getInstance()->getMainConfig()->get( 'SVGConverter' );
+		$config = MediaWikiServices::getInstance()->getMainConfig();
+		$svgConverters = $config->get( MainConfigNames::SVGConverters );
+		$svgConverter = $config->get( MainConfigNames::SVGConverter );
+		if ( $config->get( MainConfigNames::SVGNativeRendering ) === true ) {
+			return true;
+		}
 		if ( !isset( $svgConverters[$svgConverter] ) ) {
 			wfDebug( "\$wgSVGConverter is invalid, disabling SVG rendering." );
 
 			return false;
-		} else {
+		}
+
+		return true;
+	}
+
+	public function allowRenderingByUserAgent( $file ) {
+		$svgNativeRendering = MediaWikiServices::getInstance()
+			->getMainConfig()->get( MainConfigNames::SVGNativeRendering );
+		if ( $svgNativeRendering === true ) {
+			// Don't do any transform for any SVG.
 			return true;
 		}
+		if ( $svgNativeRendering !== 'partial' ) {
+			// SVG images are always rasterized to PNG
+			return false;
+		}
+		$maxSVGFilesize = MediaWikiServices::getInstance()
+			->getMainConfig()->get( MainConfigNames::SVGNativeRenderingSizeLimit );
+		// Browsers don't really support SVG translations, so always render them to PNG
+		// Files bigger than the limit are also rendered as PNG, as big files might be a tax on the user agent
+		return count( $this->getAvailableLanguages( $file ) ) <= 1
+			&& $file->getSize() <= $maxSVGFilesize;
 	}
 
 	public function mustRender( $file ) {
-		return true;
+		return !$this->allowRenderingByUserAgent( $file );
 	}
 
 	public function isVectorized( $file ) {
@@ -117,10 +142,14 @@ class SvgHandler extends ImageHandler {
 	 *
 	 * @see https://www.w3.org/TR/SVG/struct.html#SystemLanguageAttribute
 	 * @param string $userPreferredLanguage
-	 * @param array $svgLanguages
+	 * @param string[] $svgLanguages
 	 * @return string|null
 	 */
 	public function getMatchedLanguage( $userPreferredLanguage, array $svgLanguages ) {
+		// Explicitly requested undetermined language (text without svg systemLanguage attribute)
+		if ( $userPreferredLanguage === 'und' ) {
+			return 'und';
+		}
 		foreach ( $svgLanguages as $svgLang ) {
 			if ( strcasecmp( $svgLang, $userPreferredLanguage ) === 0 ) {
 				return $svgLang;
@@ -138,12 +167,13 @@ class SvgHandler extends ImageHandler {
 
 	/**
 	 * Determines render language from image parameters
+	 * This is a lowercase IETF language
 	 *
 	 * @param array $params
 	 * @return string
 	 */
 	protected function getLanguageFromParams( array $params ) {
-		return $params['lang'] ?? $params['targetlang'] ?? 'en';
+		return $params['lang'] ?? $params['targetlang'] ?? self::SVG_DEFAULT_RENDER_LANG;
 	}
 
 	/**
@@ -153,7 +183,7 @@ class SvgHandler extends ImageHandler {
 	 * @return string
 	 */
 	public function getDefaultRenderLanguage( File $file ) {
-		return 'en';
+		return self::SVG_DEFAULT_RENDER_LANG;
 	}
 
 	/**
@@ -162,7 +192,7 @@ class SvgHandler extends ImageHandler {
 	 * @return bool
 	 */
 	public function canAnimateThumbnail( $file ) {
-		return false;
+		return $this->allowRenderingByUserAgent( $file );
 	}
 
 	/**
@@ -189,7 +219,7 @@ class SvgHandler extends ImageHandler {
 	 * @return array Modified $params
 	 */
 	protected function normaliseParamsInternal( $image, $params ) {
-		$svgMaxSize = MediaWikiServices::getInstance()->getMainConfig()->get( 'SVGMaxSize' );
+		$svgMaxSize = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::SVGMaxSize );
 
 		# Don't make an image bigger than wgMaxSVGSize on the smaller side
 		if ( $params['physicalWidth'] <= $params['physicalHeight'] ) {
@@ -220,7 +250,7 @@ class SvgHandler extends ImageHandler {
 	 * @param string $dstUrl
 	 * @param array $params
 	 * @param int $flags
-	 * @return bool|MediaTransformError|ThumbnailImage|TransformParameterError
+	 * @return MediaTransformError|ThumbnailImage|TransformParameterError|false
 	 */
 	public function doTransform( $image, $dstPath, $dstUrl, $params, $flags = 0 ) {
 		if ( !$this->normaliseParams( $image, $params ) ) {
@@ -231,6 +261,11 @@ class SvgHandler extends ImageHandler {
 		$physicalWidth = $params['physicalWidth'];
 		$physicalHeight = $params['physicalHeight'];
 		$lang = $this->getLanguageFromParams( $params );
+
+		if ( $this->allowRenderingByUserAgent( $image ) ) {
+			// No transformation required for native rendering
+			return new ThumbnailImage( $image, $image->getURL(), false, $params );
+		}
 
 		if ( $flags & self::TRANSFORM_LATER ) {
 			return new ThumbnailImage( $image, $dstUrl, $dstPath, $params );
@@ -284,6 +319,10 @@ class SvgHandler extends ImageHandler {
 			AtEase::restoreWarnings();
 		} );
 		if ( !$ok ) {
+			// Fallback because symlink often fails on Windows
+			$ok = copy( $srcPath, $lnPath );
+		}
+		if ( !$ok ) {
 			wfDebugLog( 'thumbnail',
 				sprintf( 'Thumbnail failed on %s: could not link %s to %s',
 					wfHostname(), $lnPath, $srcPath ) );
@@ -296,9 +335,9 @@ class SvgHandler extends ImageHandler {
 		$status = $this->rasterize( $lnPath, $dstPath, $physicalWidth, $physicalHeight, $lang );
 		if ( $status === true ) {
 			return new ThumbnailImage( $image, $dstUrl, $dstPath, $params );
-		} else {
-			return $status; // MediaTransformError
 		}
+
+		return $status; // MediaTransformError
 	}
 
 	/**
@@ -309,14 +348,13 @@ class SvgHandler extends ImageHandler {
 	 * @param int $width
 	 * @param int $height
 	 * @param string|false $lang Language code of the language to render the SVG in
-	 * @throws MWException
 	 * @return bool|MediaTransformError
 	 */
 	public function rasterize( $srcPath, $dstPath, $width, $height, $lang = false ) {
 		$mainConfig = MediaWikiServices::getInstance()->getMainConfig();
-		$svgConverters = $mainConfig->get( 'SVGConverters' );
-		$svgConverter = $mainConfig->get( 'SVGConverter' );
-		$svgConverterPath = $mainConfig->get( 'SVGConverterPath' );
+		$svgConverters = $mainConfig->get( MainConfigNames::SVGConverters );
+		$svgConverter = $mainConfig->get( MainConfigNames::SVGConverter );
+		$svgConverterPath = $mainConfig->get( MainConfigNames::SVGConverterPath );
 		$err = false;
 		$retval = '';
 		if ( isset( $svgConverters[$svgConverter] ) ) {
@@ -324,7 +362,7 @@ class SvgHandler extends ImageHandler {
 				// This is a PHP callable
 				$func = $svgConverters[$svgConverter][0];
 				if ( !is_callable( $func ) ) {
-					throw new MWException( "$func is not callable" );
+					throw new UnexpectedValueException( "$func is not callable" );
 				}
 				$err = $func( $srcPath,
 					$dstPath,
@@ -336,15 +374,13 @@ class SvgHandler extends ImageHandler {
 				$retval = (bool)$err;
 			} else {
 				// External command
-				$cmd = str_replace(
-					[ '$path/', '$width', '$height', '$input', '$output' ],
-					[ $svgConverterPath ? Shell::escape( "{$svgConverterPath}/" ) : "",
-						intval( $width ),
-						intval( $height ),
-						Shell::escape( $srcPath ),
-						Shell::escape( $dstPath ) ],
-					$svgConverters[$svgConverter]
-				);
+				$cmd = strtr( $svgConverters[$svgConverter], [
+					'$path/' => $svgConverterPath ? Shell::escape( "$svgConverterPath/" ) : '',
+					'$width' => (int)$width,
+					'$height' => (int)$height,
+					'$input' => Shell::escape( $srcPath ),
+					'$output' => Shell::escape( $dstPath ),
+				] );
 
 				$env = [];
 				if ( $lang !== false ) {
@@ -357,6 +393,8 @@ class SvgHandler extends ImageHandler {
 		}
 		$removed = $this->removeBadFile( $dstPath, $retval );
 		if ( $retval != 0 || $removed ) {
+			// @phan-suppress-next-next-line PhanPossiblyUndeclaredVariable cmd is set when used
+			// @phan-suppress-next-line PhanTypeMismatchArgumentNullable cmd is set when used
 			$this->logErrorForExternalProcess( $retval, $err, $cmd );
 			return new MediaTransformError( 'thumbnail_error', $width, $height, $err );
 		}
@@ -371,7 +409,7 @@ class SvgHandler extends ImageHandler {
 		$im->setImageFormat( 'png' );
 		$im->setImageDepth( 8 );
 
-		if ( !$im->thumbnailImage( intval( $width ), intval( $height ), /* fit */ false ) ) {
+		if ( !$im->thumbnailImage( (int)$width, (int)$height, /* fit */ false ) ) {
 			return 'Could not resize image';
 		}
 		if ( !$im->writeImage( $dstPath ) ) {
@@ -418,9 +456,7 @@ class SvgHandler extends ImageHandler {
 		try {
 			$svgReader = new SVGReader( $filename );
 			$metadata += $svgReader->getMetadata();
-		} catch ( TimeoutException $e ) {
-			throw $e;
-		} catch ( Exception $e ) { // @todo SVG specific exceptions
+		} catch ( InvalidSVGException $e ) {
 			// File not found, broken, etc.
 			$metadata['error'] = [
 				'message' => $e->getMessage(),
@@ -437,11 +473,11 @@ class SvgHandler extends ImageHandler {
 	}
 
 	protected function validateMetadata( $unser ) {
-		if ( isset( $unser['version'] ) && $unser['version'] == self::SVG_METADATA_VERSION ) {
+		if ( isset( $unser['version'] ) && $unser['version'] === self::SVG_METADATA_VERSION ) {
 			return $unser;
-		} else {
-			return null;
 		}
+
+		return null;
 	}
 
 	public function getMetadataType( $image ) {
@@ -462,9 +498,7 @@ class SvgHandler extends ImageHandler {
 	}
 
 	protected function visibleMetadataFields() {
-		$fields = [ 'objectname', 'imagedescription' ];
-
-		return $fields;
+		return [ 'objectname', 'imagedescription' ];
 	}
 
 	/**
@@ -520,11 +554,11 @@ class SvgHandler extends ImageHandler {
 		if ( in_array( $name, [ 'width', 'height' ] ) ) {
 			// Reject negative heights, widths
 			return ( $value > 0 );
-		} elseif ( $name == 'lang' ) {
+		}
+		if ( $name === 'lang' ) {
 			// Validate $code
 			if ( $value === ''
-				|| !MediaWikiServices::getInstance()->getLanguageNameUtils()
-					->isValidCode( $value )
+				|| !LanguageCode::isWellFormedLanguageTag( $value )
 			) {
 				return false;
 			}
@@ -543,7 +577,7 @@ class SvgHandler extends ImageHandler {
 	public function makeParamString( $params ) {
 		$lang = '';
 		$code = $this->getLanguageFromParams( $params );
-		if ( $code !== 'en' ) {
+		if ( $code !== self::SVG_DEFAULT_RENDER_LANG ) {
 			$lang = 'lang' . strtolower( $code ) . '-';
 		}
 		if ( !isset( $params['width'] ) ) {
@@ -555,13 +589,17 @@ class SvgHandler extends ImageHandler {
 
 	public function parseParamString( $str ) {
 		$m = false;
-		if ( preg_match( '/^lang([a-z]+(?:-[a-z]+)*)-(\d+)px$/i', $str, $m ) ) {
-			return [ 'width' => array_pop( $m ), 'lang' => $m[1] ];
-		} elseif ( preg_match( '/^(\d+)px$/', $str, $m ) ) {
-			return [ 'width' => $m[1], 'lang' => 'en' ];
-		} else {
-			return false;
+		// Language codes are supposed to be lowercase
+		if ( preg_match( '/^lang([a-z]+(?:-[a-z]+)*)-(\d+)px$/', $str, $m ) ) {
+			if ( LanguageCode::isWellFormedLanguageTag( $m[1] ) ) {
+				return [ 'width' => array_pop( $m ), 'lang' => $m[1] ];
+			}
+			return [ 'width' => array_pop( $m ), 'lang' => self::SVG_DEFAULT_RENDER_LANG ];
 		}
+		if ( preg_match( '/^(\d+)px$/', $str, $m ) ) {
+			return [ 'width' => $m[1], 'lang' => self::SVG_DEFAULT_RENDER_LANG ];
+		}
+		return false;
 	}
 
 	public function getParamMap() {

@@ -28,7 +28,7 @@ use MediaWiki\Extension\AbuseFilter\View\AbuseFilterViewList;
 use MediaWiki\Extension\AbuseFilter\View\AbuseFilterViewRevert;
 use MediaWiki\Extension\AbuseFilter\View\AbuseFilterViewTestBatch;
 use MediaWiki\Extension\AbuseFilter\View\AbuseFilterViewTools;
-use Title;
+use MediaWiki\Title\Title;
 use Wikimedia\ObjectFactory\ObjectFactory;
 
 class SpecialAbuseFilter extends AbuseFilterSpecialPage {
@@ -47,6 +47,7 @@ class SpecialAbuseFilter extends AbuseFilterSpecialPage {
 			FilterLookup::SERVICE_NAME,
 		],
 		AbuseFilterViewEdit::class => [
+			'DBLoadBalancerFactory',
 			'PermissionManager',
 			AbuseFilterPermissionManager::SERVICE_NAME,
 			FilterProfiler::SERVICE_NAME,
@@ -58,6 +59,7 @@ class SpecialAbuseFilter extends AbuseFilterSpecialPage {
 			SpecsFormatter::SERVICE_NAME,
 		],
 		AbuseFilterViewExamine::class => [
+			'DBLoadBalancerFactory',
 			AbuseFilterPermissionManager::SERVICE_NAME,
 			FilterLookup::SERVICE_NAME,
 			EditBoxBuilderFactory::SERVICE_NAME,
@@ -67,21 +69,24 @@ class SpecialAbuseFilter extends AbuseFilterSpecialPage {
 			VariableGeneratorFactory::SERVICE_NAME,
 		],
 		AbuseFilterViewHistory::class => [
+			'UserNameUtils',
+			'LinkBatchFactory',
 			AbuseFilterPermissionManager::SERVICE_NAME,
 			FilterLookup::SERVICE_NAME,
 			SpecsFormatter::SERVICE_NAME,
-			'UserNameUtils',
 		],
 		AbuseFilterViewImport::class => [
 			AbuseFilterPermissionManager::SERVICE_NAME,
 		],
 		AbuseFilterViewList::class => [
+			'LinkBatchFactory',
 			AbuseFilterPermissionManager::SERVICE_NAME,
 			FilterProfiler::SERVICE_NAME,
 			SpecsFormatter::SERVICE_NAME,
 			CentralDBManager::SERVICE_NAME,
 		],
 		AbuseFilterViewRevert::class => [
+			'DBLoadBalancerFactory',
 			'UserFactory',
 			AbuseFilterPermissionManager::SERVICE_NAME,
 			FilterLookup::SERVICE_NAME,
@@ -90,6 +95,7 @@ class SpecialAbuseFilter extends AbuseFilterSpecialPage {
 			SpecsFormatter::SERVICE_NAME,
 		],
 		AbuseFilterViewTestBatch::class => [
+			'DBLoadBalancerFactory',
 			AbuseFilterPermissionManager::SERVICE_NAME,
 			EditBoxBuilderFactory::SERVICE_NAME,
 			RuleCheckerFactory::SERVICE_NAME,

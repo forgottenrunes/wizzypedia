@@ -19,6 +19,8 @@
  * http://www.gnu.org/copyleft/gpl.html
  */
 
+use MediaWiki\Title\Title;
+
 /**
  * A set of search suggestions.
  * The set is always ordered by score, with the best match first.
@@ -162,7 +164,7 @@ class SearchSuggestionSet {
 	 * @return float the best score in this suggestion set
 	 */
 	public function getBestScore() {
-		if ( empty( $this->suggestions ) ) {
+		if ( !$this->suggestions ) {
 			return 0;
 		}
 		return $this->suggestions[0]->getScore();
@@ -172,7 +174,7 @@ class SearchSuggestionSet {
 	 * @return float the worst score in this set
 	 */
 	public function getWorstScore() {
-		if ( empty( $this->suggestions ) ) {
+		if ( !$this->suggestions ) {
 			return 0;
 		}
 		return end( $this->suggestions )->getScore();

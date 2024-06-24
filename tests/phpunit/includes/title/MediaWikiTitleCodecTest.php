@@ -20,9 +20,15 @@
  */
 
 use MediaWiki\Interwiki\InterwikiLookup;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Page\PageIdentityValue;
 use MediaWiki\Tests\Unit\DummyServicesTrait;
+use MediaWiki\Title\MalformedTitleException;
+use MediaWiki\Title\MediaWikiTitleCodec;
+use MediaWiki\Title\NamespaceInfo;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleValue;
 
 /**
  * @covers MediaWikiTitleCodec
@@ -37,15 +43,15 @@ class MediaWikiTitleCodecTest extends MediaWikiIntegrationTestCase {
 	protected function setUp(): void {
 		parent::setUp();
 
-		$this->setMwGlobals( [
-			'wgAllowUserJs' => false,
-			'wgDefaultLanguageVariant' => false,
-			'wgMetaNamespace' => 'Project',
-			'wgLocalInterwikis' => [ 'localtestiw' ],
-			'wgCapitalLinks' => true,
+		$this->overrideConfigValues( [
+			MainConfigNames::AllowUserJs => false,
+			MainConfigNames::DefaultLanguageVariant => false,
+			MainConfigNames::MetaNamespace => 'Project',
+			MainConfigNames::LocalInterwikis => [ 'localtestiw' ],
+			MainConfigNames::CapitalLinks => true,
+			MainConfigNames::LanguageCode => 'en',
 		] );
 		$this->setUserLang( 'en' );
-		$this->setContentLang( 'en' );
 	}
 
 	/**
@@ -55,14 +61,12 @@ class MediaWikiTitleCodecTest extends MediaWikiIntegrationTestCase {
 	 * @return GenderCache
 	 */
 	private function getGenderCache() {
-		$genderCache = $this->getMockBuilder( GenderCache::class )
-			->disableOriginalConstructor()
-			->getMock();
+		$genderCache = $this->createMock( GenderCache::class );
 
 		$genderCache->method( 'getGenderOf' )
-			->will( $this->returnCallback( static function ( $userName ) {
+			->willReturnCallback( static function ( $userName ) {
 				return preg_match( '/^[^- _]+a( |_|$)/u', $userName ) ? 'female' : 'male';
-			} ) );
+			} );
 
 		return $genderCache;
 	}
@@ -411,6 +415,7 @@ class MediaWikiTitleCodecTest extends MediaWikiIntegrationTestCase {
 			'fragment with space' => [ 'X#z z', NS_MAIN, 'en', new TitleValue( NS_MAIN, 'X', 'z z' ) ],
 			'fragment with percent' => [ 'X#z%z', NS_MAIN, 'en', new TitleValue( NS_MAIN, 'X', 'z%z' ) ],
 			'fragment with amp' => [ 'X#z&z', NS_MAIN, 'en', new TitleValue( NS_MAIN, 'X', 'z&z' ) ],
+			'remotetestiw in user' => [ 'User:remotetestiw:', NS_MAIN, 'en', new TitleValue( NS_USER, 'Remotetestiw:' ) ],
 		];
 	}
 
@@ -433,8 +438,6 @@ class MediaWikiTitleCodecTest extends MediaWikiIntegrationTestCase {
 	}
 
 	public static function provideParseTitle_invalid() {
-		// TODO: test unicode errors
-
 		return [
 			[ 'User:#' ],
 			[ '::' ],
@@ -446,6 +449,7 @@ class MediaWikiTitleCodecTest extends MediaWikiIntegrationTestCase {
 			[ 'Talk:localtestiw:Foo' ],
 			[ '::1' ], // only valid in user namespace
 			[ 'User::x' ], // leading ":" in a user name is only valid of IPv6 addresses
+			[ 'remotetestiw:', NS_USER ],
 
 			// NOTE: cases copied from TitleTest::testSecureAndSplit. Keep in sync.
 			[ '' ],
@@ -489,18 +493,22 @@ class MediaWikiTitleCodecTest extends MediaWikiIntegrationTestCase {
 			// Namespace prefix without actual title
 			[ 'Talk:' ],
 			[ 'Category: ' ],
-			[ 'Category: #bar' ]
+			[ 'Category: #bar' ],
+			// Invalid Unicode
+			[ "Apollo\x96Soyuz" ],
+			// Input resulting from invalid Unicode being sanitized somewhere else
+			[ "Apollo\u{FFFD}Soyuz" ],
 		];
 	}
 
 	/**
 	 * @dataProvider provideParseTitle_invalid
 	 */
-	public function testParseTitle_invalid( $text ) {
+	public function testParseTitle_invalid( $text, $ns = NS_MAIN ) {
 		$this->expectException( MalformedTitleException::class );
 
 		$codec = $this->makeCodec( 'en' );
-		$codec->parseTitle( $text, NS_MAIN );
+		$codec->parseTitle( $text, $ns );
 	}
 
 	/**
@@ -516,9 +524,9 @@ class MediaWikiTitleCodecTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @dataProvider provideMakeTitleValueSafe
-	 * @covers Title::makeTitleSafe
-	 * @covers Title::makeName
-	 * @covers Title::secureAndSplit
+	 * @covers MediaWiki\Title\Title::makeTitleSafe
+	 * @covers MediaWiki\Title\Title::makeName
+	 * @covers MediaWiki\Title\Title::secureAndSplit
 	 */
 	public function testMakeTitleSafe(
 		$expected, $ns, $text, $fragment = '', $interwiki = '', $lang = 'en'
@@ -531,7 +539,7 @@ class MediaWikiTitleCodecTest extends MediaWikiIntegrationTestCase {
 
 		if ( $expected ) {
 			$this->assertNotNull( $actual );
-			$expectedTitle = Title::castFromLinkTarget( $expected );
+			$expectedTitle = Title::newFromLinkTarget( $expected );
 			$this->assertSame( $expectedTitle->getPrefixedDBkey(), $actual->getPrefixedDBkey() );
 		} else {
 			$this->assertNull( $actual );

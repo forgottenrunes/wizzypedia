@@ -1,7 +1,5 @@
 <?php
 /**
- * Kazakh (Қазақша) specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,62 +16,55 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
 
 /**
- * class that handles Cyrillic, Latin and Arabic scripts for Kazakh
- * right now it only distinguish kk_cyrl, kk_latn, kk_arab and kk_kz, kk_tr, kk_cn.
+ * Kazakh (Қазақша) specific code.
  *
- * @ingroup Language
+ * This handles Cyrillic, Latin and Arabic scripts for Kazakh.
+ * Right now, we distinguish `kk_cyrl`, `kk_latn`, `kk_arab`, `kk_kz`, `kk_tr`,
+ * and `kk_cn`.
+ *
+ * @ingroup Languages
  */
 class LanguageKk extends LanguageKk_cyrl {
 	/**
-	 * It fixes issue with ucfirst for transforming 'i' to 'İ'
+	 * Fixes an issue with ucfirst for transforming 'i' to 'İ'
 	 *
-	 * @param string $string
-	 *
-	 * @return string
+	 * @inheritDoc
 	 */
-	public function ucfirst( $string ) {
-		if ( substr( $string, 0, 1 ) === 'i' ) {
-			$variant = $this->getPreferredVariant();
+	public function ucfirst( $str ) {
+		if ( substr( $str, 0, 1 ) === 'i' ) {
+			$variant = $this->getConverterInternal()->getPreferredVariant();
 			if ( $variant == 'kk-latn' || $variant == 'kk-tr' ) {
-				return 'İ' . substr( $string, 1 );
+				return 'İ' . substr( $str, 1 );
 			}
 		}
-		return parent::ucfirst( $string );
+		return parent::ucfirst( $str );
 	}
 
 	/**
-	 * It fixes issue with  lcfirst for transforming 'I' to 'ı'
+	 * Fixes issue with lcfirst for transforming 'I' to 'ı'
 	 *
-	 * @param string $string
-	 *
-	 * @return string
+	 * @inheritDoc
 	 */
-	public function lcfirst( $string ) {
-		if ( substr( $string, 0, 1 ) === 'I' ) {
-			$variant = $this->getPreferredVariant();
+	public function lcfirst( $str ) {
+		if ( substr( $str, 0, 1 ) === 'I' ) {
+			$variant = $this->getConverterInternal()->getPreferredVariant();
 			if ( $variant == 'kk-latn' || $variant == 'kk-tr' ) {
-				return 'ı' . substr( $string, 1 );
+				return 'ı' . substr( $str, 1 );
 			}
 		}
-		return parent::lcfirst( $string );
+		return parent::lcfirst( $str );
 	}
 
-	/**
-	 * @param string $word
-	 * @param string $case
-	 * @return string
-	 */
 	public function convertGrammar( $word, $case ) {
 		// T277689: If there's no word, then there's nothing to convert.
 		if ( $word === '' ) {
 			return '';
 		}
 
-		$variant = $this->getPreferredVariant();
+		$variant = $this->getConverterInternal()->getPreferredVariant();
 		switch ( $variant ) {
 			case 'kk-arab':
 			case 'kk-cn':

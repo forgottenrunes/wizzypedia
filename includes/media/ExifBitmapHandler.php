@@ -22,6 +22,7 @@
  * @ingroup Media
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 
 /**
@@ -40,12 +41,12 @@ class ExifBitmapHandler extends BitmapHandler {
 
 	public function convertMetadataVersion( $metadata, $version = 1 ) {
 		// basically flattens arrays.
-		$version = is_int( $version ) ? $version : intval( explode( ';', $version, 2 )[0] );
+		$version = is_int( $version ) ? $version : (int)explode( ';', $version, 2 )[0];
 		if ( $version < 1 || $version >= 2 ) {
 			return $metadata;
 		}
 
-		if ( !isset( $metadata['MEDIAWIKI_EXIF_VERSION'] ) || $metadata['MEDIAWIKI_EXIF_VERSION'] != 2 ) {
+		if ( !isset( $metadata['MEDIAWIKI_EXIF_VERSION'] ) || $metadata['MEDIAWIKI_EXIF_VERSION'] !== 2 ) {
 			return $metadata;
 		}
 
@@ -81,6 +82,7 @@ class ExifBitmapHandler extends BitmapHandler {
 				$val = $formatter->flattenArrayReal( $val, 'ul', true );
 			}
 		}
+		unset( $val );
 		$metadata['MEDIAWIKI_EXIF_VERSION'] = 1;
 
 		return $metadata;
@@ -91,7 +93,7 @@ class ExifBitmapHandler extends BitmapHandler {
 	 * @return bool|int
 	 */
 	public function isFileMetadataValid( $image ) {
-		$showEXIF = MediaWikiServices::getInstance()->getMainConfig()->get( 'ShowEXIF' );
+		$showEXIF = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::ShowEXIF );
 		if ( !$showEXIF ) {
 			# Metadata disabled and so an empty field is expected
 			return self::METADATA_GOOD;
@@ -113,10 +115,10 @@ class ExifBitmapHandler extends BitmapHandler {
 		}
 
 		if ( !isset( $exif['MEDIAWIKI_EXIF_VERSION'] )
-			|| $exif['MEDIAWIKI_EXIF_VERSION'] != Exif::version()
+			|| $exif['MEDIAWIKI_EXIF_VERSION'] !== Exif::version()
 		) {
 			if ( isset( $exif['MEDIAWIKI_EXIF_VERSION'] )
-				&& $exif['MEDIAWIKI_EXIF_VERSION'] == 1
+				&& $exif['MEDIAWIKI_EXIF_VERSION'] === 1
 			) {
 				// back-compatible but old
 				wfDebug( __METHOD__ . ": back-compat version" );
@@ -167,7 +169,7 @@ class ExifBitmapHandler extends BitmapHandler {
 			$rotation = 0;
 		}
 
-		if ( $rotation == 90 || $rotation == 270 ) {
+		if ( $rotation === 90 || $rotation === 270 ) {
 			$width = $info['width'];
 			$info['width'] = $info['height'];
 			$info['height'] = $width;

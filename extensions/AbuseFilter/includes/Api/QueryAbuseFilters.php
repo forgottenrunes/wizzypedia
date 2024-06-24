@@ -1,12 +1,5 @@
 <?php
 /**
- * Created on Mar 29, 2009
- *
- * AbuseFilter extension
- *
- * Copyright © 2008 Alex Z. mrzmanwiki AT gmail DOT com
- * Based mostly on code by Bryan Tong Minh and Roan Kattouw
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -29,10 +22,16 @@ use ApiBase;
 use ApiQuery;
 use ApiQueryBase;
 use MediaWiki\Extension\AbuseFilter\AbuseFilterPermissionManager;
+use MediaWiki\Extension\AbuseFilter\AbuseFilterServices;
 use MWTimestamp;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\IntegerDef;
 
 /**
  * Query module to list abuse filter details.
+ *
+ * @copyright 2009 Alex Z. <mrzmanwiki AT gmail DOT com>
+ * Based mostly on code by Bryan Tong Minh and Roan Kattouw
  *
  * @ingroup API
  * @ingroup Extensions
@@ -60,7 +59,6 @@ class QueryAbuseFilters extends ApiQueryBase {
 	 * @inheritDoc
 	 */
 	public function execute() {
-		$user = $this->getUser();
 		$this->checkUserRightsAny( 'abusefilter-view' );
 
 		$params = $this->extractRequestParams();
@@ -90,7 +88,12 @@ class QueryAbuseFilters extends ApiQueryBase {
 		$this->addFieldsIf( 'af_pattern', $fld_pattern );
 		$this->addFieldsIf( 'af_actions', $fld_actions );
 		$this->addFieldsIf( 'af_comments', $fld_comments );
-		$this->addFieldsIf( 'af_user_text', $fld_user );
+		if ( $fld_user ) {
+			$actorQuery = AbuseFilterServices::getActorMigration()->getJoin( 'af_user' );
+			$this->addTables( $actorQuery['tables'] );
+			$this->addFields( [ 'af_user_text' => $actorQuery['fields']['af_user_text'] ] );
+			$this->addJoinConds( $actorQuery['joins'] );
+		}
 		$this->addFieldsIf( 'af_timestamp', $fld_time );
 
 		$this->addOption( 'LIMIT', $params['limit'] + 1 );
@@ -118,7 +121,7 @@ class QueryAbuseFilters extends ApiQueryBase {
 
 		$res = $this->select( __METHOD__ );
 
-		$showhidden = $this->afPermManager->canViewPrivateFilters( $user );
+		$showhidden = $this->afPermManager->canViewPrivateFilters( $this->getAuthority() );
 
 		$count = 0;
 		foreach ( $res as $row ) {
@@ -183,22 +186,22 @@ class QueryAbuseFilters extends ApiQueryBase {
 	public function getAllowedParams() {
 		return [
 			'startid' => [
-				ApiBase::PARAM_TYPE => 'integer'
+				ParamValidator::PARAM_TYPE => 'integer'
 			],
 			'endid' => [
-				ApiBase::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_TYPE => 'integer',
 			],
 			'dir' => [
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_TYPE => [
 					'older',
 					'newer'
 				],
-				ApiBase::PARAM_DFLT => 'newer',
+				ParamValidator::PARAM_DEFAULT => 'newer',
 				ApiBase::PARAM_HELP_MSG => 'api-help-param-direction',
 			],
 			'show' => [
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => [
 					'enabled',
 					'!enabled',
 					'deleted',
@@ -208,15 +211,15 @@ class QueryAbuseFilters extends ApiQueryBase {
 				],
 			],
 			'limit' => [
-				ApiBase::PARAM_DFLT => 10,
-				ApiBase::PARAM_TYPE => 'limit',
-				ApiBase::PARAM_MIN => 1,
-				ApiBase::PARAM_MAX => ApiBase::LIMIT_BIG1,
-				ApiBase::PARAM_MAX2 => ApiBase::LIMIT_BIG2
+				ParamValidator::PARAM_DEFAULT => 10,
+				ParamValidator::PARAM_TYPE => 'limit',
+				IntegerDef::PARAM_MIN => 1,
+				IntegerDef::PARAM_MAX => ApiBase::LIMIT_BIG1,
+				IntegerDef::PARAM_MAX2 => ApiBase::LIMIT_BIG2
 			],
 			'prop' => [
-				ApiBase::PARAM_DFLT => 'id|description|actions|status',
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_DEFAULT => 'id|description|actions|status',
+				ParamValidator::PARAM_TYPE => [
 					'id',
 					'description',
 					'pattern',
@@ -228,7 +231,7 @@ class QueryAbuseFilters extends ApiQueryBase {
 					'status',
 					'private',
 				],
-				ApiBase::PARAM_ISMULTI => true
+				ParamValidator::PARAM_ISMULTI => true
 			]
 		];
 	}

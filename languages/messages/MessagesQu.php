@@ -1,10 +1,8 @@
 <?php
 /** Quechua (Runa Simi)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author AlimanRuna
  * @author Diego Grez

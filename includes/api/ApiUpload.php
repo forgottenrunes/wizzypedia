@@ -20,8 +20,15 @@
  * @file
  */
 
+use MediaWiki\Config\Config;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 use MediaWiki\User\UserOptionsLookup;
 use MediaWiki\Watchlist\WatchlistManager;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\IntegerDef;
 
 /**
  * @ingroup API
@@ -35,8 +42,7 @@ class ApiUpload extends ApiBase {
 
 	protected $mParams;
 
-	/** @var JobQueueGroup */
-	private $jobQueueGroup;
+	private JobQueueGroup $jobQueueGroup;
 
 	/**
 	 * @param ApiMain $mainModule
@@ -56,8 +62,9 @@ class ApiUpload extends ApiBase {
 		$this->jobQueueGroup = $jobQueueGroup;
 
 		// Variables needed in ApiWatchlistTrait trait
-		$this->watchlistExpiryEnabled = $this->getConfig()->get( 'WatchlistExpiry' );
-		$this->watchlistMaxDuration = $this->getConfig()->get( 'WatchlistExpiryMaxDuration' );
+		$this->watchlistExpiryEnabled = $this->getConfig()->get( MainConfigNames::WatchlistExpiry );
+		$this->watchlistMaxDuration =
+			$this->getConfig()->get( MainConfigNames::WatchlistExpiryMaxDuration );
 		$this->watchlistManager = $watchlistManager;
 		$this->userOptionsLookup = $userOptionsLookup;
 	}
@@ -75,7 +82,7 @@ class ApiUpload extends ApiBase {
 		$request = $this->getMain()->getRequest();
 		// Check if async mode is actually supported (jobs done in cli mode)
 		$this->mParams['async'] = ( $this->mParams['async'] &&
-			$this->getConfig()->get( 'EnableAsyncUploads' ) );
+			$this->getConfig()->get( MainConfigNames::EnableAsyncUploads ) );
 		// Add the uploaded file to the params array
 		$this->mParams['file'] = $request->getFileName( 'file' );
 		$this->mParams['chunk'] = $request->getFileName( 'chunk' );
@@ -156,12 +163,6 @@ class ApiUpload extends ApiBase {
 			return $this->getStashResult( $warnings );
 		}
 
-		// Check throttle after we've handled warnings
-		if ( UploadBase::isThrottled( $this->getUser() )
-		) {
-			$this->dieWithError( 'apierror-ratelimited' );
-		}
-
 		// This is the most common case -- a normal upload with no warnings
 		// performUpload will return a formatted properly for the API with status
 		return $this->performUpload( $warnings );
@@ -208,7 +209,7 @@ class ApiUpload extends ApiBase {
 	 * @return int
 	 */
 	public static function getMinUploadChunkSize( Config $config ) {
-		$configured = $config->get( 'MinUploadChunkSize' );
+		$configured = $config->get( MainConfigNames::MinUploadChunkSize );
 
 		// Leave some room for other POST parameters
 		$postMax = (
@@ -385,7 +386,7 @@ class ApiUpload extends ApiBase {
 		if ( $status->getMessage()->getKey() === 'uploadstash-exception' ) {
 			// The exceptions thrown by upload stash code and pretty silly and UploadBase returns poor
 			// Statuses for it. Just extract the exception details and parse them ourselves.
-			list( $exceptionType, $message ) = $status->getMessage()->getParams();
+			[ $exceptionType, $message ] = $status->getMessage()->getParams();
 			$debugMessage = 'Stashing temporary file failed: ' . $exceptionType . ' ' . $message;
 			wfDebug( __METHOD__ . ' ' . $debugMessage );
 		}
@@ -410,7 +411,6 @@ class ApiUpload extends ApiBase {
 	 * @return never
 	 */
 	private function dieRecoverableError( $errors, $parameter = null ) {
-		// @phan-suppress-previous-line PhanTypeMissingReturn
 		$this->performStash( 'optional', $data );
 
 		if ( $parameter ) {
@@ -437,7 +437,6 @@ class ApiUpload extends ApiBase {
 	 * @return never
 	 */
 	public function dieStatusWithCode( $status, $overrideCode, $moreExtraData = null ) {
-		// @phan-suppress-previous-line PhanTypeMissingReturn
 		$sv = StatusValue::newGood();
 		foreach ( $status->getErrors() as $error ) {
 			$msg = ApiMessage::create( $error, $overrideCode );
@@ -587,7 +586,7 @@ class ApiUpload extends ApiBase {
 		$permission = $this->mUpload->isAllowed( $user );
 
 		if ( $permission !== true ) {
-			if ( !$user->isRegistered() ) {
+			if ( !$user->isNamed() ) {
 				$this->dieWithError( [ 'apierror-mustbeloggedin', $this->msg( 'action-upload' ) ] );
 			}
 
@@ -596,12 +595,8 @@ class ApiUpload extends ApiBase {
 
 		// Check blocks
 		if ( $user->isBlockedFromUpload() ) {
+			// @phan-suppress-next-line PhanTypeMismatchArgumentNullable Block is checked and not null
 			$this->dieBlocked( $user->getBlock() );
-		}
-
-		// Global blocks
-		if ( $user->isBlockedGlobally() ) {
-			$this->dieBlocked( $user->getGlobalBlock() );
 		}
 	}
 
@@ -649,7 +644,6 @@ class ApiUpload extends ApiBase {
 	 * @return never
 	 */
 	protected function checkVerification( array $verification ) {
-		// @phan-suppress-previous-line PhanTypeMissingReturn
 		switch ( $verification['status'] ) {
 			// Recoverable errors
 			case UploadBase::MIN_LENGTH_PARTNAME:
@@ -682,9 +676,11 @@ class ApiUpload extends ApiBase {
 			case UploadBase::FILETYPE_BADTYPE:
 				$extradata = [
 					'filetype' => $verification['finalExt'],
-					'allowed' => array_values( array_unique( $this->getConfig()->get( 'FileExtensions' ) ) )
+					'allowed' => array_values( array_unique(
+						$this->getConfig()->get( MainConfigNames::FileExtensions ) ) )
 				];
-				$extensions = array_unique( $this->getConfig()->get( 'FileExtensions' ) );
+				$extensions =
+					array_unique( $this->getConfig()->get( MainConfigNames::FileExtensions ) );
 				$msg = [
 					'filetype-banned-type',
 					null, // filled in below
@@ -837,9 +833,7 @@ class ApiUpload extends ApiBase {
 	 */
 	protected function performUpload( $warnings ) {
 		// Use comment as initial page text by default
-		if ( $this->mParams['text'] === null ) {
-			$this->mParams['text'] = $this->mParams['comment'];
-		}
+		$this->mParams['text'] ??= $this->mParams['comment'];
 
 		/** @var LocalFile $file */
 		$file = $this->mUpload->getLocalFile();
@@ -938,21 +932,21 @@ class ApiUpload extends ApiBase {
 	public function getAllowedParams() {
 		$params = [
 			'filename' => [
-				ApiBase::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_TYPE => 'string',
 			],
 			'comment' => [
-				ApiBase::PARAM_DFLT => ''
+				ParamValidator::PARAM_DEFAULT => ''
 			],
 			'tags' => [
-				ApiBase::PARAM_TYPE => 'tags',
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => 'tags',
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'text' => [
-				ApiBase::PARAM_TYPE => 'text',
+				ParamValidator::PARAM_TYPE => 'text',
 			],
 			'watch' => [
-				ApiBase::PARAM_DFLT => false,
-				ApiBase::PARAM_DEPRECATED => true,
+				ParamValidator::PARAM_DEFAULT => false,
+				ParamValidator::PARAM_DEPRECATED => true,
 			],
 		];
 
@@ -967,26 +961,26 @@ class ApiUpload extends ApiBase {
 		$params += [
 			'ignorewarnings' => false,
 			'file' => [
-				ApiBase::PARAM_TYPE => 'upload',
+				ParamValidator::PARAM_TYPE => 'upload',
 			],
 			'url' => null,
 			'filekey' => null,
 			'sessionkey' => [
-				ApiBase::PARAM_DEPRECATED => true,
+				ParamValidator::PARAM_DEPRECATED => true,
 			],
 			'stash' => false,
 
 			'filesize' => [
-				ApiBase::PARAM_TYPE => 'integer',
-				ApiBase::PARAM_MIN => 0,
-				ApiBase::PARAM_MAX => UploadBase::getMaxUploadSize(),
+				ParamValidator::PARAM_TYPE => 'integer',
+				IntegerDef::PARAM_MIN => 0,
+				IntegerDef::PARAM_MAX => UploadBase::getMaxUploadSize(),
 			],
 			'offset' => [
-				ApiBase::PARAM_TYPE => 'integer',
-				ApiBase::PARAM_MIN => 0,
+				ParamValidator::PARAM_TYPE => 'integer',
+				IntegerDef::PARAM_MIN => 0,
 			],
 			'chunk' => [
-				ApiBase::PARAM_TYPE => 'upload',
+				ParamValidator::PARAM_TYPE => 'upload',
 			],
 
 			'async' => false,

@@ -61,10 +61,10 @@ class UltimateAuthorityTest extends MediaWikiUnitTestCase {
 
 		$status = new PermissionStatus();
 		$authority->probablyCan( 'foo', $target, $status );
-		$this->assertTrue( $status->isOK() );
+		$this->assertStatusOK( $status );
 	}
 
-	public function testDefinitlyCan() {
+	public function testDefinitelyCan() {
 		$target = new PageIdentityValue( 321, NS_MAIN, __METHOD__, PageIdentity::LOCAL );
 		$actor = new UserIdentityValue( 12, 'Test' );
 		$authority = new UltimateAuthority( $actor );
@@ -74,7 +74,7 @@ class UltimateAuthorityTest extends MediaWikiUnitTestCase {
 
 		$status = new PermissionStatus();
 		$authority->definitelyCan( 'foo', $target, $status );
-		$this->assertTrue( $status->isOK() );
+		$this->assertStatusOK( $status );
 	}
 
 	public function testAuthorizeRead() {
@@ -87,7 +87,7 @@ class UltimateAuthorityTest extends MediaWikiUnitTestCase {
 
 		$status = new PermissionStatus();
 		$authority->authorizeRead( 'foo', $target, $status );
-		$this->assertTrue( $status->isOK() );
+		$this->assertStatusOK( $status );
 	}
 
 	public function testAuthorizeWrite() {
@@ -100,7 +100,7 @@ class UltimateAuthorityTest extends MediaWikiUnitTestCase {
 
 		$status = new PermissionStatus();
 		$authority->authorizeWrite( 'foo', $target, $status );
-		$this->assertTrue( $status->isOK() );
+		$this->assertStatusOK( $status );
 	}
 
 	public function testIsAllowedAnyThrowsOnEmptySet() {

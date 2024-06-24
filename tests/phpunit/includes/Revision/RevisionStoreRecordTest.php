@@ -10,13 +10,13 @@ use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\RevisionSlots;
 use MediaWiki\Revision\RevisionStoreRecord;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleValue;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
 use MediaWikiIntegrationTestCase;
 use stdClass;
 use TextContent;
-use Title;
-use TitleValue;
 use Wikimedia\Assert\PreconditionException;
 use Wikimedia\Timestamp\TimestampException;
 
@@ -26,7 +26,7 @@ use Wikimedia\Timestamp\TimestampException;
  */
 class RevisionStoreRecordTest extends MediaWikiIntegrationTestCase {
 
-	public function provideConstructor() {
+	public static function provideConstructor() {
 		$user = new UserIdentityValue( 11, 'Tester' );
 		$comment = CommentStoreComment::newUnsavedComment( 'Hello World' );
 
@@ -65,7 +65,7 @@ class RevisionStoreRecordTest extends MediaWikiIntegrationTestCase {
 			$slots,
 		];
 
-		$title = Title::newFromText( 'Dummy' );
+		$title = Title::makeTitle( NS_MAIN, 'Dummy' );
 		$title->resetArticleID( 17 );
 
 		yield 'all info, local with Title' => [
@@ -123,8 +123,10 @@ class RevisionStoreRecordTest extends MediaWikiIntegrationTestCase {
 		];
 
 		$row = $protoRow;
+		$nonExistingTitle = Title::makeTitle( NS_MAIN, 'DummyDoesNotExist' );
+		$nonExistingTitle->resetArticleID( 0 );
 		yield 'no length, no hash' => [
-			Title::newFromText( 'DummyDoesNotExist' ),
+			$nonExistingTitle,
 			$user,
 			$comment,
 			(object)$row,
@@ -140,7 +142,7 @@ class RevisionStoreRecordTest extends MediaWikiIntegrationTestCase {
 	 * @param CommentStoreComment $comment
 	 * @param stdClass $row
 	 * @param RevisionSlots $slots
-	 * @param bool $wikiId
+	 * @param string|false $wikiId
 	 * @param string|null $expectedException
 	 */
 	public function testConstructorAndGetters(
@@ -212,8 +214,8 @@ class RevisionStoreRecordTest extends MediaWikiIntegrationTestCase {
 		}
 	}
 
-	public function provideConstructorFailure() {
-		$title = Title::newFromText( 'Dummy' );
+	public static function provideConstructorFailure() {
+		$title = Title::makeTitle( NS_MAIN, 'Dummy' );
 		$title->resetArticleID( 17 );
 
 		$user = new UserIdentityValue( 11, 'Tester' );
@@ -267,7 +269,7 @@ class RevisionStoreRecordTest extends MediaWikiIntegrationTestCase {
 	 * @param CommentStoreComment $comment
 	 * @param stdClass $row
 	 * @param RevisionSlots $slots
-	 * @param bool $wikiId
+	 * @param string|false $wikiId
 	 */
 	public function testConstructorFailure(
 		PageIdentity $page,

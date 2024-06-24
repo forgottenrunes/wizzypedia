@@ -4,19 +4,12 @@ namespace MediaWiki\Tests\Revision;
 
 use MediaWiki\Page\PageIdentityValue;
 use MediaWiki\Revision\SlotRoleHandler;
-use Title;
+use MediaWiki\Title\Title;
 
 /**
  * @covers \MediaWiki\Revision\SlotRoleHandler
  */
 class SlotRoleHandlerTest extends \MediaWikiUnitTestCase {
-
-	/**
-	 * @return Title
-	 */
-	private function makeBlankTitleObject() {
-		return $this->createMock( Title::class );
-	}
 
 	/**
 	 * @covers \MediaWiki\Revision\SlotRoleHandler::__construct
@@ -30,7 +23,7 @@ class SlotRoleHandlerTest extends \MediaWikiUnitTestCase {
 		$this->assertSame( 'foo', $handler->getRole() );
 		$this->assertSame( 'slot-name-foo', $handler->getNameMessageKey() );
 
-		$title = $this->makeBlankTitleObject();
+		$title = $this->createMock( Title::class );
 		$this->assertSame( 'FooModel', $handler->getDefaultModel( $title ) );
 
 		$hints = $handler->getOutputLayoutHints();

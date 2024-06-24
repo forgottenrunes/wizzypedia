@@ -19,10 +19,13 @@
  * @ingroup Testing
  */
 
+use Wikimedia\Parsoid\ParserTests\Test as ParserTest;
+use Wikimedia\Parsoid\ParserTests\TestMode as ParserTestMode;
+
 /**
  * Interface to record parser test results.
  *
- * The TestRecorder is an class hierarchy to record the result of
+ * The TestRecorder is a class hierarchy to record the result of
  * MediaWiki parser tests. One should call start() before running the
  * full parser tests and end() once all the tests have been finished.
  * After each test, you should use record() to keep track of your tests
@@ -42,46 +45,47 @@ class TestRecorder {
 
 	/**
 	 * Called before starting a test
-	 * @param string $test
+	 * @param ParserTest $test
+	 * @param ParserTestMode $mode
 	 */
-	public function startTest( $test ) {
+	public function startTest( ParserTest $test, ParserTestMode $mode ) {
 	}
 
 	/**
 	 * Called before starting an input file
 	 * @param string $path
 	 */
-	public function startSuite( $path ) {
+	public function startSuite( string $path ) {
 	}
 
 	/**
 	 * Called after ending an input file
 	 * @param string $path
 	 */
-	public function endSuite( $path ) {
+	public function endSuite( string $path ) {
 	}
 
 	/**
 	 * Called after each test
-	 * @param array $test
 	 * @param ParserTestResult $result
 	 */
-	public function record( $test, ParserTestResult $result ) {
+	public function record( ParserTestResult $result ) {
 	}
 
 	/**
 	 * Show a warning to the user
 	 * @param string $message
 	 */
-	public function warning( $message ) {
+	public function warning( string $message ) {
 	}
 
 	/**
 	 * Mark a test skipped
-	 * @param string $test
-	 * @param string $subtest
+	 * @param ParserTest $test
+	 * @param ParserTestMode $mode
+	 * @param string $reason
 	 */
-	public function skipped( $test, $subtest ) {
+	public function skipped( ParserTest $test, ParserTestMode $mode, string $reason ) {
 	}
 
 	/**

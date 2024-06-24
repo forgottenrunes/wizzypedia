@@ -23,8 +23,7 @@ namespace MediaWiki\Page;
 use Wikimedia\Assert\PreconditionException;
 
 /**
- * Interface for objects representing a page that is (or could be, or used to be)
- * an editable page on a wiki.
+ * Interface for a page that is (or could be, or used to be) an editable wiki page.
  *
  * @note In contrast to PageIdentity, a ProperPageIdentity is guaranteed to
  *       represent an actual editable (or creatable) page. Eventually,
@@ -35,6 +34,8 @@ use Wikimedia\Assert\PreconditionException;
  *       may be mutable, and return different values from methods such as getId() or exist()
  *       at different times. In the future, the contract of this interface is intended
  *       to be changed to disallow this.
+ *
+ * @see https://www.mediawiki.org/wiki/Manual:Modeling_pages
  *
  * @stable to type
  *

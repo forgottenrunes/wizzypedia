@@ -1,6 +1,9 @@
 <?php
 
+use MediaWiki\Title\Title;
+
 /**
+ * @group Database
  * @covers WikiTextStructure
  */
 class WikitextStructureTest extends MediaWikiLangTestCase {
@@ -13,7 +16,7 @@ class WikitextStructureTest extends MediaWikiLangTestCase {
 	private function getStructure( $text ) {
 		$content = new WikitextContent( $text );
 		$contentRenderer = $this->getServiceContainer()->getContentRenderer();
-		$parserOutput = $contentRenderer->getParserOutput( $content, Title::newFromText( 'TestTitle' ) );
+		$parserOutput = $contentRenderer->getParserOutput( $content, Title::makeTitle( NS_MAIN, 'TestTitle' ) );
 		return new WikiTextStructure( $parserOutput );
 	}
 

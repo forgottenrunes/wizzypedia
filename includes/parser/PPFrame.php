@@ -19,6 +19,8 @@
  * @ingroup Parser
  */
 
+use MediaWiki\Title\Title;
+
 /**
  * @ingroup Parser
  *
@@ -32,6 +34,7 @@ interface PPFrame {
 	public const NO_IGNORE = 8;
 	public const RECOVER_COMMENTS = 16;
 	public const NO_TAGS = 32;
+	public const PROCESS_NOWIKI = 64;
 
 	public const RECOVER_ORIG = self::NO_ARGS | self::NO_TEMPLATES | self::NO_IGNORE |
 		self::RECOVER_COMMENTS | self::NO_TAGS;
@@ -39,8 +42,8 @@ interface PPFrame {
 	/**
 	 * Create a child frame
 	 *
-	 * @param array|bool $args
-	 * @param bool|Title $title
+	 * @param PPNode[]|false $args
+	 * @param Title|false $title
 	 * @param int $indexOffset A number subtracted from the index attributes of the arguments
 	 *
 	 * @return PPFrame
@@ -128,7 +131,7 @@ interface PPFrame {
 	/**
 	 * Get an argument to this frame by name
 	 * @param int|string $name
-	 * @return string|bool
+	 * @return string|false
 	 */
 	public function getArgument( $name );
 

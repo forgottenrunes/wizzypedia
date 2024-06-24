@@ -21,7 +21,7 @@
 			$clickContainer = multiple ? issue.$el.parents( '.mbox-text' ) : issue.$el;
 
 		$issueContainer.prepend(
-			issue.issue.icon.$el.clone().addClass( 'mw-ui-icon-small' )
+			issue.issue.icon.$el.clone()
 		);
 		$issueContainer.prepend( $learnMoreEl );
 
@@ -34,7 +34,7 @@
 	/**
 	 * Modifies the page DOM to insert a page-issue notice below the title of the page,
 	 * containing a link with a message like "this page has issues".
-	 * Used on talk & category namespaces, or when page-issue banners have been disabled.s
+	 * Used on category namespaces, or when page-issue banners have been disabled.
 	 *
 	 * @param {string} labelText
 	 * @param {string} section
@@ -42,10 +42,8 @@
 	function insertPageIssueNotice( labelText, section ) {
 		var $link = newPageIssueLink( labelText );
 		$link.attr( 'href', '#/issues/' + section );
-		// FIXME: #section_0 rule can be removed > 1 week after
-		// I2ffdedd64414ffb3c6e441391a75fd6e744847a4 is in production.
 		// eslint-disable-next-line no-jquery/no-global-selector
-		$link.insertAfter( $( 'h1#section_0, h1.mw-first-heading' ) );
+		$link.insertAfter( $( 'h1.mw-first-heading' ) );
 	}
 
 	module.exports = {

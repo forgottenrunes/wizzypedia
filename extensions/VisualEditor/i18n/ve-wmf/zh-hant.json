@@ -10,6 +10,7 @@
 			"Deryck Chan",
 			"Hydra",
 			"Justincheng12345",
+			"Kly",
 			"LNDDYL",
 			"Liflon",
 			"Liuxinyu970226",
@@ -21,9 +22,13 @@
 			"Spring Roll Conan",
 			"Waihorace",
 			"Xiplus",
+			"捍粵者",
 			"아라"
 		]
 	},
+	"tag-editcheck-newcontent-description": "EditCheck 發現頁面裡有新添加的內容",
+	"tag-editcheck-newreference-description": "頁面中添加了參考來源",
+	"tag-editcheck-references-description": "EditCheck 認為可能需要參考來源",
 	"tag-visualeditor": "[[{{MediaWiki:visualeditor-descriptionpagelink}}|視覺化編輯]]",
 	"tag-visualeditor-description": "使用[[{{MediaWiki:visualeditor-descriptionpagelink}}|視覺化編輯器]]完成的編輯",
 	"tag-visualeditor-needcheck": "[[{{MediaWiki:visualeditor-descriptionpagelink}}|視覺化編輯器：需要檢查]]",
@@ -39,7 +44,7 @@
 	"visualeditor-help-title": "有關如何使用編輯器的使用者說明",
 	"visualeditor-welcomedialog-action": "開始編輯",
 	"visualeditor-welcomedialog-content": "任何人可編輯，每次改進都可以協助我們。",
-	"visualeditor-welcomedialog-content-thanks": "感謝您的協助讓人們發現世界！",
+	"visualeditor-welcomedialog-content-thanks": "感謝您的協助讓眾人發現世界！",
 	"visualeditor-welcomedialog-switch": "切換至原始碼編輯器",
 	"visualeditor-welcomedialog-switch-ve": "切換至視覺化編輯器",
 	"visualeditor-welcomedialog-title": "{{GENDER:$1|歡迎光臨}} $2"

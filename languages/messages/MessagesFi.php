@@ -1,11 +1,8 @@
 <?php
 /** Finnish (suomi)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
- *
+ * @ingroup Languages
  */
 
 $namespaceNames = [
@@ -116,6 +113,7 @@ $specialPageAliases = [
 	'Recentchanges'             => [ 'Tuoreet_muutokset' ],
 	'Recentchangeslinked'       => [ 'Linkitetyt_muutokset' ],
 	'Redirect'                  => [ 'Ohjaus' ],
+	'Renameuser'                => [ 'Käyttäjätunnusten_nimeäminen' ],
 	'Revisiondelete'            => [ 'Poista_versio' ],
 	'Search'                    => [ 'Haku' ],
 	'Shortpages'                => [ 'Lyhyet_sivut' ],

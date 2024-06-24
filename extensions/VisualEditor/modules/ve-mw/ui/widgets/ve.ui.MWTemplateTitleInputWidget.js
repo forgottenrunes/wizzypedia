@@ -6,7 +6,10 @@
  */
 
 /**
- * Creates an ve.ui.MWTemplateTitleInputWidget object.
+ * Input field for entering a template title, for example when adding a template
+ * in the template dialog.  Autocomplete fetches TemplateData and performs
+ * searching in the background, to display information about matching templates
+ * on the wiki.
  *
  * @class
  * @extends mw.widgets.TitleInputWidget
@@ -20,6 +23,7 @@
 ve.ui.MWTemplateTitleInputWidget = function VeUiMWTemplateTitleInputWidget( config ) {
 	config = ve.extendObject( {}, {
 		namespace: mw.config.get( 'wgNamespaceIds' ).template,
+		showMissing: false,
 		// We don't need results to show up twice normalized and unnormalized
 		addQueryInput: false,
 		icon: 'search',
@@ -65,15 +69,8 @@ ve.ui.MWTemplateTitleInputWidget.prototype.getApiParams = function ( query ) {
 		// Adding the asterisk to emulate a prefix search behavior. It does not make sense in all
 		// cases though. We're limiting it to be add only of the term ends with a letter or numeric
 		// character.
-		var endsWithAlpha;
-		try {
-			// TODO: Convert to literal when IE11 compatibility was dropped
-			// eslint-disable-next-line prefer-regex-literals
-			endsWithAlpha = new RegExp( '[0-9a-z\\p{L}\\p{N}]$', 'iu' );
-		} catch ( e ) {
-			// TODO: Remove when IE11 compatibility was dropped
-			endsWithAlpha = /[0-9a-z\xC0-\uFFFF]$/i;
-		}
+		// eslint-disable-next-line es-x/no-regexp-u-flag, es-x/no-regexp-unicode-property-escapes, prefer-regex-literals
+		var endsWithAlpha = new RegExp( '[0-9a-z\\p{L}\\p{N}]$', 'iu' );
 		if ( endsWithAlpha.test( params.gsrsearch ) ) {
 			params.gsrsearch += '*';
 		}
@@ -109,38 +106,32 @@ ve.ui.MWTemplateTitleInputWidget.prototype.getLookupRequest = function () {
 	return promise
 		.then( function ( response ) {
 			var redirects = ( response.query && response.query.redirects ) || [],
-				origPages = ( response.query && response.query.pages ) || {},
-				newPages = [];
+				newPages = ( response.query && response.query.pages ) || [];
 
-			// Build a new array to replace response.query.pages, ensuring everything goes into
-			// the order defined by the page's index key, instead of whatever random order the
-			// browser would let you iterate over the old object in.
-			for ( var pageId in origPages ) {
-				if ( 'index' in origPages[ pageId ] ) {
-					newPages[ origPages[ pageId ].index - 1 ] = origPages[ pageId ];
-				} else {
+			newPages.forEach( function ( page ) {
+				if ( !( 'index' in page ) ) {
 					// Watch out for cases where the index is specified on the redirect object
 					// rather than the page object.
-					for ( var redirIndex in redirects ) {
-						if ( redirects[ redirIndex ].to === origPages[ pageId ].title ) {
-							newPages[ redirects[ redirIndex ].index - 1 ] = origPages[ pageId ];
+					for ( var j in redirects ) {
+						if ( redirects[ j ].to === page.title ) {
+							page.index = redirects[ j ].index;
 							break;
 						}
 					}
 				}
-			}
+			} );
+
+			// Ensure everything goes into the order defined by the page's index key
+			newPages.sort( function ( a, b ) {
+				return a.index - b.index;
+			} );
 
 			// T54448: Filter out matches which end in /doc or as configured on-wiki
 			if ( templateDataInstalled ) {
 				newPages = newPages.filter( function ( page ) {
 					// Can't use String.endsWith() as that's ES6.
 					// page.title.endsWith( templateDocPageFragment )
-					return page.title.slice( 0 - templateDocPageFragment.length ) !== templateDocPageFragment;
-				} );
-			} else {
-				// Even if not filtering /doc, collapse the sparse array
-				newPages = newPages.filter( function ( page ) {
-					return page;
+					return page.title.slice( -templateDocPageFragment.length ) !== templateDocPageFragment;
 				} );
 			}
 
@@ -167,11 +158,11 @@ ve.ui.MWTemplateTitleInputWidget.prototype.getLookupRequest = function () {
 		.then( function ( templateDataResponse ) {
 			var pages = ( templateDataResponse && templateDataResponse.pages ) || {};
 			// Look for descriptions and cache them
-			for ( var index in pages ) {
-				var page = pages[ index ];
+			for ( var i in pages ) {
+				var page = pages[ i ];
 
 				if ( page.missing ) {
-					// Remmeber templates that don't exist in the link cache
+					// Remember templates that don't exist in the link cache
 					// { title: { missing: true|false }
 					var missingTitle = {};
 					missingTitle[ page.title ] = { missing: true };
@@ -201,8 +192,12 @@ ve.ui.MWTemplateTitleInputWidget.prototype.addExactMatch = function ( response )
 		query = this.getQueryValue(),
 		title = mw.Title.newFromText( query, this.namespace );
 	// No point in trying anything when the title is invalid
-	if ( !response.query || !title ) {
+	if ( !title ) {
 		return response;
+	}
+
+	if ( !response.query ) {
+		response.query = { pages: [] };
 	}
 
 	var lowerTitle = title.getPrefixedText().toLowerCase(),
@@ -280,15 +275,25 @@ ve.ui.MWTemplateTitleInputWidget.prototype.addExactMatch = function ( response )
 		generator: 'prefixsearch',
 		gpssearch: query,
 		gpsnamespace: this.namespace,
-		gpslimit: 1
+		// Try to fill with prefix matches, otherwise just the top-1 prefix match
+		gpslimit: this.limit
 	} ).then( function ( prefixMatches ) {
 		// action=query returns page objects in `{ query: { pages: [] } }`, not keyed by page id
-		if ( prefixMatches.query ) {
-			for ( var index in prefixMatches.query.pages ) {
-				var prefixMatch = prefixMatches.query.pages[ index ];
-				if ( !containsPageId( response.query.pages, prefixMatch.pageid ) ) {
-					unshiftPages( response.query.pages, prefixMatch );
-				}
+		var pages = prefixMatches.query && prefixMatches.query.pages || [];
+		pages.sort( function ( a, b ) {
+			return a.index - b.index;
+		} );
+		for ( i in pages ) {
+			var prefixMatch = pages[ i ];
+			if ( !containsPageId( response.query.pages, prefixMatch.pageid ) ) {
+				// Move prefix matches to the top, indexed from -9 to 0, relevant for e.g. {{!!}}
+				// Note: Sorting happens later in mw.widgets.TitleWidget.getOptionsFromData()
+				prefixMatch.index -= widget.limit;
+				response.query.pages.push( prefixMatch );
+			}
+			// Check only after the top-1 prefix match is guaranteed to be present
+			if ( response.query.pages.length >= widget.limit ) {
+				break;
 			}
 		}
 		return response;

@@ -49,7 +49,6 @@ class PFValuesUtils {
 				$values[] = str_replace( '_', ' ', $value->getSortKey() );
 			}
 		}
-		$values = self::shiftShortestMatch( $values );
 		return $values;
 	}
 
@@ -112,18 +111,96 @@ class PFValuesUtils {
 	 * @return array
 	 */
 	public static function getAllValuesForProperty( $property_name ) {
-		global $wgPageFormsMaxAutocompleteValues;
-
 		$store = PFUtils::getSMWStore();
 		if ( $store == null ) {
 			return [];
 		}
 		$requestoptions = new SMWRequestOptions();
-		$requestoptions->limit = $wgPageFormsMaxAutocompleteValues;
+		$requestoptions->limit = self::getMaxValuesToRetrieve();
 		$values = self::getSMWPropertyValues( $store, null, $property_name, $requestoptions );
 		sort( $values );
-		$values = self::shiftShortestMatch( $values );
 		return $values;
+	}
+
+	/**
+	 * This function is used for fetching the values from wikidata based on the provided
+	 * annotations. For queries with substring, the function returns all the values which
+	 * have the substring in it.
+	 *
+	 * @param string $query
+	 * @param string|null $substring
+	 * @return array
+	 */
+	public static function getAllValuesFromWikidata( $query, $substring = null ) {
+		$endpointUrl = "https://query.wikidata.org/sparql";
+		global $wgLanguageCode;
+
+		$query = urldecode( $query );
+
+		$filter_strings = explode( '&', $query );
+		$filters = [];
+
+		foreach ( $filter_strings as $filter ) {
+			$temp = explode( "=", $filter );
+			$filters[ $temp[ 0 ] ] = $temp[ 1 ];
+		}
+
+		$attributesQuery = "";
+		$count = 0;
+		foreach ( $filters as $key => $val ) {
+			$attributesQuery .= "wdt:" . $key;
+			if ( is_numeric( str_replace( "Q", "", $val ) ) ) {
+				$attributesQuery .= " wd:" . $val . ";";
+			} else {
+				$attributesQuery .= "?customLabel" . $count . " .
+				?customLabel" . $count . " rdfs:label \"" . $val . "\"@" . $wgLanguageCode . " . ";
+				$count++;
+				$attributesQuery .= "?value ";
+			}
+		}
+		unset( $count );
+		$attributesQuery = rtrim( $attributesQuery, ";" );
+		$attributesQuery = rtrim( $attributesQuery, ". ?value " );
+
+		$sparqlQueryString = "
+SELECT DISTINCT ?valueLabel WHERE {
+{
+SELECT ?value  WHERE {
+?value " . $attributesQuery . " .
+?value rdfs:label ?valueLabel .
+FILTER(LANG(?valueLabel) = \"" . $wgLanguageCode . "\") .
+FILTER(REGEX(LCASE(?valueLabel), \"\\\\b" . strtolower( $substring ) . "\"))
+} ";
+		$maxValues = self::getMaxValuesToRetrieve( $substring );
+		$sparqlQueryString .= "LIMIT " . ( $maxValues + 10 );
+		$sparqlQueryString .= "}
+SERVICE wikibase:label { bd:serviceParam wikibase:language \"" . $wgLanguageCode . "\". }
+}";
+		$sparqlQueryString .= "LIMIT " . $maxValues;
+		$opts = [
+			'http' => [
+				'method' => 'GET',
+				'header' => [
+					'Accept: application/sparql-results+json',
+					'User-Agent: PageForms_API PHP/8.0'
+				],
+			],
+		];
+		$context = stream_context_create( $opts );
+
+		$url = $endpointUrl . '?query=' . urlencode( $sparqlQueryString );
+		$response = file_get_contents( $url, false, $context );
+		$apiResults = json_decode( $response, true );
+		$results = [];
+		if ( $apiResults != null ) {
+			$apiResults = $apiResults[ 'results' ][ 'bindings' ];
+			foreach ( $apiResults as $result ) {
+				foreach ( $result as $key => $val ) {
+					array_push( $results, $val[ 'value' ] );
+				}
+			}
+		}
+		return $results;
 	}
 
 	/**
@@ -173,11 +250,10 @@ class PFValuesUtils {
 			if ( !array_key_exists( $fieldAlias, $row ) ) {
 				continue;
 			}
-			// Cargo HTML-encodes everything - let's decode double
-			// quotes, at least.
-			$values[] = str_replace( '&quot;', '"', $row[$fieldAlias] );
+			// Cargo HTML-encodes everything - decode the quotes and
+			// angular brackets.
+			$values[] = html_entity_decode( $row[$fieldAlias] );
 		}
-		$values = self::shiftShortestMatch( $values );
 		return $values;
 	}
 
@@ -195,7 +271,7 @@ class PFValuesUtils {
 		if ( $num_levels == 0 ) {
 			return [ $top_category ];
 		}
-		global $wgPageFormsMaxAutocompleteValues, $wgPageFormsUseDisplayTitle;
+		global $wgPageFormsUseDisplayTitle;
 
 		$db = wfGetDB( DB_REPLICA );
 		$top_category = str_replace( ' ', '_', $top_category );
@@ -251,7 +327,7 @@ class PFValuesUtils {
 					__METHOD__,
 					$options = [
 						'ORDER BY' => 'cl_type, cl_sortkey',
-						'LIMIT' => $wgPageFormsMaxAutocompleteValues
+						'LIMIT' => self::getMaxValuesToRetrieve( $substring )
 					],
 					$join );
 				if ( $res ) {
@@ -273,7 +349,7 @@ class PFValuesUtils {
 								// namespace that no longer exists.
 								continue;
 							}
-							$cur_value = PFUtils::titleString( $cur_title );
+							$cur_value = $cur_title->getPrefixedText();
 							if ( !in_array( $cur_value, $pages ) ) {
 								if ( array_key_exists( 'pp_displaytitle_value', $row ) &&
 									( $row[ 'pp_displaytitle_value' ] ) !== null &&
@@ -332,7 +408,7 @@ class PFValuesUtils {
 	 * @return string[]
 	 */
 	public static function getAllPagesForConcept( $conceptName, $substring = null ) {
-		global $wgPageFormsMaxAutocompleteValues, $wgPageFormsAutocompleteOnAllChars;
+		global $wgPageFormsAutocompleteOnAllChars;
 
 		$store = PFUtils::getSMWStore();
 		if ( $store == null ) {
@@ -356,7 +432,7 @@ class PFValuesUtils {
 		$printout = new SMWPrintRequest( SMWPrintRequest::PRINT_THIS, "" );
 		$desc->addPrintRequest( $printout );
 		$query = new SMWQuery( $desc );
-		$query->setLimit( $wgPageFormsMaxAutocompleteValues );
+		$query->setLimit( self::getMaxValuesToRetrieve( $substring ) );
 		$query_result = $store->getQueryResult( $query );
 		$pages = [];
 		$sortkeys = [];
@@ -449,8 +525,8 @@ class PFValuesUtils {
 
 		$allNamespaces = PFUtils::getContLang()->getNamespaces();
 
-		if ( $wgLanguageCode != 'en' ) {
-			$englishLang = Language::factory( 'en' );
+		if ( $wgLanguageCode !== 'en' ) {
+			$englishLang = MediaWikiServices::getInstance()->getLanguageFactory()->getLanguage( 'en' );
 			$allEnglishNamespaces = $englishLang->getNamespaces();
 		}
 
@@ -535,7 +611,10 @@ class PFValuesUtils {
 				$conditions[] = self::getSQLConditionForAutocompleteInColumn( 'page_title', $substring );
 			}
 		}
-		$res = $db->select( $tables, $columns, $conditions, __METHOD__, $options = [], $join );
+		$options = [
+			'LIMIT' => self::getMaxValuesToRetrieve( $substring )
+		];
+		$res = $db->select( $tables, $columns, $conditions, __METHOD__, $options, $join );
 
 		$pages = [];
 		$sortkeys = [];
@@ -600,7 +679,19 @@ class PFValuesUtils {
 		} elseif ( $source_type == 'concept' ) {
 			$names_array = self::getAllPagesForConcept( $source_name );
 		} elseif ( $source_type == 'query' ) {
-			$names_array = self::getAllPagesForQuery( $source_name );
+			// Get rid of the "@", which is a placeholder for the substring,
+			// since there is no substring here.
+			// May not cover all possible use cases.
+			$baseQuery = str_replace(
+				[ "~*@*", "~@*", "~*@", "~@", "like:*@*", "like:@*", "like:*@", "like:@", "&lt;@", "&gt;@", "@" ],
+				"+",
+				$source_name
+			);
+			$smwQuery = self::processSemanticQuery( $baseQuery );
+			$names_array = self::getAllPagesForQuery( $smwQuery );
+		} elseif ( $source_type == 'wikidata' ) {
+			$names_array = self::getAllValuesFromWikidata( $source_name );
+			sort( $names_array );
 		} else {
 			// i.e., $source_type == 'namespace'
 			$names_array = self::getAllPagesForNamespace( $source_name );
@@ -626,6 +717,12 @@ class PFValuesUtils {
 		} elseif ( array_key_exists( 'values from url', $field_args ) ) {
 			$autocompleteFieldType = 'external_url';
 			$autocompletionSource = $field_args['values from url'];
+		} elseif ( array_key_exists( 'values from wikidata', $field_args ) ) {
+			$autocompleteFieldType = 'wikidata';
+			$autocompletionSource = $field_args['values from wikidata'];
+		} elseif ( array_key_exists( 'values from query', $field_args ) ) {
+			$autocompletionSource = $field_args['values from query'];
+			$autocompleteFieldType = 'semantic_query';
 		} elseif ( array_key_exists( 'values', $field_args ) ) {
 			global $wgPageFormsFieldNum;
 			$autocompleteFieldType = 'values';
@@ -653,7 +750,7 @@ class PFValuesUtils {
 			$autocompletionSource = null;
 		}
 
-		if ( $wgCapitalLinks && $autocompleteFieldType != 'external_url' && $autocompleteFieldType != 'cargo field' ) {
+		if ( $wgCapitalLinks && $autocompleteFieldType != 'external_url' && $autocompleteFieldType != 'cargo field' && $autocompleteFieldType != 'semantic_query' ) {
 			$autocompletionSource = PFUtils::getContLang()->ucfirst( $autocompletionSource );
 		}
 
@@ -663,7 +760,7 @@ class PFValuesUtils {
 	public static function getRemoteDataTypeAndPossiblySetAutocompleteValues( $autocompleteFieldType, $autocompletionSource, $field_args, $autocompleteSettings ) {
 		global $wgPageFormsMaxLocalAutocompleteValues, $wgPageFormsAutocompleteValues;
 
-		if ( $autocompleteFieldType == 'external_url' ) {
+		if ( $autocompleteFieldType == 'external_url' || $autocompleteFieldType == 'wikidata' ) {
 			// Autocompletion from URL is always done remotely.
 			return $autocompleteFieldType;
 		}
@@ -733,6 +830,8 @@ class PFValuesUtils {
 	public static function getValuesArray( $value, $delimiter ) {
 		if ( is_array( $value ) ) {
 			return $value;
+		} elseif ( $value == null ) {
+			return [];
 		} else {
 			// Remove extra spaces.
 			return array_map( 'trim', explode( $delimiter, $value ) );
@@ -752,7 +851,7 @@ class PFValuesUtils {
 			return wfMessage( 'pf-blankexturl' );
 		}
 		$url = str_replace( '<substr>', urlencode( $substring ), $url );
-		$page_contents = Http::get( $url );
+		$page_contents = MediaWikiServices::getInstance()->getHttpRequestFactory()->get( $url );
 		if ( empty( $page_contents ) ) {
 			return wfMessage( 'pf-externalpageempty' );
 		}
@@ -814,59 +913,62 @@ class PFValuesUtils {
 	 * @return array
 	 */
 	public static function getAllPagesForQuery( $rawQuery ) {
-		$rawQueryArray = [ $rawQuery ];
-		SMWQueryProcessor::processFunctionParams( $rawQueryArray, $queryString, $processedParams, $printouts );
+		global $wgPageFormsMaxAutocompleteValues;
+		global $wgPageFormsUseDisplayTitle;
+
+		$rawQuery = $rawQuery . "|named args=yes|link=none|limit=$wgPageFormsMaxAutocompleteValues|searchlabel=";
+		$rawQueryArray = explode( "|", $rawQuery );
+		list( $queryString, $processedParams, $printouts ) = SMWQueryProcessor::getComponentsFromFunctionParams( $rawQueryArray, false );
 		SMWQueryProcessor::addThisPrintout( $printouts, $processedParams );
 		$processedParams = SMWQueryProcessor::getProcessedParams( $processedParams, $printouts );
+
+		// Run query and get results.
 		$queryObj = SMWQueryProcessor::createQuery( $queryString,
 			$processedParams,
 			SMWQueryProcessor::SPECIAL_PAGE, '', $printouts );
 		$res = PFUtils::getSMWStore()->getQueryResult( $queryObj );
 		$rows = $res->getResults();
+		$titles = [];
 		$pages = [];
-		foreach ( $rows as $row ) {
-			$pages[] = $row->getDbKey();
+
+		foreach ( $rows as $diWikiPage ) {
+			$pages[] = $diWikiPage->getDbKey();
+			$titles[] = $diWikiPage->getTitle();
+		}
+
+		if ( $wgPageFormsUseDisplayTitle ) {
+			$pages = PFMappingUtils::getDisplayTitles( $titles );
 		}
 
 		return $pages;
 	}
 
-	/**
-	 * Doing "mapping" on values can potentially lead to more than one
-	 * value having the same "label". To avoid this, we find duplicate
-	 * labels, if there are any, add on the real value, in parentheses,
-	 * to all of them.
-	 *
-	 * @param array $labels
-	 * @return array
-	 */
-	public static function disambiguateLabels( array $labels ) {
-		asort( $labels );
-		if ( count( $labels ) == count( array_unique( $labels ) ) ) {
-			return $labels;
+	public static function processSemanticQuery( $query, $substr = '' ) {
+		$query = str_replace(
+			[ "&lt;", "&gt;", "(", ")", '%', '@' ],
+			[ "<", ">", "[", "]", '|', $substr ],
+			$query
+		);
+		return $query;
+	}
+
+	public static function getMaxValuesToRetrieve( $substring = null ) {
+		// $wgPageFormsMaxAutocompleteValues is currently misnamed,
+		// or mis-used - it's actually used for those cases where
+		// autocomplete *isn't* used, i.e. to populate a radiobutton
+		// input, where it makes sense to have a very large limit
+		// (current value: 1,000). For actual autocompletion, though,
+		// with a substring, a limit like 20 makes more sense. It
+		// would be good use the variable for this purpose instead,
+		// with a default like 20, and then create a new global
+		// variable, like $wgPageFormsMaxNonAutocompleteValues, to
+		// hold the much larger number.
+		if ( $substring == null ) {
+			global $wgPageFormsMaxAutocompleteValues;
+			return $wgPageFormsMaxAutocompleteValues;
+		} else {
+			return 20;
 		}
-		$fixed_labels = [];
-		foreach ( $labels as $value => $label ) {
-			$fixed_labels[$value] = $labels[$value];
-		}
-		$counts = array_count_values( $fixed_labels );
-		foreach ( $counts as $current_label => $count ) {
-			if ( $count > 1 ) {
-				$matching_keys = array_keys( $labels, $current_label );
-				foreach ( $matching_keys as $key ) {
-					$fixed_labels[$key] .= ' (' . $key . ')';
-				}
-			}
-		}
-		if ( count( $fixed_labels ) == count( array_unique( $fixed_labels ) ) ) {
-			return $fixed_labels;
-		}
-		// If that didn't work, just add on " (value)" to *all* the
-		// labels. @TODO - is this necessary?
-		foreach ( $labels as $value => $label ) {
-			$labels[$value] .= ' (' . $value . ')';
-		}
-		return $labels;
 	}
 
 	/**
@@ -881,28 +983,17 @@ class PFValuesUtils {
 	}
 
 	/**
-	 * We want the result string matching what the user has currently typed (if
-	 * there is one) to be at the top. However, with local autocompletion, we
-	 * unfortunately don't know what the user's current input is. So instead we
-	 * just take the shortest result string and move that to the top, and hope
-	 * that it's a match.
-	 *
+	 * Map a label back to a value.
+	 * @param string $label
 	 * @param array $values
-	 * @return array $values
+	 * @return string
 	 */
-	public static function shiftShortestMatch( $values ) {
-		if ( empty( $values ) ) {
-			return $values;
+	public static function labelToValue( $label, $values ) {
+		$value = array_search( $label, $values );
+		if ( $value === false ) {
+			return $label;
+		} else {
+			return $value;
 		}
-		$shortestString = $values[ 0 ];
-		foreach ( $values as $val ) {
-			if ( strlen( $val ) < strlen( $shortestString ) ) {
-				$shortestString = $val;
-			}
-		}
-		$firstMatchIdx = array_search( $shortestString, $values );
-		unset( $values[ $firstMatchIdx ] );
-		array_unshift( $values, $shortestString );
-		return $values;
 	}
 }

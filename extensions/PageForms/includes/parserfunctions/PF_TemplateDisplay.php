@@ -53,7 +53,7 @@ class PFTemplateDisplay {
 				$unescapedFieldName = str_replace( '_', ' ', $fieldName );
 				$curFieldValue = $frame->getArgument( $unescapedFieldName );
 			}
-			$tableFieldValues[$fieldName] = $curFieldValue;
+			$tableFieldValues[$fieldName] = $parser->internalParse( $curFieldValue );
 		}
 
 		if ( $format == 'table' ) {
@@ -65,6 +65,9 @@ class PFTemplateDisplay {
 			$text = '';
 		}
 		foreach ( $tableFieldValues as $fieldName => $fieldValue ) {
+			if ( !array_key_exists( $fieldName, $templateFields ) ) {
+				continue;
+			}
 			$templateField = $templateFields[$fieldName];
 			$fieldDisplay = $templateField->getDisplay();
 			if ( $fieldDisplay == 'hidden' ) {
@@ -114,15 +117,10 @@ class PFTemplateDisplay {
 			if ( trim( $fieldValue ) == '' ) {
 				$formattedFieldValue = '';
 			} elseif ( $fieldType == 'Page' ) {
-				if ( $templateField->getNamespace() != '' ) {
-					$fieldValue = $templateField->getNamespace() . ":$fieldValue";
-				}
-				$linkRenderer = MediaWikiServices::getInstance()->getLinkRenderer();
 				if ( $templateField->isList() ) {
 					$formattedFieldValue = self::pageListText( $fieldValue, $templateField );
 				} else {
-					$fieldValueTitle = Title::newFromText( $fieldValue );
-					$formattedFieldValue = PFUtils::makeLink( $linkRenderer, $fieldValueTitle );
+					$formattedFieldValue = self::pageText( $fieldValue, $templateField );
 				}
 			} elseif ( $fieldType == 'Coordinates' ) {
 				$formattedFieldValue = self::mapText( $fieldValue, $format, $parser );
@@ -130,6 +128,8 @@ class PFTemplateDisplay {
 				$formattedFieldValue = self::ratingText( $fieldValue );
 			} elseif ( $fieldType == 'File' ) {
 				$formattedFieldValue = self::fileText( $fieldValue );
+			} elseif ( $templateField->isList() ) {
+				$formattedFieldValue = self::stringListText( $fieldValue, $templateField );
 			} else {
 				$formattedFieldValue = $fieldValue;
 			}
@@ -183,7 +183,6 @@ class PFTemplateDisplay {
 	}
 
 	private static function pageListText( $value, $templateField ) {
-		$linkRenderer = MediaWikiServices::getInstance()->getLinkRenderer();
 		$text = '';
 		$delimiter = $templateField->getDelimiter();
 		$fieldValues = explode( $delimiter, $value );
@@ -194,10 +193,36 @@ class PFTemplateDisplay {
 			if ( $i > 0 ) {
 				$text .= ' <span class="CargoDelimiter">&bull;</span> ';
 			}
-			$title = Title::newFromText( $fieldValue );
-			$text .= PFUtils::makeLink( $linkRenderer, $title );
+			$text .= self::pageText( $fieldValue, $templateField );
 		}
 		return $text;
+	}
+
+	private static function pageText( $value, $templateField ) {
+		$linkRenderer = MediaWikiServices::getInstance()->getLinkRenderer();
+		$namespace = $templateField->getNamespace();
+		$title = Title::makeTitleSafe( $namespace, $value );
+		if ( $title->exists() ) {
+			return PFUtils::makeLink( $linkRenderer, $title );
+		}
+		$form = $templateField->getForm();
+		if ( $form == null ) {
+			return PFUtils::makeLink( $linkRenderer, $title );
+		}
+		// The page doesn't exist, and a form has been found for this
+		// template field - link to this form for this page.
+		$formSpecialPage = PFUtils::getSpecialPage( 'FormEdit' );
+		$formSpecialPageTitle = $formSpecialPage->getPageTitle();
+		$target = $title->getFullText();
+		$formURL = $formSpecialPageTitle->getLocalURL() .
+			str_replace( ' ', '_', "/$form/$target" );
+		return Html::rawElement( 'a', [ 'href' => $formURL, 'class' => 'new' ], $value );
+	}
+
+	private static function stringListText( $value, $templateField ) {
+		$delimiter = $templateField->getDelimiter();
+		$fieldValues = explode( $delimiter, $value );
+		return implode( ' <span class="CargoDelimiter">&bull;</span> ', $fieldValues );
 	}
 
 	private static function ratingText( $value ) {
@@ -215,12 +240,22 @@ class PFTemplateDisplay {
 		if ( $title == null || !$title->exists() ) {
 			return $value;
 		}
-		if ( method_exists( MediaWikiServices::class, 'getRepoGroup' ) ) {
-			// MediaWiki 1.34+
-			$file = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo()->newFile( $title );
-		} else {
-			$file = wfLocalFile( $title );
+
+		if ( $title->isRedirect() ) {
+			if ( method_exists( MediaWikiServices::class, 'getWikiPageFactory' ) ) {
+				// MW 1.36+
+				$wikiPage = MediaWikiServices::getInstance()->getWikiPageFactory()->newFromTitle( $title );
+			} else {
+				$wikiPage = new WikiPage( $title );
+			}
+
+			$title = $wikiPage->getRedirectTarget();
+			if ( !$title->exists() ) {
+				return $title->getText();
+			}
 		}
+
+		$file = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo()->newFile( $title );
 		return Linker::makeThumbLinkObj(
 			$title,
 			$file,

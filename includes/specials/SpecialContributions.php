@@ -21,19 +21,40 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use HTMLForm;
+use HTMLMultiSelectField;
+use LogEventsList;
 use MediaWiki\Block\DatabaseBlock;
 use MediaWiki\Cache\LinkBatchFactory;
 use MediaWiki\CommentFormatter\CommentFormatter;
 use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\Html\Html;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Pager\ContribsPager;
 use MediaWiki\Permissions\PermissionManager;
 use MediaWiki\Revision\RevisionStore;
+use MediaWiki\SpecialPage\IncludableSpecialPage;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Specials\Contribute\ContributeFactory;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\NamespaceInfo;
+use MediaWiki\Title\Title;
+use MediaWiki\User\ExternalUserNames;
+use MediaWiki\User\User;
 use MediaWiki\User\UserFactory;
+use MediaWiki\User\UserIdentity;
+use MediaWiki\User\UserIdentityLookup;
 use MediaWiki\User\UserNamePrefixSearch;
 use MediaWiki\User\UserNameUtils;
 use MediaWiki\User\UserOptionsLookup;
+use MediaWiki\User\UserRigorOptions;
+use MWException;
+use PoolCounterWorkViaCallback;
 use Wikimedia\IPUtils;
-use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * Special:Contributions, show user contributions in a paged list
@@ -43,47 +64,23 @@ use Wikimedia\Rdbms\ILoadBalancer;
 class SpecialContributions extends IncludableSpecialPage {
 	protected $opts;
 
-	/** @var LinkBatchFactory */
-	private $linkBatchFactory;
-
-	/** @var PermissionManager */
-	private $permissionManager;
-
-	/** @var ILoadBalancer */
-	private $loadBalancer;
-
-	/** @var ActorMigration */
-	private $actorMigration;
-
-	/** @var RevisionStore */
-	private $revisionStore;
-
-	/** @var NamespaceInfo */
-	private $namespaceInfo;
-
-	/** @var UserNameUtils */
-	private $userNameUtils;
-
-	/** @var UserNamePrefixSearch */
-	private $userNamePrefixSearch;
-
-	/** @var UserOptionsLookup */
-	private $userOptionsLookup;
-
-	/** @var CommentFormatter */
-	private $commentFormatter;
-
-	/** @var UserFactory */
-	private $userFactory;
-
-	/** @var ContribsPager|null */
-	private $pager = null;
+	private LinkBatchFactory $linkBatchFactory;
+	private PermissionManager $permissionManager;
+	private IConnectionProvider $dbProvider;
+	private RevisionStore $revisionStore;
+	private NamespaceInfo $namespaceInfo;
+	private UserNameUtils $userNameUtils;
+	private UserNamePrefixSearch $userNamePrefixSearch;
+	private UserOptionsLookup $userOptionsLookup;
+	private CommentFormatter $commentFormatter;
+	private UserFactory $userFactory;
+	private UserIdentityLookup $userIdentityLookup;
+	private ?ContribsPager $pager = null;
 
 	/**
 	 * @param LinkBatchFactory|null $linkBatchFactory
 	 * @param PermissionManager|null $permissionManager
-	 * @param ILoadBalancer|null $loadBalancer
-	 * @param ActorMigration|null $actorMigration
+	 * @param IConnectionProvider|null $dbProvider
 	 * @param RevisionStore|null $revisionStore
 	 * @param NamespaceInfo|null $namespaceInfo
 	 * @param UserNameUtils|null $userNameUtils
@@ -91,27 +88,27 @@ class SpecialContributions extends IncludableSpecialPage {
 	 * @param UserOptionsLookup|null $userOptionsLookup
 	 * @param CommentFormatter|null $commentFormatter
 	 * @param UserFactory|null $userFactory
+	 * @param UserIdentityLookup|null $userIdentityLookup
 	 */
 	public function __construct(
 		LinkBatchFactory $linkBatchFactory = null,
 		PermissionManager $permissionManager = null,
-		ILoadBalancer $loadBalancer = null,
-		ActorMigration $actorMigration = null,
+		IConnectionProvider $dbProvider = null,
 		RevisionStore $revisionStore = null,
 		NamespaceInfo $namespaceInfo = null,
 		UserNameUtils $userNameUtils = null,
 		UserNamePrefixSearch $userNamePrefixSearch = null,
 		UserOptionsLookup $userOptionsLookup = null,
 		CommentFormatter $commentFormatter = null,
-		UserFactory $userFactory = null
+		UserFactory $userFactory = null,
+		UserIdentityLookup $userIdentityLookup = null
 	) {
 		parent::__construct( 'Contributions' );
 		// This class is extended and therefore falls back to global state - T269521
 		$services = MediaWikiServices::getInstance();
 		$this->linkBatchFactory = $linkBatchFactory ?? $services->getLinkBatchFactory();
 		$this->permissionManager = $permissionManager ?? $services->getPermissionManager();
-		$this->loadBalancer = $loadBalancer ?? $services->getDBLoadBalancer();
-		$this->actorMigration = $actorMigration ?? $services->getActorMigration();
+		$this->dbProvider = $dbProvider ?? $services->getDBLoadBalancerFactory();
 		$this->revisionStore = $revisionStore ?? $services->getRevisionStore();
 		$this->namespaceInfo = $namespaceInfo ?? $services->getNamespaceInfo();
 		$this->userNameUtils = $userNameUtils ?? $services->getUserNameUtils();
@@ -119,6 +116,7 @@ class SpecialContributions extends IncludableSpecialPage {
 		$this->userOptionsLookup = $userOptionsLookup ?? $services->getUserOptionsLookup();
 		$this->commentFormatter = $commentFormatter ?? $services->getCommentFormatter();
 		$this->userFactory = $userFactory ?? $services->getUserFactory();
+		$this->userIdentityLookup = $userIdentityLookup ?? $services->getUserIdentityLookup();
 	}
 
 	public function execute( $par ) {
@@ -133,7 +131,6 @@ class SpecialContributions extends IncludableSpecialPage {
 			'mediawiki.special.changeslist',
 		] );
 		$out->addModules( [
-			'mediawiki.special.recentchanges',
 			// Certain skins e.g. Minerva might have disabled this module.
 			'mediawiki.page.ready'
 		] );
@@ -143,6 +140,7 @@ class SpecialContributions extends IncludableSpecialPage {
 		$request = $this->getRequest();
 
 		$target = $par ?? $request->getVal( 'target', '' );
+		'@phan-var string $target'; // getVal does not return null here
 
 		$this->opts['deletedOnly'] = $request->getBool( 'deletedOnly' );
 
@@ -186,6 +184,7 @@ class SpecialContributions extends IncludableSpecialPage {
 		), static function ( $el ) {
 			return $el !== '';
 		} );
+		$this->opts['tagInvert'] = $request->getBool( 'tagInvert' );
 
 		// Allows reverts to have the bot flag in recent changes. It is just here to
 		// be passed in the form at the top of the page
@@ -193,56 +192,44 @@ class SpecialContributions extends IncludableSpecialPage {
 			$this->opts['bot'] = '1';
 		}
 
-		$skip = $request->getText( 'offset' ) || $request->getText( 'dir' ) == 'prev';
-		# Offset overrides year/month selection
-		if ( !$skip ) {
-			$this->opts['year'] = $request->getIntOrNull( 'year' );
-			$this->opts['month'] = $request->getIntOrNull( 'month' );
+		$this->opts['year'] = $request->getIntOrNull( 'year' );
+		$this->opts['month'] = $request->getIntOrNull( 'month' );
+		$this->opts['start'] = $request->getVal( 'start' );
+		$this->opts['end'] = $request->getVal( 'end' );
 
-			$this->opts['start'] = $request->getVal( 'start' );
-			$this->opts['end'] = $request->getVal( 'end' );
-		}
-
-		$id = 0;
-		if ( ExternalUserNames::isExternal( $target ) ) {
-			$userObj = $this->userFactory->newFromName( $target, UserFactory::RIGOR_NONE );
-			if ( !$userObj ) {
-				$out->addHTML( $this->getForm( $this->opts ) );
-				return;
-			}
-
-			$out->addSubtitle( $this->contributionsSub( $userObj, $target ) );
-			$out->setPageTitle( $this->msg( 'contributions-title', $target ) );
-		} else {
+		$notExternal = !ExternalUserNames::isExternal( $target );
+		if ( $notExternal ) {
 			$nt = Title::makeTitleSafe( NS_USER, $target );
 			if ( !$nt ) {
 				$out->addHTML( $this->getForm( $this->opts ) );
 				return;
 			}
-			$userObj = $this->userFactory->newFromName( $nt->getText(), UserFactory::RIGOR_NONE );
-			if ( !$userObj ) {
-				$out->addHTML( $this->getForm( $this->opts ) );
-				return;
-			}
-			$id = $userObj->getId();
-
 			$target = $nt->getText();
-			$out->addSubtitle( $this->contributionsSub( $userObj, $target ) );
-			$out->setPageTitle( $this->msg( 'contributions-title', $target ) );
-
-			# For IP ranges, we want the contributionsSub, but not the skin-dependent
-			# links under 'Tools', which may include irrelevant links like 'Logs'.
-			if ( !IPUtils::isValidRange( $target ) &&
-				( $this->userNameUtils->isIP( $target ) || $userObj->isRegistered() )
-			) {
-				// Don't add non-existent users, because hidden users
-				// that we add here will be removed later to pretend
-				// that they don't exist, and if users that actually don't
-				// exist are added here and then not removed, it exposes
-				// which users exist and are hidden vs. which actually don't
-				// exist. But, do set the relevant user for single IPs.
-				$this->getSkin()->setRelevantUser( $userObj );
+			if ( IPUtils::isValidRange( $target ) ) {
+				$target = IPUtils::sanitizeRange( $target );
 			}
+		}
+
+		$userObj = $this->userFactory->newFromName( $target, UserRigorOptions::RIGOR_NONE );
+		if ( !$userObj ) {
+			$out->addHTML( $this->getForm( $this->opts ) );
+			return;
+		}
+		$out->addSubtitle( $this->contributionsSub( $userObj, $target ) );
+		$out->setPageTitleMsg( $this->msg( 'contributions-title', $target ) );
+
+		# For IP ranges, we want the contributionsSub, but not the skin-dependent
+		# links under 'Tools', which may include irrelevant links like 'Logs'.
+		if ( $notExternal && !IPUtils::isValidRange( $target ) &&
+			( $this->userNameUtils->isIP( $target ) || $userObj->isRegistered() )
+		) {
+			// Don't add non-existent users, because hidden users
+			// that we add here will be removed later to pretend
+			// that they don't exist, and if users that actually don't
+			// exist are added here and then not removed, it exposes
+			// which users exist and are hidden vs. which actually don't
+			// exist. But, do set the relevant user for single IPs.
+			$this->getSkin()->setRelevantUser( $userObj );
 		}
 
 		$this->opts = ContribsPager::processDateFilter( $this->opts );
@@ -305,21 +292,27 @@ class SpecialContributions extends IncludableSpecialPage {
 		$this->addFeedLinks( $feedParams );
 
 		if ( $this->getHookRunner()->onSpecialContributionsBeforeMainOutput(
-			$id, $userObj, $this )
+			$notExternal ? $userObj->getId() : 0, $userObj, $this )
 		) {
 			if ( !$this->including() ) {
 				$out->addHTML( $this->getForm( $this->opts ) );
 			}
-			$pager = $this->getPager( $userObj );
-			if ( IPUtils::isValidRange( $target ) && !$pager->isQueryableRange( $target ) ) {
+			// We want a pure UserIdentity for imported actors, so the first letter
+			// of them is in lowercase and queryable.
+			$userIdentity = $notExternal ? $userObj :
+				$this->userIdentityLookup->getUserIdentityByName( $target ) ?? $userObj;
+			$pager = $this->getPager( $userIdentity );
+			if ( IPUtils::isValidRange( $target ) &&
+				!ContribsPager::isQueryableRange( $target, $this->getConfig() )
+			) {
 				// Valid range, but outside CIDR limit.
-				$limits = $this->getConfig()->get( 'RangeContributionsCIDRLimit' );
+				$limits = $this->getConfig()->get( MainConfigNames::RangeContributionsCIDRLimit );
 				$limit = $limits[ IPUtils::isIPv4( $target ) ? 'IPv4' : 'IPv6' ];
 				$out->addWikiMsg( 'sp-contributions-outofrange', $limit );
 			} else {
 				// @todo We just want a wiki ID here, not a "DB domain", but
 				// current status of MediaWiki conflates the two. See T235955.
-				$poolKey = $this->loadBalancer->getLocalDomainID() . ':SpecialContributions:';
+				$poolKey = $this->dbProvider->getReplicaDatabase()->getDomainID() . ':SpecialContributions:';
 				if ( $this->getUser()->isAnon() ) {
 					$poolKey .= 'a:' . $this->getUser()->getName();
 				} else {
@@ -349,7 +342,11 @@ class SpecialContributions extends IncludableSpecialPage {
 						$msg = $this->getUser()->isAnon()
 							? 'sp-contributions-concurrency-ip'
 							: 'sp-contributions-concurrency-user';
-						$out->wrapWikiMsg( "<div class='errorbox'>\n$1\n</div>", $msg );
+						$out->addHTML(
+							Html::errorBox(
+								$out->msg( $msg )->parse()
+							)
+						);
 					}
 				] );
 				$work->execute();
@@ -358,7 +355,9 @@ class SpecialContributions extends IncludableSpecialPage {
 			$out->setPreventClickjacking( $pager->getPreventClickjacking() );
 
 			# Show the appropriate "footer" message - WHOIS tools, etc.
-			if ( IPUtils::isValidRange( $target ) && $pager->isQueryableRange( $target ) ) {
+			if ( IPUtils::isValidRange( $target ) &&
+				ContribsPager::isQueryableRange( $target, $this->getConfig() )
+			) {
 				$message = 'sp-contributions-footer-anon-range';
 			} elseif ( IPUtils::isIPAddress( $target ) ) {
 				$message = 'sp-contributions-footer-anon';
@@ -411,7 +410,7 @@ class SpecialContributions extends IncludableSpecialPage {
 			if ( !$this->userNameUtils->isIP( $userObj->getName() )
 				&& !IPUtils::isValidRange( $userObj->getName() )
 			) {
-				$this->getOutput()->addHtml( Html::warningBox(
+				$this->getOutput()->addHTML( Html::warningBox(
 					$this->getOutput()->msg( 'contributions-userdoesnotexist',
 						wfEscapeWikiText( $userObj->getName() ) )->parse(),
 					'mw-userpage-userdoesnotexist'
@@ -430,13 +429,14 @@ class SpecialContributions extends IncludableSpecialPage {
 
 		// T211910. Don't show action links if a range is outside block limit
 		$showForIp = IPUtils::isValid( $userObj ) ||
-			( IPUtils::isValidRange( $userObj ) && $this->getPager( $userObj )->isQueryableRange( $userObj ) );
+			( IPUtils::isValidRange( $userObj ) && ContribsPager::isQueryableRange( $userObj, $this->getConfig() ) );
 
 		// T276306. if the user is hidden and the viewer cannot see hidden, pretend that it does not exist
 		$registeredAndVisible = $userObj->isRegistered() && ( !$userObj->isHidden()
 				|| $this->permissionManager->userHasRight( $this->getUser(), 'hideuser' ) );
 
-		if ( $talk && ( $registeredAndVisible || $showForIp ) ) {
+		$shouldShowLinks = $talk && ( $registeredAndVisible || $showForIp );
+		if ( $shouldShowLinks ) {
 			$tools = self::getUserLinks(
 				$this,
 				$userObj,
@@ -452,7 +452,8 @@ class SpecialContributions extends IncludableSpecialPage {
 			// Show a note if the user is blocked and display the last block log entry.
 			// Do not expose the autoblocks, since that may lead to a leak of accounts' IPs,
 			// and also this will display a totally irrelevant log entry as a current block.
-			if ( !$this->including() ) {
+			$shouldShowBlocks = !$this->including();
+			if ( $shouldShowBlocks ) {
 				// For IP ranges you must give DatabaseBlock::newFromTarget the CIDR string
 				// and not a user object.
 				if ( IPUtils::isValidRange( $userObj->getName() ) ) {
@@ -505,10 +506,39 @@ class SpecialContributions extends IncludableSpecialPage {
 			}
 		}
 
-		return Html::rawElement( 'div', [ 'class' => 'mw-contributions-user-tools' ],
-			$this->msg( 'contributions-subtitle' )->rawParams( $user )->params( $userObj->getName() )
+		// First subheading. "For Username (talk | block log | logs | etc.)"
+		$userName = $userObj->getName();
+		$subHeadingsHtml = Html::rawElement( 'div', [ 'class' => 'mw-contributions-user-tools' ],
+			$this->msg( 'contributions-subtitle' )->rawParams( $user )->params( $userName )
 			. ' ' . $links
 		);
+
+		// Second subheading. "A user with 37,208 edits. Account created on 2008-09-17."
+		if ( $talk && $registeredAndVisible ) {
+			$editCount = $userObj->getEditCount();
+			$userInfo = $this->msg( 'contributions-edit-count' )
+				->params( $userName )
+				->numParams( $editCount )
+				->escaped();
+
+			$accountCreationDate = $userObj->getRegistration();
+			if ( $accountCreationDate ) {
+				$date = $this->getLanguage()->date( $accountCreationDate, true );
+				$userInfo .= $this->msg( 'word-separator' )
+					->escaped();
+				$userInfo .= $this->msg( 'contributions-account-creation-date' )
+					->plaintextParams( $date )
+					->escaped();
+			}
+
+			$subHeadingsHtml .= Html::rawElement(
+				'div',
+				[ 'class' => 'mw-contributions-editor-info' ],
+				$userInfo
+			);
+		}
+
+		return $subHeadingsHtml;
 	}
 
 	/**
@@ -528,8 +558,8 @@ class SpecialContributions extends IncludableSpecialPage {
 		HookRunner $hookRunner = null
 	) {
 		// Fallback to global state, if not provided
-		$permissionManager = $permissionManager ?? MediaWikiServices::getInstance()->getPermissionManager();
-		$hookRunner = $hookRunner ?? Hooks::runner();
+		$permissionManager ??= MediaWikiServices::getInstance()->getPermissionManager();
+		$hookRunner ??= new HookRunner( MediaWikiServices::getInstance()->getHookContainer() );
 
 		$id = $target->getId();
 		$username = $target->getName();
@@ -545,7 +575,8 @@ class SpecialContributions extends IncludableSpecialPage {
 		if ( !$isRange ) {
 			$tools['user-talk'] = $linkRenderer->makeLink(
 				$talkpage,
-				$sp->msg( 'sp-contributions-talk' )->text()
+				$sp->msg( 'sp-contributions-talk' )->text(),
+				[ 'class' => 'mw-contributions-link-talk' ]
 			);
 		}
 
@@ -554,16 +585,19 @@ class SpecialContributions extends IncludableSpecialPage {
 			if ( $target->getBlock() && $target->getBlock()->getType() != DatabaseBlock::TYPE_AUTO ) {
 				$tools['block'] = $linkRenderer->makeKnownLink( # Change block link
 					SpecialPage::getTitleFor( 'Block', $username ),
-					$sp->msg( 'change-blocklink' )->text()
+					$sp->msg( 'change-blocklink' )->text(),
+					[ 'class' => 'mw-contributions-link-change-block' ]
 				);
 				$tools['unblock'] = $linkRenderer->makeKnownLink( # Unblock link
 					SpecialPage::getTitleFor( 'Unblock', $username ),
-					$sp->msg( 'unblocklink' )->text()
+					$sp->msg( 'unblocklink' )->text(),
+					[ 'class' => 'mw-contributions-link-unblock' ]
 				);
 			} else { # User is not blocked
 				$tools['block'] = $linkRenderer->makeKnownLink( # Block link
 					SpecialPage::getTitleFor( 'Block', $username ),
-					$sp->msg( 'blocklink' )->text()
+					$sp->msg( 'blocklink' )->text(),
+					[ 'class' => 'mw-contributions-link-block' ]
 				);
 			}
 		}
@@ -572,7 +606,7 @@ class SpecialContributions extends IncludableSpecialPage {
 		$tools['log-block'] = $linkRenderer->makeKnownLink(
 			SpecialPage::getTitleFor( 'Log', 'block' ),
 			$sp->msg( 'sp-contributions-blocklog' )->text(),
-			[],
+			[ 'class' => 'mw-contributions-link-block-log' ],
 			[ 'page' => $userpage->getPrefixedText() ]
 		);
 
@@ -581,7 +615,7 @@ class SpecialContributions extends IncludableSpecialPage {
 			$tools['log-suppression'] = $linkRenderer->makeKnownLink(
 				SpecialPage::getTitleFor( 'Log', 'suppress' ),
 				$sp->msg( 'sp-contributions-suppresslog', $username )->text(),
-				[],
+				[ 'class' => 'mw-contributions-link-suppress-log' ],
 				[ 'offender' => $username ]
 			);
 		}
@@ -592,7 +626,8 @@ class SpecialContributions extends IncludableSpecialPage {
 			if ( !$isIP || $permissionManager->userHasRight( $target, 'upload' ) ) {
 				$tools['uploads'] = $linkRenderer->makeKnownLink(
 					SpecialPage::getTitleFor( 'Listfiles', $username ),
-					$sp->msg( 'sp-contributions-uploads' )->text()
+					$sp->msg( 'sp-contributions-uploads' )->text(),
+					[ 'class' => 'mw-contributions-link-uploads' ]
 				);
 			}
 
@@ -600,7 +635,8 @@ class SpecialContributions extends IncludableSpecialPage {
 			# Todo: T146628
 			$tools['logs'] = $linkRenderer->makeKnownLink(
 				SpecialPage::getTitleFor( 'Log', $username ),
-				$sp->msg( 'sp-contributions-logs' )->text()
+				$sp->msg( 'sp-contributions-logs' )->text(),
+				[ 'class' => 'mw-contributions-link-logs' ]
 			);
 
 			# Add link to deleted user contributions for privileged users
@@ -608,18 +644,30 @@ class SpecialContributions extends IncludableSpecialPage {
 			if ( $permissionManager->userHasRight( $sp->getUser(), 'deletedhistory' ) ) {
 				$tools['deletedcontribs'] = $linkRenderer->makeKnownLink(
 					SpecialPage::getTitleFor( 'DeletedContributions', $username ),
-					$sp->msg( 'sp-contributions-deleted', $username )->text()
+					$sp->msg( 'sp-contributions-deleted', $username )->text(),
+					[ 'class' => 'mw-contributions-link-deleted-contribs' ]
 				);
 			}
 		}
 
 		# Add a link to change user rights for privileged users
-		$userrightsPage = new UserrightsPage();
+		$userrightsPage = new SpecialUserRights();
 		$userrightsPage->setContext( $sp->getContext() );
 		if ( $userrightsPage->userCanChangeRights( $target ) ) {
 			$tools['userrights'] = $linkRenderer->makeKnownLink(
 				SpecialPage::getTitleFor( 'Userrights', $username ),
-				$sp->msg( 'sp-contributions-userrights', $username )->text()
+				$sp->msg( 'sp-contributions-userrights', $username )->text(),
+				[ 'class' => 'mw-contributions-link-user-rights' ]
+			);
+		}
+
+		# Add a link to rename the user
+		if ( $id && $permissionManager->userHasRight( $sp->getUser(), 'renameuser' ) && !$target->isTemp() ) {
+			$tools['renameuser'] = $sp->getLinkRenderer()->makeKnownLink(
+				SpecialPage::getTitleFor( 'Renameuser' ),
+				$sp->msg( 'renameuser-linkoncontribs', $userpage->getText() )->text(),
+				[ 'title' => $sp->msg( 'renameuser-linkoncontribs-text', $userpage->getText() )->parse() ],
+				[ 'oldusername' => $userpage->getText() ]
 			);
 		}
 
@@ -631,16 +679,14 @@ class SpecialContributions extends IncludableSpecialPage {
 	/**
 	 * Generates the namespace selector form with hidden attributes.
 	 * @param array $pagerOptions with keys contribs, user, deletedOnly, limit, target, topOnly,
-	 *  newOnly, hideMinor, namespace, associated, nsInvert, tagfilter, year, start, end
+	 *  newOnly, hideMinor, namespace, associated, nsInvert, tagfilter, tagInvert, year, start, end
 	 * @return string HTML fragment
 	 */
 	protected function getForm( array $pagerOptions ) {
-		$this->opts['title'] = $this->getPageTitle()->getPrefixedText();
 		// Modules required only for the form
 		$this->getOutput()->addModules( [
 			'mediawiki.special.contributions',
 		] );
-		$this->getOutput()->addModuleStyles( 'mediawiki.widgets.DateInputWidget.styles' );
 		$this->getOutput()->enableOOUI();
 		$fields = [];
 
@@ -658,7 +704,9 @@ class SpecialContributions extends IncludableSpecialPage {
 			'newOnly',
 			'hideMinor',
 			'associated',
-			'tagfilter'
+			'tagfilter',
+			'tagInvert',
+			'title',
 		];
 
 		foreach ( $this->opts as $name => $value ) {
@@ -684,6 +732,10 @@ class SpecialContributions extends IncludableSpecialPage {
 			'size' => 40,
 			'autofocus' => !$target,
 			'section' => 'contribs-top',
+			'ipallowed' => true,
+			'iprange' => true,
+			'external' => true,
+			'required' => true,
 		];
 
 		$ns = $this->opts['namespace'] ?? null;
@@ -702,12 +754,7 @@ class SpecialContributions extends IncludableSpecialPage {
 			'name' => 'wpfilters',
 			'flatlist' => true,
 			// Only shown when namespaces are selected.
-			'cssclass' => $ns === '' ?
-				'contribs-ns-filters mw-input-with-label mw-input-hidden' :
-				'contribs-ns-filters mw-input-with-label',
-			// `contribs-ns-filters` class allows these fields to be toggled on/off by JavaScript.
-			// See resources/src/mediawiki.special.recentchanges.js
-			'infusable' => true,
+			'hide-if' => [ '===', 'namespace', 'all' ],
 			'options-messages' => [
 				'invert' => 'nsInvert',
 				'namespace_association' => 'associated',
@@ -721,6 +768,14 @@ class SpecialContributions extends IncludableSpecialPage {
 			'label-message' => [ 'tag-filter', 'parse' ],
 			'name' => 'tagfilter',
 			'size' => 20,
+			'section' => 'contribs-top',
+		];
+		$fields['tagInvert'] = [
+			'type' => 'check',
+			'id' => 'tagInvert',
+			'label' => $this->msg( 'invert' ),
+			'name' => 'tagInvert',
+			'hide-if' => [ '===', 'tagfilter', '' ],
 			'section' => 'contribs-top',
 		];
 
@@ -801,6 +856,7 @@ class SpecialContributions extends IncludableSpecialPage {
 		$htmlForm = HTMLForm::factory( 'ooui', $fields, $this->getContext() );
 		$htmlForm
 			->setMethod( 'get' )
+			->setTitle( $this->getPageTitle() )
 			// When offset is defined, the user is paging through results
 			// so we hide the form by default to allow users to focus on browsing
 			// rather than defining search parameters
@@ -813,14 +869,19 @@ class SpecialContributions extends IncludableSpecialPage {
 			->setSubmitTextMsg( 'sp-contributions-submit' )
 			->setWrapperLegendMsg( 'sp-contributions-search' );
 
-		$explain = $this->msg( 'sp-contributions-explain' );
-		if ( !$explain->isBlank() ) {
-			$htmlForm->addFooterText( "<p id='mw-sp-contributions-explain'>{$explain->parse()}</p>" );
+		$htmlForm->prepareForm();
+
+		// Submission is handled elsewhere, but do this to check for and display errors
+		$htmlForm->setSubmitCallback( static function () {
+			return true;
+		} );
+		$result = $htmlForm->tryAuthorizedSubmit();
+		if ( !( $result === true || ( $result instanceof Status && $result->isGood() ) ) ) {
+			// Uncollapse if there are errors
+			$htmlForm->setCollapsibleOptions( false );
 		}
 
-		$htmlForm->loadData();
-
-		return $htmlForm->getHTML( false );
+		return $htmlForm->getHTML( $result );
 	}
 
 	/**
@@ -843,7 +904,7 @@ class SpecialContributions extends IncludableSpecialPage {
 	}
 
 	/**
-	 * @param User $targetUser The normalized target user
+	 * @param UserIdentity $targetUser The normalized target user identity
 	 * @return ContribsPager
 	 */
 	private function getPager( $targetUser ) {
@@ -859,6 +920,7 @@ class SpecialContributions extends IncludableSpecialPage {
 				'hideMinor' => $this->opts['hideMinor'],
 				'nsInvert' => $this->opts['nsInvert'],
 				'associated' => $this->opts['associated'],
+				'tagInvert' => $this->opts['tagInvert'],
 			];
 
 			$this->pager = new ContribsPager(
@@ -867,8 +929,7 @@ class SpecialContributions extends IncludableSpecialPage {
 				$this->getLinkRenderer(),
 				$this->linkBatchFactory,
 				$this->getHookContainer(),
-				$this->loadBalancer,
-				$this->actorMigration,
+				$this->dbProvider,
 				$this->revisionStore,
 				$this->namespaceInfo,
 				$targetUser,
@@ -882,4 +943,35 @@ class SpecialContributions extends IncludableSpecialPage {
 	protected function getGroupName() {
 		return 'users';
 	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function getShortDescription( string $path = '' ): string {
+		return $this->msg( 'special-tab-contributions-short' )->text();
+	}
+
+	/**
+	 * @inheritDoc
+	 * @throws MWException
+	 */
+	public function getAssociatedNavigationLinks(): array {
+		if (
+			ContributeFactory::isEnabledOnCurrentSkin(
+				$this->getSkin(),
+				$this->getConfig()->get( 'SpecialContributeSkinsEnabled' )
+			)
+		) {
+			return ContributeFactory::getAssociatedNavigationLinks(
+				$this->getUser(),
+				$this->getSkin()->getRelevantUser()
+			);
+		}
+		return [];
+	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialContributions::class, 'SpecialContributions' );

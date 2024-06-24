@@ -4,6 +4,7 @@ use Wikimedia\Rdbms\Database;
 
 /**
  * @group Database
+ * @coversNothing
  */
 class DatabaseIntegrationTest extends MediaWikiIntegrationTestCase {
 	/**
@@ -17,7 +18,11 @@ class DatabaseIntegrationTest extends MediaWikiIntegrationTestCase {
 	}
 
 	public function testUnknownTableCorruptsResults() {
-		$res = $this->db->select( 'page', '*', [ 'page_id' => 1 ] );
+		$res = $this->db->newSelectQueryBuilder()
+			->select( '*' )
+			->from( 'page' )
+			->where( [ 'page_id' => 1 ] )
+			->fetchResultSet();
 		$this->assertFalse( $this->db->tableExists( 'foobarbaz' ) );
 		$this->assertIsInt( $res->numRows() );
 	}
@@ -30,7 +35,6 @@ class DatabaseIntegrationTest extends MediaWikiIntegrationTestCase {
 		// @todo Remove exception once these tables are fixed
 		$excludeList = [
 			'user_newtalk',
-			'revision_actor_temp',
 			'objectcache',
 		];
 

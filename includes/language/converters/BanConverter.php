@@ -1,7 +1,5 @@
 <?php
 /**
- * Balinese specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,41 +16,23 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
 
 /**
+ * Balinese specific code.
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class BanConverter extends LanguageConverterIcu {
 
-	/**
-	 * Get Main language code.
-	 * @since 1.36
-	 *
-	 * @return string
-	 */
 	public function getMainCode(): string {
 		return 'ban';
 	}
 
-	/**
-	 * Get supported variants of the language.
-	 * @since 1.36
-	 *
-	 * @return array
-	 */
 	public function getLanguageVariants(): array {
 		return [ 'ban', 'ban-bali', 'ban-x-dharma', 'ban-x-palmleaf', 'ban-x-pku' ];
 	}
 
-	/**
-	 * Get language variants fallbacks.
-	 * @since 1.36
-	 *
-	 * @return array
-	 */
 	public function getVariantsFallbacks(): array {
 		return [
 			'ban-bali' => 'ban',
@@ -1049,7 +1029,7 @@ EOF;
 	 * @return bool True if $text appears to be written in $variant
 	 */
 	public function guessVariant( $text, $variant ) {
-		$hasBalinese = preg_match( "/[\x{1B00}-\x{1B7F}]/u", $text, $dummy );
+		$hasBalinese = preg_match( "/[\x{1B00}-\x{1B7F}]/u", $text );
 		return ( $variant == 'ban-bali' ) == $hasBalinese;
 	}
 

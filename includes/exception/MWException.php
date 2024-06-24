@@ -18,6 +18,9 @@
  * @file
  */
 
+use MediaWiki\Html\Html;
+use MediaWiki\Request\WebRequest;
+
 /**
  * MediaWiki exception
  *
@@ -25,6 +28,7 @@
  * @stable to extend
  *
  * @ingroup Exception
+ * @deprecated since 1.40, use native exceptions instead (either directly, or defining subclasses when appropriate)
  */
 class MWException extends Exception {
 	/**
@@ -32,7 +36,8 @@ class MWException extends Exception {
 	 *
 	 * @return bool
 	 */
-	public function useOutputPage() {
+	private function useOutputPage() {
+		// NOTE: keep in sync with MWExceptionRenderer::useOutputPage
 		return $this->useMessageCache() &&
 		!empty( $GLOBALS['wgFullyInitialised'] ) &&
 		!empty( $GLOBALS['wgOut'] ) &&
@@ -79,7 +84,7 @@ class MWException extends Exception {
 	 * @return string Message with arguments replaced
 	 */
 	public function msg( $key, $fallback, ...$params ) {
-		// FIXME: Keep logic in sync with MWExceptionRenderer::msg.
+		// NOTE: Keep logic in sync with MWExceptionRenderer::msg.
 		$res = false;
 		if ( $this->useMessageCache() ) {
 			try {
@@ -99,18 +104,15 @@ class MWException extends Exception {
 	}
 
 	/**
-	 * If $wgShowExceptionDetails is true, return a HTML message with a
-	 * backtrace to the error, otherwise show a message to ask to set it to true
-	 * to show that information.
+	 * Format an HTML message for the current exception object.
+	 *
 	 *
 	 * @stable to override
-	 *
-	 * @return string Html to output
+	 * @todo Rarely used, remove in favour of generic MWExceptionRenderer
+	 * @return string HTML to output
 	 */
 	public function getHTML() {
-		global $wgShowExceptionDetails;
-
-		if ( $wgShowExceptionDetails ) {
+		if ( MWExceptionRenderer::shouldShowExceptionDetails() ) {
 			return '<p>' . nl2br( htmlspecialchars( MWExceptionHandler::getLogMessage( $this ) ) ) .
 			'</p><p>Backtrace:</p><p>' .
 			nl2br( htmlspecialchars( MWExceptionHandler::getRedactedTraceAsString( $this ) ) ) .
@@ -136,18 +138,14 @@ class MWException extends Exception {
 	}
 
 	/**
-	 * Get the text to display when reporting the error on the command line.
-	 * If $wgShowExceptionDetails is true, return a text message with a
-	 * backtrace to the error.
+	 * Format plain text message for the current exception object.
 	 *
 	 * @stable to override
-	 *
+	 * @todo Rarely used, remove in favour of generic MWExceptionRenderer
 	 * @return string
 	 */
 	public function getText() {
-		global $wgShowExceptionDetails;
-
-		if ( $wgShowExceptionDetails ) {
+		if ( MWExceptionRenderer::shouldShowExceptionDetails() ) {
 			return MWExceptionHandler::getLogMessage( $this ) .
 			"\nBacktrace:\n" . MWExceptionHandler::getRedactedTraceAsString( $this ) . "\n";
 		} else {
@@ -174,7 +172,8 @@ class MWException extends Exception {
 	public function reportHTML() {
 		global $wgOut;
 		if ( $this->useOutputPage() ) {
-			$wgOut->prepareErrorPage( $this->getPageTitle() );
+			$wgOut->prepareErrorPage();
+			$wgOut->setPageTitle( $this->getPageTitle() );
 			// Manually set the html title, since sometimes
 			// {{SITENAME}} does not get replaced for exceptions
 			// happening inside message rendering.

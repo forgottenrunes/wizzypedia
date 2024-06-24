@@ -1,9 +1,13 @@
 <?php
 
+namespace MediaWiki\Extension\Scribunto\Tests\Engines\LuaSandbox;
+
+use MediaWiki\Extension\Scribunto\Tests\Engines\LuaCommon\LuaEngineUnitTestBase;
+
 /**
- * @covers Scribunto_LuaSandboxEngine
+ * @covers \MediaWiki\Extension\Scribunto\Engines\LuaSandbox\LuaSandboxEngine
  */
-class Scribunto_LuaSandboxTest extends Scribunto_LuaEngineUnitTestBase {
+class SandboxTest extends LuaEngineUnitTestBase {
 	/** @inheritDoc */
 	protected static $moduleName = 'SandboxTests';
 
@@ -92,7 +96,8 @@ class Scribunto_LuaSandboxTest extends Scribunto_LuaEngineUnitTestBase {
 	}
 
 	private function getRuTime() {
-		$ru = getrusage( 0 /* RUSAGE_SELF */ );
+		// RUSAGE_SELF = 0
+		$ru = getrusage( 0 );
 		return $ru['ru_utime.tv_sec'] + $ru['ru_utime.tv_usec'] / 1e6 +
 			$ru['ru_stime.tv_sec'] + $ru['ru_stime.tv_usec'] / 1e6;
 	}

@@ -22,6 +22,9 @@
  * @author Alex Dean <wikimedia@mostlyalex.com>
  */
 
+use MediaWiki\User\BotPassword;
+use MediaWiki\User\User;
+
 require_once __DIR__ . '/Maintenance.php';
 
 class CreateBotPassword extends Maintenance {
@@ -80,7 +83,9 @@ class CreateBotPassword extends Maintenance {
 			$this->fatalError( implode( "\n", $errors ) );
 		}
 
-		$invalidGrants = array_diff( $grants, MWGrants::getValidGrants() );
+		$services = $this->getServiceContainer();
+		$grantsInfo = $services->getGrantsInfo();
+		$invalidGrants = array_diff( $grants, $grantsInfo->getValidGrants() );
 		if ( count( $invalidGrants ) > 0 ) {
 			$this->fatalError(
 				"These grants are invalid: " . implode( ', ', $invalidGrants ) . "\n" .
@@ -88,10 +93,10 @@ class CreateBotPassword extends Maintenance {
 			);
 		}
 
-		$passwordFactory = MediaWiki\MediaWikiServices::getInstance()->getPasswordFactory();
+		$passwordFactory = $services->getPasswordFactory();
 
-		$userId = User::idFromName( $username );
-		if ( $userId === null ) {
+		$userIdentity = $services->getUserIdentityLookup()->getUserIdentityByName( $username );
+		if ( !$userIdentity || !$userIdentity->isRegistered() ) {
 			$this->fatalError( "Cannot create bot password for non-existent user '$username'." );
 		}
 
@@ -121,7 +126,7 @@ class CreateBotPassword extends Maintenance {
 
 		if ( $status->isGood() ) {
 			$this->output( "Success.\n" );
-			$this->output( "Log in using username:'${username}@${appId}' and password:'${password}'.\n" );
+			$this->output( "Log in using username:'{$username}@{$appId}' and password:'{$password}'.\n" );
 		} else {
 			$this->fatalError(
 				"Bot password creation failed. Does this appid already exist for the user perhaps?\n\nErrors:\n" .
@@ -131,7 +136,7 @@ class CreateBotPassword extends Maintenance {
 	}
 
 	public function showGrants() {
-		$permissions = MWGrants::getValidGrants();
+		$permissions = $this->getServiceContainer()->getGrantsInfo()->getValidGrants();
 		sort( $permissions );
 
 		$this->output( str_pad( 'GRANT', self::SHOWGRANTS_COLUMN_WIDTH ) . " DESCRIPTION\n" );

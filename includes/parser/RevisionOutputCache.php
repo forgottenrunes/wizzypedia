@@ -28,7 +28,7 @@ use IBufferingStatsdDataFactory;
 use InvalidArgumentException;
 use MediaWiki\Json\JsonCodec;
 use MediaWiki\Revision\RevisionRecord;
-use MWTimestamp;
+use MediaWiki\Utils\MWTimestamp;
 use ParserOptions;
 use ParserOutput;
 use Psr\Log\LoggerInterface;
@@ -100,10 +100,9 @@ class RevisionOutputCache {
 	}
 
 	/**
-	 * @param RevisionRecord $revision
 	 * @param string $metricSuffix
 	 */
-	private function incrementStats( RevisionRecord $revision, string $metricSuffix ) {
+	private function incrementStats( string $metricSuffix ) {
 		$metricSuffix = str_replace( '.', '_', $metricSuffix );
 		$this->stats->increment( "RevisionOutputCache.{$this->name}.{$metricSuffix}" );
 	}
@@ -112,6 +111,9 @@ class RevisionOutputCache {
 	 * Get a key that will be used by this cache to store the content
 	 * for a given page considering the given options and the array of
 	 * used options.
+	 *
+	 * If there is a possibility the revision does not have a revision id, use
+	 * makeParserOutputKeyOptionalRevId() instead.
 	 *
 	 * @warning The exact format of the key is considered internal and is subject
 	 * to change, thus should not be used as storage or long-term caching key.
@@ -131,8 +133,41 @@ class RevisionOutputCache {
 		$usedOptions = ParserOptions::allCacheVaryingOptions();
 
 		$revId = $revision->getId();
+		if ( !$revId ) {
+			// If RevId is null, this would probably be unsafe to use as a cache key.
+			throw new InvalidArgumentException( "Revision must have an id number" );
+		}
 		$hash = $options->optionsHash( $usedOptions );
+		return $this->cache->makeKey( $this->name, $revId, $hash );
+	}
 
+	/**
+	 * Get a key that will be used for locks or pool counter
+	 *
+	 * Similar to makeParserOutputKey except the revision id might be null,
+	 * in which case it is unsafe to cache, but still needs a key for things like
+	 * poolcounter.
+	 *
+	 * @warning The exact format of the key is considered internal and is subject
+	 * to change, thus should not be used as storage or long-term caching key.
+	 * This is intended to be used for logging or keying something transient.
+	 *
+	 * @param RevisionRecord $revision
+	 * @param ParserOptions $options
+	 * @param array|null $usedOptions currently ignored
+	 * @return string
+	 * @internal
+	 */
+	public function makeParserOutputKeyOptionalRevId(
+		RevisionRecord $revision,
+		ParserOptions $options,
+		array $usedOptions = null
+	): string {
+		$usedOptions = ParserOptions::allCacheVaryingOptions();
+
+		// revId may be null.
+		$revId = (string)$revision->getId();
+		$hash = $options->optionsHash( $usedOptions );
 		return $this->cache->makeKey( $this->name, $revId, $hash );
 	}
 
@@ -143,7 +178,7 @@ class RevisionOutputCache {
 	 * @param RevisionRecord $revision
 	 * @param ParserOptions $parserOptions
 	 *
-	 * @return ParserOutput|bool False on failure
+	 * @return ParserOutput|false False on failure
 	 */
 	public function get( RevisionRecord $revision, ParserOptions $parserOptions ) {
 		if ( $this->cacheExpiry <= 0 ) {
@@ -152,7 +187,7 @@ class RevisionOutputCache {
 		}
 
 		if ( !$parserOptions->isSafeToCache() ) {
-			$this->incrementStats( $revision, 'miss.unsafe' );
+			$this->incrementStats( 'miss.unsafe' );
 			return false;
 		}
 
@@ -160,13 +195,13 @@ class RevisionOutputCache {
 		$json = $this->cache->get( $cacheKey );
 
 		if ( $json === false ) {
-			$this->incrementStats( $revision, 'miss.absent' );
+			$this->incrementStats( 'miss.absent' );
 			return false;
 		}
 
 		$output = $this->restoreFromJson( $json, $cacheKey, ParserOutput::class );
 		if ( $output === null ) {
-			$this->incrementStats( $revision, 'miss.unserialize' );
+			$this->incrementStats( 'miss.unserialize' );
 			return false;
 		}
 
@@ -175,12 +210,12 @@ class RevisionOutputCache {
 		$expiryTime = max( $expiryTime, (int)MWTimestamp::now( TS_UNIX ) - $this->cacheExpiry );
 
 		if ( $cacheTime < $expiryTime ) {
-			$this->incrementStats( $revision, 'miss.expired' );
+			$this->incrementStats( 'miss.expired' );
 			return false;
 		}
 
-		$this->logger->debug( 'output cache hit' );
-		$this->incrementStats( $revision, 'hit' );
+		$this->logger->debug( 'old-revision cache hit' );
+		$this->incrementStats( 'hit' );
 		return $output;
 	}
 
@@ -224,23 +259,23 @@ class RevisionOutputCache {
 
 		$expiry = $output->getCacheExpiry();
 		if ( $expiry <= 0 ) {
-			$this->incrementStats( $revision, 'save.uncacheable' );
+			$this->incrementStats( 'save.uncacheable' );
 			return;
 		}
 
 		if ( !$parserOptions->isSafeToCache() ) {
-			$this->incrementStats( $revision, 'save.unsafe' );
+			$this->incrementStats( 'save.unsafe' );
 			return;
 		}
 
 		$json = $this->encodeAsJson( $output, $cacheKey );
 		if ( $json === null ) {
-			$this->incrementStats( $revision, 'save.nonserializable' );
+			$this->incrementStats( 'save.nonserializable' );
 			return;
 		}
 
 		$this->cache->set( $cacheKey, $json, $expiry );
-		$this->incrementStats( $revision, 'save.success' );
+		$this->incrementStats( 'save.success' );
 	}
 
 	/**

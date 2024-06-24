@@ -1,7 +1,5 @@
 <?php
 /**
- * This is the Postgres database abstraction layer.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,59 +16,57 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Database
  */
 namespace Wikimedia\Rdbms;
 
 use RuntimeException;
-use Wikimedia\Timestamp\ConvertibleTimestamp;
+use Wikimedia\Rdbms\Platform\PostgresPlatform;
+use Wikimedia\Rdbms\Replication\ReplicationReporter;
 use Wikimedia\WaitConditionLoop;
 
 /**
+ * Postgres database abstraction layer.
+ *
  * @ingroup Database
  */
 class DatabasePostgres extends Database {
 	/** @var int */
 	private $port;
 	/** @var string */
-	private $coreSchema;
-	/** @var string */
 	private $tempSchema;
-	/** @var null|string[] Map of (reserved table name => alternate table name) */
-	private $keywordTableMap;
 	/** @var float|string */
 	private $numericVersion;
 
 	/** @var resource|null */
 	private $lastResultHandle;
 
+	/** @var PostgresPlatform */
+	protected $platform;
+
 	/**
 	 * @see Database::__construct()
 	 * @param array $params Additional parameters include:
 	 *   - port: A port to append to the hostname
-	 *   - keywordTableMap : Map of reserved table names to alternative table names to use
-	 *   This is is deprecated since 1.37. Reserved identifiers should be quoted where necessary,
 	 */
 	public function __construct( array $params ) {
 		$this->port = intval( $params['port'] ?? null );
-
-		if ( isset( $params['keywordTableMap'] ) ) {
-			wfDeprecatedMsg( 'Passing keywordTableMap parameter to ' .
-				'DatabasePostgres::__construct() is deprecated', '1.37'
-			);
-
-			$this->keywordTableMap = $params['keywordTableMap'];
-		}
-
 		parent::__construct( $params );
+
+		$this->platform = new PostgresPlatform(
+			$this,
+			$this->logger,
+			$this->currentDomain,
+			$this->errorLogger
+		);
+		$this->replicationReporter = new ReplicationReporter(
+			$params['topologyRole'],
+			$this->logger,
+			$params['srvCache']
+		);
 	}
 
 	public function getType() {
 		return 'postgres';
-	}
-
-	public function implicitOrderby() {
-		return false;
 	}
 
 	protected function open( $server, $user, $password, $db, $schema, $tablePrefix ) {
@@ -87,17 +83,17 @@ class DatabasePostgres extends Database {
 		$connectVars = [
 			// A database must be specified in order to connect to Postgres. If $dbName is not
 			// specified, then use the standard "postgres" database that should exist by default.
-			'dbname' => strlen( $db ) ? $db : 'postgres',
+			'dbname' => ( $db !== null && $db !== '' ) ? $db : 'postgres',
 			'user' => $user,
 			'password' => $password
 		];
-		if ( strlen( $server ) ) {
+		if ( $server !== null && $server !== '' ) {
 			$connectVars['host'] = $server;
 		}
 		if ( $this->port > 0 ) {
 			$connectVars['port'] = $this->port;
 		}
-		if ( $this->getFlag( self::DBO_SSL ) ) {
+		if ( $this->ssl ) {
 			$connectVars['sslmode'] = 'require';
 		}
 		$connectString = $this->makeConnectionString( $connectVars );
@@ -128,26 +124,16 @@ class DatabasePostgres extends Database {
 				'client_min_messages' => 'ERROR'
 			];
 			foreach ( $variables as $var => $val ) {
-				$this->query(
-					'SET ' . $this->addIdentifierQuotes( $var ) . ' = ' . $this->addQuotes( $val ),
-					__METHOD__,
-					self::QUERY_NO_RETRY | self::QUERY_CHANGE_TRX
-				);
+				$sql = 'SET ' . $this->platform->addIdentifierQuotes( $var ) . ' = ' . $this->addQuotes( $val );
+				$query = new Query( $sql, self::QUERY_NO_RETRY | self::QUERY_CHANGE_TRX, 'SET', [] );
+				$this->query( $query, __METHOD__ );
 			}
 			$this->determineCoreSchema( $schema );
 			$this->currentDomain = new DatabaseDomain( $db, $schema, $tablePrefix );
+			$this->platform->setCurrentDomain( $this->currentDomain );
 		} catch ( RuntimeException $e ) {
 			throw $this->newExceptionAfterConnectError( $e->getMessage() );
 		}
-	}
-
-	protected function relationSchemaQualifier() {
-		if ( $this->coreSchema === $this->currentDomain->getSchema() ) {
-			// The schema to be used is now in the search path; no need for explicit qualification
-			return '';
-		}
-
-		return parent::relationSchemaQualifier();
 	}
 
 	public function databasesAreIndependent() {
@@ -155,19 +141,29 @@ class DatabasePostgres extends Database {
 	}
 
 	public function doSelectDomain( DatabaseDomain $domain ) {
-		if ( $this->getDBname() !== $domain->getDatabase() ) {
+		$database = $domain->getDatabase();
+		if ( $database === null ) {
+			// A null database means "don't care" so leave it as is and update the table prefix
+			$this->currentDomain = new DatabaseDomain(
+				$this->currentDomain->getDatabase(),
+				$domain->getSchema() ?? $this->currentDomain->getSchema(),
+				$domain->getTablePrefix()
+			);
+			$this->platform->setCurrentDomain( $this->currentDomain );
+		} elseif ( $this->getDBname() !== $database ) {
 			// Postgres doesn't support selectDB in the same way MySQL does.
 			// So if the DB name doesn't match the open connection, open a new one
 			$this->open(
 				$this->connectionParams[self::CONN_HOST],
 				$this->connectionParams[self::CONN_USER],
 				$this->connectionParams[self::CONN_PASSWORD],
-				$domain->getDatabase(),
+				$database,
 				$domain->getSchema(),
 				$domain->getTablePrefix()
 			);
 		} else {
 			$this->currentDomain = $domain;
+			$this->platform->setCurrentDomain( $this->currentDomain );
 		}
 
 		return true;
@@ -180,7 +176,7 @@ class DatabasePostgres extends Database {
 	private function makeConnectionString( $vars ) {
 		$s = '';
 		foreach ( $vars as $name => $value ) {
-			$s .= "$name='" . str_replace( "'", "\\'", $value ) . "' ";
+			$s .= "$name='" . str_replace( [ "\\", "'" ], [ "\\\\", "\\'" ], $value ) . "' ";
 		}
 
 		return $s;
@@ -190,33 +186,31 @@ class DatabasePostgres extends Database {
 		return $this->conn ? pg_close( $this->conn ) : true;
 	}
 
-	protected function isTransactableQuery( $sql ) {
-		return parent::isTransactableQuery( $sql ) &&
-			!preg_match( '/^SELECT\s+pg_(try_|)advisory_\w+\(/', $sql );
-	}
-
-	/**
-	 * @param string $sql
-	 * @return bool|IResultWrapper
-	 */
-	public function doQuery( $sql ) {
+	public function doSingleStatementQuery( string $sql ): QueryStatus {
 		$conn = $this->getBindingHandle();
 
 		$sql = mb_convert_encoding( $sql, 'UTF-8' );
-		// Clear previously left over PQresult
-		while ( $res = pg_get_result( $conn ) ) {
-			pg_free_result( $res );
+		// Clear any previously left over result
+		while ( $priorRes = pg_get_result( $conn ) ) {
+			pg_free_result( $priorRes );
 		}
+
 		if ( pg_send_query( $conn, $sql ) === false ) {
 			throw new DBUnexpectedError( $this, "Unable to post new query to PostgreSQL\n" );
 		}
-		$this->lastResultHandle = pg_get_result( $conn );
-		if ( pg_result_error( $this->lastResultHandle ) ) {
-			return false;
-		}
 
-		return $this->lastResultHandle ?
-			new PostgresResultWrapper( $this, $this->getBindingHandle(), $this->lastResultHandle ) : false;
+		// Newer PHP versions use PgSql\Result instead of resource variables
+		// https://www.php.net/manual/en/function.pg-get-result.php
+		$pgRes = pg_get_result( $conn );
+		$this->lastResultHandle = $pgRes;
+		$res = pg_result_error( $pgRes ) ? false : $pgRes;
+
+		return new QueryStatus(
+			is_bool( $res ) ? $res : new PostgresResultWrapper( $this, $conn, $res ),
+			$pgRes ? pg_affected_rows( $pgRes ) : 0,
+			$this->lastError(),
+			$this->lastErrno()
+		);
 	}
 
 	protected function dumpError() {
@@ -235,20 +229,19 @@ class DatabasePostgres extends Database {
 			PGSQL_DIAG_SOURCE_FUNCTION
 		];
 		foreach ( $diags as $d ) {
-			$this->queryLogger->debug( sprintf( "PgSQL ERROR(%d): %s",
+			$this->logger->debug( sprintf( "PgSQL ERROR(%d): %s",
 				$d, pg_result_error_field( $this->lastResultHandle, $d ) ) );
 		}
 	}
 
-	public function insertId() {
-		$res = $this->query(
-			"SELECT lastval()",
-			__METHOD__,
-			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
-		);
-		$row = $res->fetchRow();
+	protected function lastInsertId() {
+		// Avoid using query() to prevent unwanted side-effects like changing affected
+		// row counts or connection retries. Note that lastval() is connection-specific.
+		// Note that this causes "lastval is not yet defined in this session" errors if
+		// nextval() was never directly or implicitly triggered (error out any transaction).
+		$qs = $this->doSingleStatementQuery( "SELECT lastval() AS id" );
 
-		return $row[0] === null ? null : (int)$row[0];
+		return $qs->res ? (int)$qs->res->fetchRow()['id'] : 0;
 	}
 
 	public function lastError() {
@@ -256,7 +249,7 @@ class DatabasePostgres extends Database {
 			if ( $this->lastResultHandle ) {
 				return pg_result_error( $this->lastResultHandle );
 			} else {
-				return pg_last_error();
+				return pg_last_error() ?: $this->lastConnectError;
 			}
 		}
 
@@ -267,18 +260,11 @@ class DatabasePostgres extends Database {
 		if ( $this->lastResultHandle ) {
 			$lastErrno = pg_result_error_field( $this->lastResultHandle, PGSQL_DIAG_SQLSTATE );
 			if ( $lastErrno !== false ) {
-				return (int)$lastErrno;
+				return $lastErrno;
 			}
 		}
-		return 0;
-	}
 
-	protected function fetchAffectedRowCount() {
-		if ( !$this->lastResultHandle ) {
-			return 0;
-		}
-
-		return pg_affected_rows( $this->lastResultHandle );
+		return '00000';
 	}
 
 	/**
@@ -299,8 +285,8 @@ class DatabasePostgres extends Database {
 	public function estimateRowCount( $table, $var = '*', $conds = '',
 		$fname = __METHOD__, $options = [], $join_conds = []
 	) {
-		$conds = $this->normalizeConditions( $conds, $fname );
-		$column = $this->extractSingleFieldFromList( $var );
+		$conds = $this->platform->normalizeConditions( $conds, $fname );
+		$column = $this->platform->extractSingleFieldFromList( $var );
 		if ( is_string( $column ) && !in_array( $column, [ '*', '1' ] ) ) {
 			$conds[] = "$column IS NOT NULL";
 		}
@@ -320,16 +306,18 @@ class DatabasePostgres extends Database {
 	}
 
 	public function indexInfo( $table, $index, $fname = __METHOD__ ) {
-		$res = $this->query(
+		$query = new Query(
 			"SELECT indexname FROM pg_indexes WHERE tablename='$table'",
-			$fname,
-			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
+			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE,
+			'SELECT',
+			[ $table ]
 		);
+		$res = $this->query( $query );
 		if ( !$res ) {
 			return null;
 		}
 		foreach ( $res as $row ) {
-			if ( $row->indexname == $this->indexName( $index ) ) {
+			if ( $row->indexname == $this->platform->indexName( $index ) ) {
 				return $row;
 			}
 		}
@@ -385,7 +373,8 @@ class DatabasePostgres extends Database {
 						AND	i.indclass[s.g] = opcls.oid
 						AND	pg_am.oid = opcls.opcmethod
 __INDEXATTR__;
-			$res = $this->query( $sql, __METHOD__, $flags );
+			$query = new Query( $sql, $flags, 'SELECT', [ 'pg_index', 'pg_class', 'pg_namespace' ] );
+			$res = $this->query( $query, __METHOD__ );
 			$a = [];
 			if ( $res ) {
 				foreach ( $res as $row ) {
@@ -402,123 +391,13 @@ __INDEXATTR__;
 	}
 
 	public function indexUnique( $table, $index, $fname = __METHOD__ ) {
-		$flags = self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE;
 		$sql = "SELECT indexname FROM pg_indexes WHERE tablename='{$table}'" .
 			" AND indexdef LIKE 'CREATE UNIQUE%(" .
-			$this->strencode( $this->indexName( $index ) ) .
+			$this->strencode( $this->platform->indexName( $index ) ) .
 			")'";
-		$res = $this->query( $sql, $fname, $flags );
-		if ( !$res ) {
-			return false;
-		}
-
-		return $res->numRows() > 0;
-	}
-
-	public function selectSQLText(
-		$table, $vars, $conds = '', $fname = __METHOD__, $options = [], $join_conds = []
-	) {
-		if ( is_string( $options ) ) {
-			$options = [ $options ];
-		}
-
-		// Change the FOR UPDATE option as necessary based on the join conditions. Then pass
-		// to the parent function to get the actual SQL text.
-		// In Postgres when using FOR UPDATE, only the main table and tables that are inner joined
-		// can be locked. That means tables in an outer join cannot be FOR UPDATE locked. Trying to
-		// do so causes a DB error. This wrapper checks which tables can be locked and adjusts it
-		// accordingly.
-		// MySQL uses "ORDER BY NULL" as an optimization hint, but that is illegal in PostgreSQL.
-		if ( is_array( $options ) ) {
-			$forUpdateKey = array_search( 'FOR UPDATE', $options, true );
-			if ( $forUpdateKey !== false && $join_conds ) {
-				unset( $options[$forUpdateKey] );
-				$options['FOR UPDATE'] = [];
-
-				$toCheck = $table;
-				reset( $toCheck );
-				while ( $toCheck ) {
-					$alias = key( $toCheck );
-					$name = $toCheck[$alias];
-					unset( $toCheck[$alias] );
-
-					$hasAlias = !is_numeric( $alias );
-					if ( !$hasAlias && is_string( $name ) ) {
-						$alias = $name;
-					}
-
-					if ( !isset( $join_conds[$alias] ) ||
-						!preg_match( '/^(?:LEFT|RIGHT|FULL)(?: OUTER)? JOIN$/i', $join_conds[$alias][0] )
-					) {
-						if ( is_array( $name ) ) {
-							// It's a parenthesized group, process all the tables inside the group.
-							$toCheck = array_merge( $toCheck, $name );
-						} else {
-							// Quote alias names so $this->tableName() won't mangle them
-							$options['FOR UPDATE'][] = $hasAlias ? $this->addIdentifierQuotes( $alias ) : $alias;
-						}
-					}
-				}
-			}
-
-			if ( isset( $options['ORDER BY'] ) && $options['ORDER BY'] == 'NULL' ) {
-				unset( $options['ORDER BY'] );
-			}
-		}
-
-		return parent::selectSQLText( $table, $vars, $conds, $fname, $options, $join_conds );
-	}
-
-	protected function makeInsertNonConflictingVerbAndOptions() {
-		return [ 'INSERT INTO', 'ON CONFLICT DO NOTHING' ];
-	}
-
-	public function doInsertNonConflicting( $table, array $rows, $fname ) {
-		// Postgres 9.5 supports "ON CONFLICT"
-		if ( $this->getServerVersion() >= 9.5 ) {
-			parent::doInsertNonConflicting( $table, $rows, $fname );
-
-			return;
-		}
-
-		$affectedRowCount = 0;
-		// Emulate INSERT IGNORE via savepoints/rollback
-		$tok = $this->startAtomic( "$fname (outer)", self::ATOMIC_CANCELABLE );
-		try {
-			$encTable = $this->tableName( $table );
-			foreach ( $rows as $row ) {
-				list( $sqlColumns, $sqlTuples ) = $this->makeInsertLists( [ $row ] );
-				$tempsql = "INSERT INTO $encTable ($sqlColumns) VALUES $sqlTuples";
-
-				$this->startAtomic( "$fname (inner)", self::ATOMIC_CANCELABLE );
-				try {
-					$this->query( $tempsql, $fname, self::QUERY_CHANGE_ROWS );
-					$this->endAtomic( "$fname (inner)" );
-					$affectedRowCount++;
-				} catch ( DBQueryError $e ) {
-					$this->cancelAtomic( "$fname (inner)" );
-					// Our IGNORE is supposed to ignore duplicate key errors, but not others.
-					// (even though MySQL's version apparently ignores all errors)
-					if ( $e->errno !== '23505' ) {
-						throw $e;
-					}
-				}
-			}
-		} catch ( RuntimeException $e ) {
-			$this->cancelAtomic( "$fname (outer)", $tok );
-			throw $e;
-		}
-		$this->endAtomic( "$fname (outer)" );
-		// Set the affected row count for the whole operation
-		$this->affectedRowCount = $affectedRowCount;
-	}
-
-	protected function makeUpdateOptionsArray( $options ) {
-		$options = $this->normalizeOptions( $options );
-		// PostgreSQL doesn't support anything like "ignore" for UPDATE.
-		$options = array_diff( $options, [ 'IGNORE' ] );
-
-		return parent::makeUpdateOptionsArray( $options );
+		$query = new Query( $sql, self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE, 'SELECT', [ 'pg_indexes' ] );
+		$res = $this->query( $query, $fname );
+		return $res && $res->numRows() > 0;
 	}
 
 	/**
@@ -550,45 +429,26 @@ __INDEXATTR__;
 		$selectJoinConds
 	) {
 		if ( in_array( 'IGNORE', $insertOptions ) ) {
-			if ( $this->getServerVersion() >= 9.5 ) {
-				// Use "ON CONFLICT DO" if we have it for IGNORE
-				$destTable = $this->tableName( $destTable );
+			// Use "ON CONFLICT DO" if we have it for IGNORE
+			$destTableEnc = $this->tableName( $destTable );
 
-				$selectSql = $this->selectSQLText(
-					$srcTable,
-					array_values( $varMap ),
-					$conds,
-					$fname,
-					$selectOptions,
-					$selectJoinConds
-				);
+			$selectSql = $this->selectSQLText(
+				$srcTable,
+				array_values( $varMap ),
+				$conds,
+				$fname,
+				$selectOptions,
+				$selectJoinConds
+			);
 
-				$sql = "INSERT INTO $destTable (" . implode( ',', array_keys( $varMap ) ) . ') ' .
-					$selectSql . ' ON CONFLICT DO NOTHING';
-
-				$this->query( $sql, $fname, self::QUERY_CHANGE_ROWS );
-			} else {
-				// IGNORE and we don't have ON CONFLICT DO NOTHING, so just use the non-native version
-				$this->doInsertSelectGeneric(
-					$destTable, $srcTable, $varMap, $conds, $fname,
-					$insertOptions, $selectOptions, $selectJoinConds
-				);
-			}
+			$sql = "INSERT INTO $destTableEnc (" . implode( ',', array_keys( $varMap ) ) . ') ' .
+				$selectSql . ' ON CONFLICT DO NOTHING';
+			$query = new Query( $sql, self::QUERY_CHANGE_ROWS, 'INSERT', [ $destTable, $srcTable ] );
+			$this->query( $query, $fname );
 		} else {
 			parent::doInsertSelectNative( $destTable, $srcTable, $varMap, $conds, $fname,
 				$insertOptions, $selectOptions, $selectJoinConds );
 		}
-	}
-
-	/**
-	 * @param string $name
-	 * @return string Value of $name or remapped name if $name is a reserved keyword
-	 * @deprecated since 1.37. Reserved identifiers should be quoted where necessary
-	 */
-	public function remappedTableName( $name ) {
-		wfDeprecated( __METHOD__, '1.37' );
-
-		return $this->keywordTableMap[$name] ?? $name;
 	}
 
 	/**
@@ -605,21 +465,30 @@ __INDEXATTR__;
 	}
 
 	/**
-	 * Return the current value of a sequence. Assumes it has been nextval'ed in this session.
-	 *
-	 * @param string $seqName
-	 * @return int
+	 * @param string $table
+	 * @return array<string,string>
 	 */
-	public function currentSequenceValue( $seqName ) {
-		$res = $this->query(
-			"SELECT currval('" . str_replace( "'", "''", $seqName ) . "')",
-			__METHOD__,
-			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
-		);
-		$row = $res->fetchRow();
-		$currval = $row[0];
+	public function getValueTypesForWithClause( $table ) {
+		$typesByColumn = [];
 
-		return $currval;
+		$flags = self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE;
+		$encTable = $this->addQuotes( $table );
+		foreach ( $this->getCoreSchemas() as $schema ) {
+			$encSchema = $this->addQuotes( $schema );
+			$sql = "SELECT column_name,udt_name " .
+				"FROM information_schema.columns " .
+				"WHERE table_name = $encTable AND table_schema = $encSchema";
+			$query = new Query( $sql, $flags, 'SELECT', [ $table ] );
+			$res = $this->query( $query, __METHOD__ );
+			if ( $res->numRows() ) {
+				foreach ( $res as $row ) {
+					$typesByColumn[$row->column_name] = $row->udt_name;
+				}
+				break;
+			}
+		}
+
+		return $typesByColumn;
 	}
 
 	public function textFieldSize( $table, $field ) {
@@ -629,7 +498,8 @@ __INDEXATTR__;
 			FROM pg_class c, pg_attribute a, pg_type t
 			WHERE relname='$encTable' AND a.attrelid=c.oid AND
 				a.atttypid=t.oid and a.attname='$field'";
-		$res = $this->query( $sql, __METHOD__, $flags );
+		$query = new Query( $sql, $flags, 'SELECT', [ $table ] );
+		$res = $this->query( $query, __METHOD__ );
 		$row = $res->fetchObject();
 		if ( $row->ftype == 'varchar' ) {
 			$size = $row->size - 4;
@@ -640,18 +510,9 @@ __INDEXATTR__;
 		return $size;
 	}
 
-	public function limitResult( $sql, $limit, $offset = false ) {
-		return "$sql LIMIT $limit " . ( is_numeric( $offset ) ? " OFFSET {$offset} " : '' );
-	}
-
 	public function wasDeadlock() {
 		// https://www.postgresql.org/docs/9.2/static/errcodes-appendix.html
 		return $this->lastErrno() === '40P01';
-	}
-
-	public function wasLockTimeout() {
-		// https://www.postgresql.org/docs/9.2/static/errcodes-appendix.html
-		return $this->lastErrno() === '55P03';
 	}
 
 	protected function isConnectionError( $errno ) {
@@ -661,57 +522,71 @@ __INDEXATTR__;
 		return in_array( $errno, $codes, true );
 	}
 
-	protected function wasKnownStatementRollbackError() {
+	protected function isQueryTimeoutError( $errno ) {
+		// https://www.postgresql.org/docs/9.2/static/errcodes-appendix.html
+		return ( $errno === '57014' );
+	}
+
+	protected function isKnownStatementRollbackError( $errno ) {
 		return false; // transaction has to be rolled-back from error state
 	}
 
 	public function duplicateTableStructure(
 		$oldName, $newName, $temporary = false, $fname = __METHOD__
 	) {
-		$newNameE = $this->addIdentifierQuotes( $newName );
-		$oldNameE = $this->addIdentifierQuotes( $oldName );
+		$newNameE = $this->platform->addIdentifierQuotes( $newName );
+		$oldNameE = $this->platform->addIdentifierQuotes( $oldName );
 
 		$temporary = $temporary ? 'TEMPORARY' : '';
-
-		$ret = $this->query(
+		$query = new Query(
 			"CREATE $temporary TABLE $newNameE " .
-				"(LIKE $oldNameE INCLUDING DEFAULTS INCLUDING INDEXES)",
-			$fname,
-			self::QUERY_PSEUDO_PERMANENT | self::QUERY_CHANGE_SCHEMA
+			"(LIKE $oldNameE INCLUDING DEFAULTS INCLUDING INDEXES)",
+			self::QUERY_PSEUDO_PERMANENT | self::QUERY_CHANGE_SCHEMA,
+			'SELECT',
+			[ $newName ]
 		);
+		$ret = $this->query( $query, $fname );
 		if ( !$ret ) {
 			return $ret;
 		}
 
-		$res = $this->query(
-			'SELECT attname FROM pg_class c'
+		$sql = 'SELECT attname FROM pg_class c'
 			. ' JOIN pg_namespace n ON (n.oid = c.relnamespace)'
 			. ' JOIN pg_attribute a ON (a.attrelid = c.oid)'
 			. ' JOIN pg_attrdef d ON (c.oid=d.adrelid and a.attnum=d.adnum)'
 			. ' WHERE relkind = \'r\''
 			. ' AND nspname = ' . $this->addQuotes( $this->getCoreSchema() )
 			. ' AND relname = ' . $this->addQuotes( $oldName )
-			. ' AND pg_get_expr(adbin, adrelid) LIKE \'nextval(%\'',
-			$fname,
-			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
+			. ' AND pg_get_expr(adbin, adrelid) LIKE \'nextval(%\'';
+		$query = new Query(
+			$sql,
+			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE,
+			'SELECT',
+			[ 'pg_class', 'pg_namespace', 'pg_attribute', 'pg_attrdef' ]
 		);
+
+		$res = $this->query( $query, $fname );
 		$row = $res->fetchObject();
 		if ( $row ) {
 			$field = $row->attname;
 			$newSeq = "{$newName}_{$field}_seq";
-			$fieldE = $this->addIdentifierQuotes( $field );
-			$newSeqE = $this->addIdentifierQuotes( $newSeq );
+			$fieldE = $this->platform->addIdentifierQuotes( $field );
+			$newSeqE = $this->platform->addIdentifierQuotes( $newSeq );
 			$newSeqQ = $this->addQuotes( $newSeq );
-			$this->query(
+			$query = new Query(
 				"CREATE $temporary SEQUENCE $newSeqE OWNED BY $newNameE.$fieldE",
-				$fname,
-				self::QUERY_CHANGE_SCHEMA
+				self::QUERY_CHANGE_SCHEMA,
+				'CREATE',
+				[ $newName ]
 			);
-			$this->query(
+			$this->query( $query, $fname );
+			$query = new Query(
 				"ALTER TABLE $newNameE ALTER COLUMN $fieldE SET DEFAULT nextval({$newSeqQ}::regclass)",
-				$fname,
-				self::QUERY_CHANGE_SCHEMA
+				self::QUERY_CHANGE_SCHEMA,
+				'ALTER',
+				[ $newName ]
 			);
+			$this->query( $query, $fname );
 		}
 
 		return $ret;
@@ -719,8 +594,13 @@ __INDEXATTR__;
 
 	protected function doTruncate( array $tables, $fname ) {
 		$encTables = $this->tableNamesN( ...$tables );
-		$sql = "TRUNCATE TABLE " . implode( ',', $encTables ) . " RESTART IDENTITY";
-		$this->query( $sql, $fname, self::QUERY_CHANGE_SCHEMA );
+		$query = new Query(
+			"TRUNCATE TABLE " . implode( ',', $encTables ) . " RESTART IDENTITY",
+			self::QUERY_CHANGE_SCHEMA,
+			'TRUNCATE',
+			$tables
+		);
+		$this->query( $query, $fname );
 	}
 
 	/**
@@ -731,11 +611,13 @@ __INDEXATTR__;
 	 */
 	public function listTables( $prefix = '', $fname = __METHOD__ ) {
 		$eschemas = implode( ',', array_map( [ $this, 'addQuotes' ], $this->getCoreSchemas() ) );
-		$result = $this->query(
+		$query = new Query(
 			"SELECT DISTINCT tablename FROM pg_tables WHERE schemaname IN ($eschemas)",
-			$fname,
-			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
+			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE,
+			'SELECT',
+			'pg_tables'
 		);
+		$result = $this->query( $query, $fname );
 		$endArray = [];
 
 		foreach ( $result as $table ) {
@@ -747,12 +629,6 @@ __INDEXATTR__;
 		}
 
 		return $endArray;
-	}
-
-	public function timestamp( $ts = 0 ) {
-		$ct = new ConvertibleTimestamp( $ts );
-
-		return $ct->getTimestamp( TS_POSTGRES );
 	}
 
 	/**
@@ -769,7 +645,7 @@ __INDEXATTR__;
 	 * @since 1.19
 	 * @param string $text Postgreql array returned in a text form like {a,b}
 	 * @param string[] &$output
-	 * @param int|bool $limit
+	 * @param int|false $limit
 	 * @param int $offset
 	 * @return string[]
 	 */
@@ -812,11 +688,12 @@ __INDEXATTR__;
 	 * @return string Default schema for the current session
 	 */
 	public function getCurrentSchema() {
-		$res = $this->query(
+		$query = new Query(
 			"SELECT current_schema()",
-			__METHOD__,
-			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
+			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE,
+			'SELECT'
 		);
+		$res = $this->query( $query, __METHOD__ );
 		$row = $res->fetchRow();
 
 		return $row[0];
@@ -833,11 +710,12 @@ __INDEXATTR__;
 	 * @return array List of actual schemas for the current session
 	 */
 	public function getSchemas() {
-		$res = $this->query(
+		$query = new Query(
 			"SELECT current_schemas(false)",
-			__METHOD__,
-			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
+			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE,
+			'SELECT'
 		);
+		$res = $this->query( $query, __METHOD__ );
 		$row = $res->fetchRow();
 		$schemas = [];
 
@@ -856,11 +734,12 @@ __INDEXATTR__;
 	 * @return array How to search for table names schemas for the current user
 	 */
 	public function getSearchPath() {
-		$res = $this->query(
+		$query = new Query(
 			"SHOW search_path",
-			__METHOD__,
-			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
+			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE,
+			'SHOW'
 		);
+		$res = $this->query( $query, __METHOD__ );
 		$row = $res->fetchRow();
 
 		/* PostgreSQL returns SHOW values as strings */
@@ -876,11 +755,12 @@ __INDEXATTR__;
 	 * @param string[] $search_path List of schemas to be searched by default
 	 */
 	private function setSearchPath( $search_path ) {
-		$this->query(
+		$query = new Query(
 			"SET search_path = " . implode( ", ", $search_path ),
-			__METHOD__,
-			self::QUERY_CHANGE_TRX
+			self::QUERY_CHANGE_TRX,
+			'SET'
 		);
+		$this->query( $query, __METHOD__ );
 	}
 
 	/**
@@ -895,7 +775,7 @@ __INDEXATTR__;
 	 *
 	 * @since 1.19
 	 *
-	 * @param string $desiredSchema
+	 * @param string|null $desiredSchema
 	 */
 	public function determineCoreSchema( $desiredSchema ) {
 		if ( $this->trxLevel() ) {
@@ -909,23 +789,23 @@ __INDEXATTR__;
 
 		if ( $this->schemaExists( $desiredSchema ) ) {
 			if ( in_array( $desiredSchema, $this->getSchemas() ) ) {
-				$this->coreSchema = $desiredSchema;
-				$this->queryLogger->debug(
+				$this->platform->setCoreSchema( $desiredSchema );
+				$this->logger->debug(
 					"Schema \"" . $desiredSchema . "\" already in the search path\n" );
 			} else {
 				// Prepend the desired schema to the search path (T17816)
 				$search_path = $this->getSearchPath();
-				array_unshift( $search_path, $this->addIdentifierQuotes( $desiredSchema ) );
+				array_unshift( $search_path, $this->platform->addIdentifierQuotes( $desiredSchema ) );
 				$this->setSearchPath( $search_path );
-				$this->coreSchema = $desiredSchema;
-				$this->queryLogger->debug(
+				$this->platform->setCoreSchema( $desiredSchema );
+				$this->logger->debug(
 					"Schema \"" . $desiredSchema . "\" added to the search path\n" );
 			}
 		} else {
-			$this->coreSchema = $this->getCurrentSchema();
-			$this->queryLogger->debug(
+			$this->platform->setCoreSchema( $this->getCurrentSchema() );
+			$this->logger->debug(
 				"Schema \"" . $desiredSchema . "\" not found, using current \"" .
-				$this->coreSchema . "\"\n" );
+				$this->getCoreSchema() . "\"\n" );
 		}
 	}
 
@@ -936,7 +816,7 @@ __INDEXATTR__;
 	 * @return string Core schema name
 	 */
 	public function getCoreSchema() {
-		return $this->coreSchema;
+		return $this->platform->getCoreSchema();
 	}
 
 	/**
@@ -949,12 +829,13 @@ __INDEXATTR__;
 		if ( $this->tempSchema ) {
 			return [ $this->tempSchema, $this->getCoreSchema() ];
 		}
-
-		$res = $this->query(
+		$query = new Query(
 			"SELECT nspname FROM pg_catalog.pg_namespace n WHERE n.oid = pg_my_temp_schema()",
-			__METHOD__,
-			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
+			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE,
+			'SELECT',
+			'pg_catalog'
 		);
+		$res = $this->query( $query, __METHOD__ );
 		$row = $res->fetchObject();
 		if ( $row ) {
 			$this->tempSchema = $row->nspname;
@@ -1007,11 +888,13 @@ __INDEXATTR__;
 			$sql = "SELECT 1 FROM pg_catalog.pg_class c, pg_catalog.pg_namespace n "
 				. "WHERE c.relnamespace = n.oid AND c.relname = $etable AND n.nspname = $eschema "
 				. "AND c.relkind IN ('" . implode( "','", $types ) . "')";
-			$res = $this->query(
+			$query = new Query(
 				$sql,
-				__METHOD__,
-				self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
+				self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE,
+				'SELECT',
+				'pg_catalog'
 			);
+			$res = $this->query( $query, __METHOD__ );
 			if ( $res && $res->numRows() ) {
 				return true;
 			}
@@ -1035,45 +918,6 @@ __INDEXATTR__;
 		return $this->relationExists( $sequence, 'S', $schema );
 	}
 
-	public function triggerExists( $table, $trigger ) {
-		$q = <<<SQL
-	SELECT 1 FROM pg_class, pg_namespace, pg_trigger
-		WHERE relnamespace=pg_namespace.oid AND relkind='r'
-			AND tgrelid=pg_class.oid
-			AND nspname=%s AND relname=%s AND tgname=%s
-SQL;
-		foreach ( $this->getCoreSchemas() as $schema ) {
-			$res = $this->query(
-				sprintf(
-					$q,
-					$this->addQuotes( $schema ),
-					$this->addQuotes( $table ),
-					$this->addQuotes( $trigger )
-				),
-				__METHOD__,
-				self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
-			);
-			if ( $res && $res->numRows() ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	public function ruleExists( $table, $rule ) {
-		$exists = $this->selectField( 'pg_rules', 'rulename',
-			[
-				'rulename' => $rule,
-				'tablename' => $table,
-				'schemaname' => $this->getCoreSchemas()
-			],
-			__METHOD__
-		);
-
-		return $exists === $rule;
-	}
-
 	public function constraintExists( $table, $constraint ) {
 		foreach ( $this->getCoreSchemas() as $schema ) {
 			$sql = sprintf( "SELECT 1 FROM information_schema.table_constraints " .
@@ -1082,11 +926,13 @@ SQL;
 				$this->addQuotes( $table ),
 				$this->addQuotes( $constraint )
 			);
-			$res = $this->query(
+			$query = new Query(
 				$sql,
-				__METHOD__,
-				self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
+				self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE,
+				'SELECT',
+				$table
 			);
+			$res = $this->query( $query, __METHOD__ );
 			if ( $res && $res->numRows() ) {
 				return true;
 			}
@@ -1096,20 +942,21 @@ SQL;
 
 	/**
 	 * Query whether a given schema exists. Returns true if it does, false if it doesn't.
-	 * @param string $schema
+	 * @param string|null $schema
 	 * @return bool
 	 */
 	public function schemaExists( $schema ) {
-		if ( !strlen( $schema ) ) {
+		if ( !strlen( $schema ?? '' ) ) {
 			return false; // short-circuit
 		}
-
-		$res = $this->query(
+		$query = new Query(
 			"SELECT 1 FROM pg_catalog.pg_namespace " .
 			"WHERE nspname = " . $this->addQuotes( $schema ) . " LIMIT 1",
-			__METHOD__,
-			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
+			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE,
+			'SELECT',
+			'pg_catalog'
 		);
+		$res = $this->query( $query, __METHOD__ );
 
 		return ( $res->numRows() > 0 );
 	}
@@ -1120,12 +967,14 @@ SQL;
 	 * @return bool
 	 */
 	public function roleExists( $roleName ) {
-		$res = $this->query(
+		$query = new Query(
 			"SELECT 1 FROM pg_catalog.pg_roles " .
 			"WHERE rolname = " . $this->addQuotes( $roleName ) . " LIMIT 1",
-			__METHOD__,
-			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
+			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE,
+			'SELECT',
+			'pg_catalog'
 		);
+		$res = $this->query( $query, __METHOD__ );
 
 		return ( $res->numRows() > 0 );
 	}
@@ -1140,7 +989,9 @@ SQL;
 	}
 
 	public function encodeBlob( $b ) {
-		return new PostgresBlob( pg_escape_bytea( $b ) );
+		$conn = $this->getBindingHandle();
+
+		return new PostgresBlob( pg_escape_bytea( $conn, $b ) );
 	}
 
 	public function decodeBlob( $b ) {
@@ -1181,54 +1032,9 @@ SQL;
 		return "'" . pg_escape_string( $conn, (string)$s ) . "'";
 	}
 
-	protected function makeSelectOptions( array $options ) {
-		$preLimitTail = $postLimitTail = '';
-		$startOpts = $useIndex = $ignoreIndex = '';
-
-		$noKeyOptions = [];
-		foreach ( $options as $key => $option ) {
-			if ( is_numeric( $key ) ) {
-				$noKeyOptions[$option] = true;
-			}
-		}
-
-		$preLimitTail .= $this->makeGroupByWithHaving( $options );
-
-		$preLimitTail .= $this->makeOrderBy( $options );
-
-		if ( isset( $options['FOR UPDATE'] ) ) {
-			$postLimitTail .= ' FOR UPDATE OF ' .
-				implode( ', ', array_map( [ $this, 'tableName' ], $options['FOR UPDATE'] ) );
-		} elseif ( isset( $noKeyOptions['FOR UPDATE'] ) ) {
-			$postLimitTail .= ' FOR UPDATE';
-		}
-
-		if ( isset( $noKeyOptions['DISTINCT'] ) || isset( $noKeyOptions['DISTINCTROW'] ) ) {
-			$startOpts .= 'DISTINCT';
-		}
-
-		return [ $startOpts, $useIndex, $preLimitTail, $postLimitTail, $ignoreIndex ];
-	}
-
-	public function buildConcat( $stringList ) {
-		return implode( ' || ', $stringList );
-	}
-
-	public function buildGroupConcatField(
-		$delim, $table, $field, $conds = '', $join_conds = []
-	) {
-		$fld = "array_to_string(array_agg($field)," . $this->addQuotes( $delim ) . ')';
-
-		return '(' . $this->selectSQLText( $table, $fld, $conds, null, [], $join_conds ) . ')';
-	}
-
-	public function buildStringCast( $field ) {
-		return $field . '::text';
-	}
-
 	public function streamStatementEnd( &$sql, &$newLine ) {
 		# Allow dollar quoting for function declarations
-		if ( substr( $newLine, 0, 4 ) == '$mw$' ) {
+		if ( str_starts_with( $newLine, '$mw$' ) ) {
 			if ( $this->delimiter ) {
 				$this->delimiter = false;
 			} else {
@@ -1239,65 +1045,29 @@ SQL;
 		return parent::streamStatementEnd( $sql, $newLine );
 	}
 
-	public function doLockTables( array $read, array $write, $method ) {
-		$tablesWrite = [];
-		foreach ( $write as $table ) {
-			$tablesWrite[] = $this->tableName( $table );
-		}
-		$tablesRead = [];
-		foreach ( $read as $table ) {
-			$tablesRead[] = $this->tableName( $table );
-		}
-
-		// Acquire locks for the duration of the current transaction...
-		if ( $tablesWrite ) {
-			$this->query(
-				'LOCK TABLE ONLY ' . implode( ',', $tablesWrite ) . ' IN EXCLUSIVE MODE',
-				$method,
-				self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_ROWS
-			);
-		}
-		if ( $tablesRead ) {
-			$this->query(
-				'LOCK TABLE ONLY ' . implode( ',', $tablesRead ) . ' IN SHARE MODE',
-				$method,
-				self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_ROWS
-			);
-		}
-
-		return true;
-	}
-
 	public function doLockIsFree( string $lockName, string $method ) {
-		// http://www.postgresql.org/docs/9.2/static/functions-admin.html#FUNCTIONS-ADVISORY-LOCKS
-		$key = $this->addQuotes( $this->bigintFromLockName( $lockName ) );
-
-		$res = $this->query(
-			"SELECT (CASE(pg_try_advisory_lock($key))
-			WHEN 'f' THEN 'f' ELSE pg_advisory_unlock($key) END) AS unlocked",
-			$method,
-			self::QUERY_CHANGE_LOCKS
+		$query = new Query(
+			$this->platform->lockIsFreeSQLText( $lockName ),
+			self::QUERY_CHANGE_LOCKS,
+			'SELECT'
 		);
+		$res = $this->query( $query, $method );
 		$row = $res->fetchObject();
 
 		return ( $row->unlocked === 't' );
 	}
 
 	public function doLock( string $lockName, string $method, int $timeout ) {
-		// http://www.postgresql.org/docs/9.2/static/functions-admin.html#FUNCTIONS-ADVISORY-LOCKS
-		$key = $this->addQuotes( $this->bigintFromLockName( $lockName ) );
+		$query = new Query(
+			$this->platform->lockSQLText( $lockName, $timeout ),
+			self::QUERY_CHANGE_LOCKS,
+			'SELECT'
+		);
 
 		$acquired = null;
 		$loop = new WaitConditionLoop(
-			function () use ( $lockName, $key, $timeout, $method, &$acquired ) {
-				$res = $this->query(
-					"SELECT (CASE WHEN pg_try_advisory_lock($key) " .
-						"THEN EXTRACT(epoch from clock_timestamp()) " .
-						"ELSE NULL " .
-					"END) AS acquired",
-					$method,
-					self::QUERY_CHANGE_LOCKS
-				);
+			function () use ( $query, $method, &$acquired ) {
+				$res = $this->query( $query, $method );
 				$row = $res->fetchObject();
 
 				if ( $row->acquired !== null ) {
@@ -1316,44 +1086,74 @@ SQL;
 	}
 
 	public function doUnlock( string $lockName, string $method ) {
-		// http://www.postgresql.org/docs/9.2/static/functions-admin.html#FUNCTIONS-ADVISORY-LOCKS
-		$key = $this->addQuotes( $this->bigintFromLockName( $lockName ) );
-
-		$result = $this->query(
-			"SELECT pg_advisory_unlock($key) AS released",
-			$method,
-			self::QUERY_CHANGE_LOCKS
+		$query = new Query(
+			$this->platform->unlockSQLText( $lockName ),
+			self::QUERY_CHANGE_LOCKS,
+			'SELECT'
 		);
+		$result = $this->query( $query, $method );
 		$row = $result->fetchObject();
 
 		return ( $row->released === 't' );
 	}
 
+	protected function doFlushSession( $fname ) {
+		$flags = self::QUERY_CHANGE_LOCKS | self::QUERY_NO_RETRY;
+
+		// https://www.postgresql.org/docs/9.1/functions-admin.html
+		$sql = "SELECT pg_advisory_unlock_all()";
+		$query = new Query( $sql, $flags, 'UNLOCK' );
+		$qs = $this->executeQuery( $query, __METHOD__, $flags );
+		if ( $qs->res === false ) {
+			$this->reportQueryError( $qs->message, $qs->code, $sql, $fname, true );
+		}
+	}
+
 	public function serverIsReadOnly() {
-		$res = $this->query(
+		$query = new Query(
 			"SHOW default_transaction_read_only",
-			__METHOD__,
-			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE
+			self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE,
+			'SHOW'
 		);
+		$res = $this->query( $query, __METHOD__ );
 		$row = $res->fetchObject();
 
-		return $row ? ( strtolower( $row->default_transaction_read_only ) === 'on' ) : false;
+		return $row && strtolower( $row->default_transaction_read_only ) === 'on';
 	}
 
-	protected static function getAttributes() {
+	protected function getInsertIdColumnForUpsert( $table ) {
+		$column = null;
+
+		$flags = self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE;
+		$encTable = $this->addQuotes( $this->realTableName( $table, 'raw' ) );
+		foreach ( $this->getCoreSchemas() as $schema ) {
+			$encSchema = $this->addQuotes( $schema );
+			$query = new Query(
+				"SELECT column_name,data_type,column_default " .
+					"FROM information_schema.columns " .
+					"WHERE table_name = $encTable AND table_schema = $encSchema",
+				self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE,
+				'SELECT'
+			);
+			$res = $this->query( $query, __METHOD__ );
+			if ( $res->numRows() ) {
+				foreach ( $res as $row ) {
+					if (
+						$row->column_default !== null &&
+						str_starts_with( $row->column_default, "nextval(" ) &&
+						in_array( $row->data_type, [ 'integer', 'bigint' ], true )
+					) {
+						$column = $row->column_name;
+					}
+				}
+				break;
+			}
+		}
+
+		return $column;
+	}
+
+	public static function getAttributes() {
 		return [ self::ATTR_SCHEMAS_AS_TABLE_GROUPS => true ];
 	}
-
-	/**
-	 * @param string $lockName
-	 * @return string Integer
-	 */
-	private function bigintFromLockName( $lockName ) {
-		return \Wikimedia\base_convert( substr( sha1( $lockName ), 0, 15 ), 16, 10 );
-	}
 }
-
-/**
- * @deprecated since 1.29
- */
-class_alias( DatabasePostgres::class, 'DatabasePostgres' );

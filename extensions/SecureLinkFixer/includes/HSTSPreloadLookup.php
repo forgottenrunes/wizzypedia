@@ -20,30 +20,12 @@ namespace MediaWiki\SecureLinkFixer;
 
 class HSTSPreloadLookup {
 
-	/**
-	 * @var array
-	 */
-	private $domains;
+	private string $path;
+	/** @var array<string,int> */
+	private array $domains;
 
-	/**
-	 * @todo turn into proper MWServices thing
-	 * @codeCoverageIgnore
-	 * @return HSTSPreloadLookup
-	 */
-	public static function getInstance() {
-		static $instance;
-		if ( !$instance ) {
-			$instance = new self( require __DIR__ . '/../domains.php' );
-		}
-
-		return $instance;
-	}
-
-	/**
-	 * @param array $domains
-	 */
-	public function __construct( array $domains ) {
-		$this->domains = $domains;
+	public function __construct( string $path ) {
+		$this->path = $path;
 	}
 
 	/**
@@ -51,21 +33,26 @@ class HSTSPreloadLookup {
 	 *
 	 * @return bool
 	 */
-	public function isPreloaded( $host ) {
+	public function isPreloaded( string $host ): bool {
+		// Lazy-load the domain mapping if it's not already set
+		$this->domains ??= require $this->path;
+
 		if ( isset( $this->domains[$host] ) ) {
 			// Host is directly in the preload list
 			return true;
 		}
 		// Check if parent subdomains are preloaded
-		while ( strpos( $host, '.' ) !== false ) {
-			$host = preg_replace( '/(.*?)\./', '', $host, 1 );
-			$subdomains = $this->domains[$host] ?? false;
-			if ( $subdomains === 1 ) {
-				return true;
-			} elseif ( $subdomains === 0 ) {
-				return false;
+		$offset = strpos( $host, '.' );
+		while ( $offset !== false ) {
+			$parentdomain = substr( $host, $offset + 1 );
+			if ( isset( $this->domains[$parentdomain] ) ) {
+				// This subdomain is directly in the preload list, returns true when subdomains supports https
+				return (bool)$this->domains[$parentdomain];
 			}
 			// else it's not in the db, we might need to look it up again
+
+			// Find the next parent subdomain
+			$offset = strpos( $host, '.', $offset + 1 );
 		}
 
 		// @todo should we keep a negative cache?

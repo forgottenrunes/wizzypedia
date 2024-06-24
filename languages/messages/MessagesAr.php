@@ -1,11 +1,8 @@
 <?php
 /** Arabic (العربية)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
- *
+ * @ingroup Languages
  */
 
 $fallback8bitEncoding = 'windows-1256';
@@ -171,7 +168,7 @@ $magicWords = [
 	'displaytitle'              => [ '1', 'عرض_العنوان', 'DISPLAYTITLE' ],
 	'displaytitle_noerror'      => [ '0', 'لا_خطأ', 'noerror' ],
 	'displaytitle_noreplace'    => [ '0', 'لااستبدال', 'noreplace' ],
-	'expectunusedcategory'      => [ '1', '__توقع_تصنيف_غير_مستخدم__','__EXPECTUNUSEDCATEGORY__', ],
+	'expectunusedcategory'      => [ '1', '__توقع_تصنيف_غير_مستخدم__', '__EXPECTUNUSEDCATEGORY__', ],
 	'filepath'                  => [ '0', 'مسار_الملف:', 'FILEPATH:' ],
 	'forcetoc'                  => [ '0', '__لصق_فهرس__', '__FORCETOC__' ],
 	'formatdate'                => [ '0', 'تهيئة_التاريخ', 'تهيئة_تاريخ', 'formatdate', 'dateformat' ],
@@ -255,7 +252,7 @@ $magicWords = [
 	'padleft'                   => [ '0', 'باد_يسار', 'PADLEFT' ],
 	'padright'                  => [ '0', 'باد_يمين', 'PADRIGHT' ],
 	'pageid'                    => [ '0', 'رقم_صفحة', 'PAGEID' ],
-	'pagelanguage'              => [ '1', 'لغة_الصفحة','PAGELANGUAGE' ],
+	'pagelanguage'              => [ '1', 'لغة_الصفحة', 'PAGELANGUAGE' ],
 	'pagename'                  => [ '1', 'اسم_الصفحة', 'PAGENAME' ],
 	'pagenamee'                 => [ '1', 'عنوان_الصفحة', 'PAGENAMEE' ],
 	'pagesincategory'           => [ '1', 'صفحات_في_التصنيف', 'صفحات_في_تصنيف', 'PAGESINCATEGORY', 'PAGESINCAT' ],
@@ -336,6 +333,7 @@ $specialPageAliases = [
 	'ChangePassword'            => [ 'تغيير_كلمة_السر', 'ضبط_كلمة_السر' ],
 	'ComparePages'              => [ 'مقارنة_الصفحات' ],
 	'Confirmemail'              => [ 'تأكيد_البريد' ],
+	'Contribute'                => [ 'ساهم' ],
 	'Contributions'             => [ 'مساهمات' ],
 	'CreateAccount'             => [ 'إنشاء_حساب' ],
 	'Deadendpages'              => [ 'صفحات_نهاية_مسدودة' ],
@@ -384,6 +382,7 @@ $specialPageAliases = [
 	'Mute'                      => [ 'كتم' ],
 	'Mycontributions'           => [ 'مساهماتي' ],
 	'MyLanguage'                => [ 'لغتي' ],
+	'Mylog'                     => [ 'سجلي' ],
 	'Mypage'                    => [ 'صفحتي' ],
 	'Mytalk'                    => [ 'نقاشي' ],
 	'Myuploads'                 => [ 'مرفوعاتي', 'ملفاتي' ],
@@ -412,6 +411,7 @@ $specialPageAliases = [
 	'Recentchangeslinked'       => [ 'أحدث_التغييرات_الموصولة', 'تغييرات_مرتبطة' ],
 	'Redirect'                  => [ 'تحويل' ],
 	'RemoveCredentials'         => [ 'إزالة_الاعتمادات' ],
+	'Renameuser'                => [ 'إعادة_تسمية_مستخدم' ],
 	'ResetTokens'               => [ 'إعادة_ضبط_المفاتيح' ],
 	'Revisiondelete'            => [ 'حذف_مراجعة', 'حذف_نسخة' ],
 	'RunJobs'                   => [ 'تشغيل_الوظائف' ],
@@ -471,5 +471,6 @@ $arabicCombiningDiacritics =
 
 $linkTrail = '/^([a-zء-ي' . $arabicCombiningDiacritics . ']+)(.*)$/sDu';
 $linkPrefixCharset = 'a-zA-Zء-ي' . $arabicCombiningDiacritics;
+unset( $arabicCombiningDiacritics );
 
 $digitGroupingPattern = "#,##0.###";

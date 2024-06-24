@@ -12,7 +12,7 @@
  */
 /*global wgPageFormsShowOnSelect, wgPageFormsFieldProperties, wgPageFormsCargoFields, wgPageFormsDependentFields, validateAll, alert, mwTinyMCEInit, pf, Sortable*/
 
-( function ( $, mw ) {
+( function( $, mw ) {
 
 /*
  * Functions to register/unregister methods for the initialization and
@@ -99,7 +99,7 @@ $.fn.PageForms_registerInputInit = function( initFunction, param, noexecute ) {
 		// ensure initFunction is only executed after doc structure is complete
 		$(function() {
 			if ( initFunction !== undefined ) {
-				initFunction ( $input.attr("id"), param );
+				initFunction( $input.attr("id"), param );
 			}
 		});
 	}
@@ -134,6 +134,13 @@ $.fn.PageForms_unregisterInputInit = function() {
 
 	return this;
 };
+
+// Called from within PF_ComboBoxInput.php.
+mw.hook('pf.comboboxChange').add( function( $parentSpan ) {
+	var initPage = $parentSpan.find('select').length > 0;
+	var partOfMultiple = $parentSpan.attr('data-origid') !== undefined;
+	$parentSpan.showIfSelected( partOfMultiple, initPage );
+});
 
 /*
  * Functions for handling 'show on select'
@@ -277,12 +284,32 @@ function showDivIfSelected(options, div_id, inputVal, $instanceWrapperDiv, initP
 	hideDiv( div_id, $instanceWrapperDiv, initPage );
 }
 
-// Used for handling 'show on select' for the 'dropdown' and 'listbox' inputs.
+// Used for handling 'show on select' for the 'dropdown', 'listbox',
+// 'combobox' and 'tokens' input types.
 $.fn.showIfSelected = function(partOfMultiple, initPage) {
-	var inputVal = this.val(),
+	var inputVal,
 		wgPageFormsShowOnSelect = mw.config.get( 'wgPageFormsShowOnSelect' ),
 		showOnSelectVals,
 		$instanceWrapperDiv;
+
+	if ( this.attr( 'data-input-type' ) == 'combobox' ) {
+		if ( initPage ) {
+			inputVal = $(this).find('select').val();
+		} else {
+			inputVal = $(this).find('input').val();
+		}
+	} else if ( this.attr( 'data-input-type' ) == 'tokens' ) {
+		if ( initPage ) {
+			inputVal = $(this).find('select').val();
+		} else {
+			inputVal = [];
+			$(this).find('li.select2-selection__choice').each( function() {
+				inputVal.push( $(this).attr('title') );
+			});
+		}
+	} else {
+		inputVal = this.val();
+	}
 
 	if ( partOfMultiple ) {
 		showOnSelectVals = wgPageFormsShowOnSelect[this.attr("data-origID")];
@@ -658,7 +685,7 @@ $.fn.validateURLField = function() {
 $.fn.validateEmailField = function() {
 	var fieldVal = this.find("input").val();
 	// code borrowed from http://javascript.internet.com/forms/email-validation---basic.html
-	var email_regexp = /^\s*\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,6})+\s*$/;
+	var email_regexp = /^\s*\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,63})+\s*$/;
 	if (fieldVal === '' || email_regexp.test(fieldVal)) {
 		return true;
 	} else {
@@ -672,7 +699,7 @@ $.fn.validateNumberField = function() {
 	// Handle "E notation"/scientific notation ("1.2e-3") in addition
 	// to regular numbers
 	if (fieldVal === '' ||
-	fieldVal.match(/^\s*[\-+]?((\d+[\.,]?\d*)|(\d*[\.,]?\d+))([eE]?[\-\+]?\d+)?\s*$/)) {
+	fieldVal.match(/^\s*[\-+]?((\d{1,3}(,\d{3})+[\.,]?\d*)|(\d*[\.,]?\d+))([eE]?[\-\+]?\d+)?\s*$/)) {
 		return true;
 	} else {
 		this.addErrorMessage( 'pf_bad_number_error' );
@@ -780,13 +807,12 @@ $.fn.checkForPipes = function() {
 				this.addErrorMessage( 'pf_pipe_error' );
 				return false;
 			}
-		} else {
-			if ( nextDoubleBracketsEnd < 0 ) {
-				// Something is malformed - might as well throw
-				// an error.
-				this.addErrorMessage( 'pf_pipe_error' );
-				return false;
-			}
+		}
+		if ( nextDoubleBracketsEnd < 0 ) {
+			// Something is malformed - might as well throw
+			// an error.
+			this.addErrorMessage( 'pf_pipe_error' );
+			return false;
 		}
 
 		nextDoubleBracketsEnd = fieldVal.indexOf( ']]', curIndex );
@@ -887,7 +913,7 @@ function validateStartEndDateTimeField( startInput, endInput ) {
 
 }
 
-window.validateAll = function () {
+window.validateAll = function() {
 
 	// Hook that fires on form submission, before the validation.
 	mw.hook('pf.formValidationBefore').fire();
@@ -1103,7 +1129,7 @@ $.fn.possiblyMinimizeAllOpenInstances = function() {
 				}
 			}
 			if ( curVal.length > 70 ) {
-				curVal = curVal.substring(0, 70) + "...";
+				curVal = curVal.slice(0, 70) + "...";
 			}
 			if ( valuesStr !== '' ) {
 				valuesStr += ' &middot; ';
@@ -1117,6 +1143,95 @@ $.fn.possiblyMinimizeAllOpenInstances = function() {
 			$instance.find('.instanceRearranger').after('<td class="fieldValuesDisplay">' + valuesStr + '</td>');
 		});
 	});
+};
+
+$.fn.displayWizardScreen = function( screenNum, $wizardNav ) {
+	var $wizardScreens = $(this);
+	var $curScreen;
+
+	$wizardScreens.each( function(i) {
+		// screenNum starts at 1, not 0.
+		if ( i + 1 == screenNum ) {
+			$curScreen = $(this);
+			$(this).show();
+		} else {
+			$(this).hide();
+		}
+	});
+
+	// The rest of this function is taken up with displaying the
+	// navigation to the next and previous wizard screens.
+	var numScreens = $wizardScreens.length;
+
+	$wizardNav.empty();
+
+	var $navButtons = $('<div class="pf-wizard-buttons"></div>');
+
+	if ( screenNum > 1 ) {
+		var backText = $curScreen.attr('data-back-text');
+		if ( backText == undefined ) {
+			backText = mw.msg('pf-wizard-back');
+		}
+		var prevButton = new OO.ui.ButtonWidget( {
+			label: backText,
+			icon: 'previous',
+			classes: [ 'pf-wizard-back-button' ]
+		} );
+		prevButton.$element.click( function() {
+			$wizardScreens.displayWizardScreen( screenNum - 1, $wizardNav );
+		});
+		$navButtons.append( prevButton.$element );
+	}
+
+	if ( screenNum < numScreens ) {
+		var continueText = $curScreen.attr('data-continue-text');
+		if ( continueText == undefined ) {
+			continueText = mw.msg('pf-wizard-continue');
+		}
+		var continueButton = new OO.ui.ButtonWidget( {
+			label: continueText,
+			flags: [
+				'primary',
+				'progressive'
+			],
+			icon: 'next',
+			classes: [ 'pf-wizard-continue-button' ]
+		} );
+		continueButton.$element.click( function() {
+			$wizardScreens.displayWizardScreen( screenNum + 1, $wizardNav );
+		});
+		$navButtons.append( continueButton.$element );
+	}
+	$wizardNav.append( $navButtons );
+
+	// We need this in order to clear the float from the "previous" button.
+	$wizardNav.append('<br style="clear: both;" />');
+
+	// Use progress bar if the number of screens is greater than 10 and circles in the other case
+	if ( numScreens > 10 ) {
+		var progressBar = new OO.ui.ProgressBarWidget( {
+			progress: 100 * screenNum / numScreens
+		} );
+		var progressBarLayout = new OO.ui.FieldLayout(
+			progressBar,
+			{
+				label: 'Step ' + screenNum + ' of ' + numScreens,
+				align: 'inline'
+			}
+		);
+		$wizardNav.append( progressBarLayout.$element );
+	} else {
+		$( '.pf-wizard-buttons' ).addClass( 'pf-wizard-buttons-circle' );
+		var progressCiclesUL = $( '<ul class="pfWizardCircles"></ul>' );
+		for( let i = 1; i <= numScreens; i++ ) {
+			var circle = '<li>' + i + '</li>';
+			if ( i == screenNum ) {
+				circle = '<li class="active">' + i + '</li>';
+			}
+			progressCiclesUL.append( $( circle ) );
+		}
+		$wizardNav.append( progressCiclesUL );
+	}
 };
 
 var num_elements = 0;
@@ -1435,13 +1550,22 @@ $.fn.setAutocompleteForDependentField = function( partOfMultiple ) {
  * @param {Mixed} partOfMultiple
  */
 $.fn.initializeJSElements = function( partOfMultiple ) {
-	var fancyBoxSettings;
-
 	this.find(".pfShowIfSelected").each( function() {
 		// Avoid duplicate calls on any one element.
 		if ( !partOfMultiple && $(this).parents('.multipleTemplateWrapper').length > 0 ) {
 			return;
 		}
+
+		// Don't call this for combobox inputs, except when a new
+		// multiple-instance template instance is created - in all
+		// other cases, their "show on select" is triggered separately.
+		if ( $(this).attr( 'data-input-type' ) == 'combobox' ) {
+			if ( partOfMultiple ) {
+				$(this).showIfSelected(true, true)
+			}
+			return;
+		}
+
 		$(this)
 		.showIfSelected(partOfMultiple, true)
 		.change( function() {
@@ -1518,7 +1642,7 @@ $.fn.initializeJSElements = function( partOfMultiple ) {
 	});
 
 	// Set the end date input to the value selected in start date
-	this.find("span.startDateInput").not(".hiddenByPF").find("input").last().blur( () => {
+	this.find("span.startDateInput").not(".hiddenByPF").find("input").last().blur( function() {
 		var endInput = $(this).find("span.endDateInput").not(".hiddenByPF");
 		var endYearInput = endInput.find(".yearInput");
 		var endMonthInput = endInput.find(".monthInput");
@@ -1535,23 +1659,9 @@ $.fn.initializeJSElements = function( partOfMultiple ) {
 			endMonthInput.val(startMonthVal);
 			endDayInput.val(startDayVal);
 		}
-	});
-
-	fancyBoxSettings = {
-		toolbar : false,
-		smallBtn : true,
-		iframe : {
-			preload : false,
-			css : {
-				width : '75%',
-				height : '75%'
-			}
-		},
-		animationEffect : false
-	};
+	}.bind(this));
 
 	if ( partOfMultiple ) {
-		this.find('.pfFancyBox').fancybox(fancyBoxSettings);
 		this.find('.autoGrow').autoGrow();
 		this.find(".pfRating").each( function() {
 			$(this).applyRatingInput();
@@ -1561,6 +1671,9 @@ $.fn.initializeJSElements = function( partOfMultiple ) {
 		});
 		this.find('.pfDatePicker').applyDatePicker();
 		this.find('.pfDateTimePicker').applyDateTimePicker();
+		this.find('a.popupformlink').click(function(evt){
+			return ext.popupform.handlePopupFormLink( this.getAttribute('href'), this );
+		});
 		// Only defined if $wgPageFormsSimpleUpload == true.
 		if ( typeof this.initializeSimpleUpload === 'function' ) {
 			this.find(".simpleUploadInterface").each( function() {
@@ -1572,7 +1685,6 @@ $.fn.initializeJSElements = function( partOfMultiple ) {
 		// Forms classes that require special JS handling.
 		this.find('.mw-collapsible').makeCollapsible();
 	} else {
-		this.find('.pfFancyBox').not('multipleTemplateWrapper .pfFancyBox').fancybox(fancyBoxSettings);
 		this.find('.autoGrow').not('.multipleTemplateWrapper .autoGrow').autoGrow();
 		this.find(".pfRating").not(".multipleTemplateWrapper .pfRating").each( function() {
 			$(this).applyRatingInput();
@@ -1675,7 +1787,7 @@ $.fn.initializeJSElements = function( partOfMultiple ) {
 // Copied from https://stackoverflow.com/a/8809472
 // License: public domain/MIT
 window.pfGenerateUUID = function() {
-	var d = new Date().getTime();
+	var d = Date.now();
 	var d2 = (performance && performance.now && (performance.now() * 1000)) || 0; // Time in microseconds since page-load or 0 if unsupported
 	return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
 		var r = Math.random() * 16; // random number between 0 and 16
@@ -1715,6 +1827,17 @@ $(document).ready( function() {
 		return;
 	}
 
+	function minimizeInstances( minHeight ) {
+		if ( minHeight >= 0) {
+			$('.multipleTemplateList').each( function() {
+				if ( $(this).height() > minHeight ) {
+					$(this).addClass('minimizeAll');
+					$(this).possiblyMinimizeAllOpenInstances();
+				}
+			});
+		}
+	}
+
 	// jQuery's .ready() function is being called before the resource was actually loaded.
 	// This is a workaround for https://phabricator.wikimedia.org/T216805.
 	setTimeout( function(){
@@ -1750,23 +1873,35 @@ $(document).ready( function() {
 			$(this).addInstance( false );
 		});
 		var wgPageFormsHeightForMinimizingInstances = mw.config.get( 'wgPageFormsHeightForMinimizingInstances' );
-		if ( wgPageFormsHeightForMinimizingInstances >= 0) {
-			$('.multipleTemplateList').each( function() {
-				if ( $(this).height() > wgPageFormsHeightForMinimizingInstances ) {
-					$(this).addClass('minimizeAll');
-					$(this).possiblyMinimizeAllOpenInstances();
-				}
-			});
-		}
+		minimizeInstances( wgPageFormsHeightForMinimizingInstances );
+
 		$('.multipleTemplateList').each( function() {
 			var $list = $(this);
 			var sortable = Sortable.create($list[0], {
 				handle: '.instanceRearranger',
-				onStart: function (/**Event*/evt) {
+				onStart: function(/**Event*/evt) {
 					$list.possiblyMinimizeAllOpenInstances();
 				}
 			});
 		});
+
+		// If the Header Tabs extension is being used in this form, minimize all the
+		// relevant instances any time the tab is changed.
+		if ( $( "#headertabs" ).length ) {
+			$( ".oo-ui-tabOptionWidget" ).on( 'click', function( event ) {
+				minimizeInstances( wgPageFormsHeightForMinimizingInstances );
+			});
+		}
+
+		// If there are any "wizard screen" elements defined in the
+		// form, turn the whole form into a wizard, with successive
+		// screens for each element.
+		var $wizardScreens = $('form#pfForm').find('div.pf-wizard-screen');
+		if ( $wizardScreens.length > 0 ) {
+			var $wizardNav = $('<div class="pf-wizard-navigation"></div>');
+			$('form#pfForm').append( $wizardNav );
+			$wizardScreens.displayWizardScreen( 1, $wizardNav );
+		}
 
 		// If the form is submitted, validate everything!
 		$('#pfForm').submit( function() {

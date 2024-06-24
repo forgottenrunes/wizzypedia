@@ -1,10 +1,8 @@
 <?php
 /** Malay (Arabic Jawi script; بهاس ملايو)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * Based on MessagesMs.php, see the credits there
  * @author Tofeiku
@@ -49,3 +47,4 @@ $arabicCombiningDiacritics =
 	'\\x{06E8}' .
 	'\\x{06EA}-\\x{06ED}';
 $linkTrail = '/^([a-zء-ي' . $arabicCombiningDiacritics . 'چڠڤکݢڽۏ]+)(.*)$/sDu';
+unset( $arabicCombiningDiacritics );

@@ -26,6 +26,8 @@
  * @ingroup Media
  */
 
+use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Shell\Shell;
 
@@ -83,8 +85,8 @@ abstract class TransformationalImageHandler extends ImageHandler {
 	 * @return array ($width, $height) array
 	 */
 	public function extractPreRotationDimensions( $params, $rotation ) {
-		if ( $rotation == 90 || $rotation == 270 ) {
-			# We'll resize before rotation, so swap the dimensions again
+		if ( $rotation === 90 || $rotation === 270 ) {
+			// We'll resize before rotation, so swap the dimensions again
 			$width = $params['physicalHeight'];
 			$height = $params['physicalWidth'];
 		} else {
@@ -114,20 +116,20 @@ abstract class TransformationalImageHandler extends ImageHandler {
 			return new TransformParameterError( $params );
 		}
 
-		# Create a parameter array to pass to the scaler
+		// Create a parameter array to pass to the scaler
 		$scalerParams = [
-			# The size to which the image will be resized
+			// The size to which the image will be resized
 			'physicalWidth' => $params['physicalWidth'],
 			'physicalHeight' => $params['physicalHeight'],
 			'physicalDimensions' => "{$params['physicalWidth']}x{$params['physicalHeight']}",
-			# The size of the image on the page
+			// The size of the image on the page
 			'clientWidth' => $params['width'],
 			'clientHeight' => $params['height'],
-			# Comment as will be added to the Exif of the thumbnail
+			// Comment as will be added to the Exif of the thumbnail
 			'comment' => isset( $params['descriptionUrl'] )
 				? "File source: {$params['descriptionUrl']}"
 				: '',
-			# Properties of the original image
+			// Properties of the original image
 			'srcWidth' => $image->getWidth(),
 			'srcHeight' => $image->getHeight(),
 			'mimeType' => $image->getMimeType(),
@@ -143,7 +145,7 @@ abstract class TransformationalImageHandler extends ImageHandler {
 
 		// For subclasses that might be paged.
 		if ( $image->isMultipage() && isset( $params['page'] ) ) {
-			$scalerParams['page'] = intval( $params['page'] );
+			$scalerParams['page'] = (int)$params['page'];
 		}
 
 		# Determine scaler type
@@ -169,14 +171,14 @@ abstract class TransformationalImageHandler extends ImageHandler {
 			return $this->getClientScalingThumbnailImage( $image, $scalerParams );
 		}
 
-		if ( $scaler == 'client' ) {
+		if ( $scaler === 'client' ) {
 			# Client-side image scaling, use the source URL
 			# Using the destination URL in a TRANSFORM_LATER request would be incorrect
 			return $this->getClientScalingThumbnailImage( $image, $scalerParams );
 		}
 
 		if ( $image->isTransformedLocally() && !$this->isImageAreaOkForThumbnaling( $image, $params ) ) {
-			$maxImageArea = MediaWikiServices::getInstance()->getMainConfig()->get( 'MaxImageArea' );
+			$maxImageArea = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::MaxImageArea );
 			return new TransformTooBigImageAreaError( $params, $maxImageArea );
 		}
 
@@ -227,10 +229,11 @@ abstract class TransformationalImageHandler extends ImageHandler {
 			);
 		}
 
-		# Try a hook. Called "Bitmap" for historical reasons.
+		// Try a hook. Called "Bitmap" for historical reasons.
 		/** @var MediaTransformOutput $mto */
 		$mto = null;
-		Hooks::runner()->onBitmapHandlerTransform( $this, $image, $scalerParams, $mto );
+		( new HookRunner( MediaWikiServices::getInstance()->getHookContainer() ) )
+			->onBitmapHandlerTransform( $this, $image, $scalerParams, $mto );
 		if ( $mto !== null ) {
 			wfDebug( __METHOD__ . ": Hook to BitmapHandlerTransform created an mto" );
 			$scaler = 'hookaborted';
@@ -264,33 +267,38 @@ abstract class TransformationalImageHandler extends ImageHandler {
 			}
 		}
 
-		# Remove the file if a zero-byte thumbnail was created, or if there was an error
+		// Remove the file if a zero-byte thumbnail was created, or if there was an error
+		// @phan-suppress-next-line PhanTypeMismatchArgument Relaying on bool/int conversion to cast objects correct
 		$removed = $this->removeBadFile( $dstPath, (bool)$err );
 		if ( $err ) {
 			# transform returned MediaTransforError
 			return $err;
-		} elseif ( $removed ) {
-			# Thumbnail was zero-byte and had to be removed
+		}
+
+		if ( $removed ) {
+			// Thumbnail was zero-byte and had to be removed
 			return new MediaTransformError( 'thumbnail_error',
 				$scalerParams['clientWidth'], $scalerParams['clientHeight'],
 				wfMessage( 'unknown-error' )
 			);
-		} elseif ( $mto ) {
+		}
+
+		if ( $mto ) {
 			// @phan-suppress-next-line PhanTypeMismatchReturnSuperType
 			return $mto;
-		} else {
-			$newParams = [
-				'width' => $scalerParams['clientWidth'],
-				'height' => $scalerParams['clientHeight']
-			];
-			if ( isset( $params['quality'] ) ) {
-				$newParams['quality'] = $params['quality'];
-			}
-			if ( isset( $params['page'] ) && $params['page'] ) {
-				$newParams['page'] = $params['page'];
-			}
-			return new ThumbnailImage( $image, $dstUrl, $dstPath, $newParams );
 		}
+
+		$newParams = [
+			'width' => $scalerParams['clientWidth'],
+			'height' => $scalerParams['clientHeight']
+		];
+		if ( isset( $params['quality'] ) ) {
+			$newParams['quality'] = $params['quality'];
+		}
+		if ( isset( $params['page'] ) && $params['page'] ) {
+			$newParams['page'] = $params['page'];
+		}
+		return new ThumbnailImage( $image, $dstUrl, $dstPath, $newParams );
 	}
 
 	/**
@@ -456,15 +464,14 @@ abstract class TransformationalImageHandler extends ImageHandler {
 	 * to filter down to users.
 	 *
 	 * @param string $path The file path
-	 * @param bool|string $scene The scene specification, or false if there is none
-	 * @throws MWException
+	 * @param string|false $scene The scene specification, or false if there is none
 	 * @return string
 	 */
 	protected function escapeMagickInput( $path, $scene = false ) {
 		# Die on initial metacharacters (caller should prepend path)
 		$firstChar = substr( $path, 0, 1 );
 		if ( $firstChar === '~' || $firstChar === '@' ) {
-			throw new MWException( __METHOD__ . ': cannot escape this path name' );
+			throw new InvalidArgumentException( __METHOD__ . ': cannot escape this path name' );
 		}
 
 		# Escape glob chars
@@ -477,7 +484,7 @@ abstract class TransformationalImageHandler extends ImageHandler {
 	 * Escape a string for ImageMagick's output filename. See
 	 * InterpretImageFilename() in magick/image.c.
 	 * @param string $path The file path
-	 * @param bool|string $scene The scene specification, or false if there is none
+	 * @param string|false $scene The scene specification, or false if there is none
 	 * @return string
 	 */
 	protected function escapeMagickOutput( $path, $scene = false ) {
@@ -491,8 +498,7 @@ abstract class TransformationalImageHandler extends ImageHandler {
 	 * helper function for escapeMagickInput() and escapeMagickOutput().
 	 *
 	 * @param string $path The file path
-	 * @param bool|string $scene The scene specification, or false if there is none
-	 * @throws MWException
+	 * @param string|false $scene The scene specification, or false if there is none
 	 * @return string
 	 */
 	protected function escapeMagickPath( $path, $scene = false ) {
@@ -503,7 +509,7 @@ abstract class TransformationalImageHandler extends ImageHandler {
 				// OK, it's a drive letter
 				// ImageMagick has a similar exception, see IsMagickConflict()
 			} else {
-				throw new MWException( __METHOD__ . ': unexpected colon character in path name' );
+				throw new InvalidArgumentException( __METHOD__ . ': unexpected colon character in path name' );
 			}
 		}
 
@@ -524,7 +530,7 @@ abstract class TransformationalImageHandler extends ImageHandler {
 	 * Retrieve the version of the installed ImageMagick
 	 * You can use PHPs version_compare() to use this value
 	 * Value is cached for one hour.
-	 * @return string|bool Representing the IM version; false on error
+	 * @return string|false Representing the IM version; false on error
 	 */
 	protected function getMagickVersion() {
 		$cache = MediaWikiServices::getInstance()->getLocalServerObjectCache();
@@ -534,7 +540,7 @@ abstract class TransformationalImageHandler extends ImageHandler {
 			$cache::TTL_HOUR,
 			static function () use ( $method ) {
 				$imageMagickConvertCommand = MediaWikiServices::getInstance()
-					->getMainConfig()->get( 'ImageMagickConvertCommand' );
+					->getMainConfig()->get( MainConfigNames::ImageMagickConvertCommand );
 
 				$cmd = Shell::escape( $imageMagickConvertCommand ) . ' -version';
 				wfDebug( $method . ": Running convert -version" );
@@ -586,7 +592,7 @@ abstract class TransformationalImageHandler extends ImageHandler {
 	 * @param array $params Rotate parameters.
 	 *   'rotation' clockwise rotation in degrees, allowed are multiples of 90
 	 * @since 1.24 Is non-static. From 1.21 it was static
-	 * @return bool|MediaTransformError
+	 * @return MediaTransformError|false
 	 */
 	public function rotate( $file, $params ) {
 		return new MediaTransformError( 'thumbnail_error', 0, 0,
@@ -617,11 +623,11 @@ abstract class TransformationalImageHandler extends ImageHandler {
 	 * @since 1.25
 	 */
 	public function isImageAreaOkForThumbnaling( $file, &$params ) {
-		$maxImageArea = MediaWikiServices::getInstance()->getMainConfig()->get( 'MaxImageArea' );
+		$maxImageArea = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::MaxImageArea );
 
 		# For historical reasons, hook starts with BitmapHandler
 		$checkImageAreaHookResult = null;
-		Hooks::runner()->onBitmapHandlerCheckImageArea(
+		( new HookRunner( MediaWikiServices::getInstance()->getHookContainer() ) )->onBitmapHandlerCheckImageArea(
 			$file, $params, $checkImageAreaHookResult );
 
 		if ( $checkImageAreaHookResult !== null ) {
@@ -634,12 +640,14 @@ abstract class TransformationalImageHandler extends ImageHandler {
 			return true;
 		}
 
+		// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset Checked by normaliseParams
 		$srcWidth = $file->getWidth( $params['page'] );
+		// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset Checked by normaliseParams
 		$srcHeight = $file->getHeight( $params['page'] );
 
 		if ( $srcWidth * $srcHeight > $maxImageArea
-			&& !( $file->getMimeType() == 'image/jpeg'
-				&& $this->getScalerType( null, false ) == 'im' )
+			&& !( $file->getMimeType() === 'image/jpeg'
+				&& $this->getScalerType( null, false ) === 'im' )
 		) {
 			# Only ImageMagick can efficiently downsize jpg images without loading
 			# the entire file in memory

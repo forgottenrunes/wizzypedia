@@ -68,13 +68,13 @@ class WfUrlencodeTest extends MediaWikiUnitTestCase {
 			return $expectations;
 		} elseif ( is_array( $expectations ) ) {
 			if ( !array_key_exists( $server, $expectations ) ) {
-				throw new MWException( __METHOD__ . " expectation does not have any "
+				throw new InvalidArgumentException( __METHOD__ . " expectation does not have any "
 					. "value for server name $server. Check the provider array.\n" );
 			} else {
 				return $expectations[$server];
 			}
 		} else {
-			throw new MWException( __METHOD__ . " given invalid expectation for "
+			throw new InvalidArgumentException( __METHOD__ . " given invalid expectation for "
 				. "'$server'. Should be a string or an array [ <http server name> => <string> ].\n" );
 		}
 	}
@@ -93,37 +93,30 @@ class WfUrlencodeTest extends MediaWikiUnitTestCase {
 	 * testing method much like the testEncodingUrlWith() method above.
 	 */
 	public static function provideURLS() {
+		// NOTE: Keep in sync with qunit/mediawiki.util/util.test.js
 		return [
-			# ## RFC 1738 chars
-			// + is not safe
+			// Plus is not safe, ambigious with space.
 			[ '+', '%2B' ],
-			// & and = not safe in queries
+			// & and = not safe in query parameters.
 			[ '&', '%26' ],
 			[ '=', '%3D' ],
-
 			[ ':', [
 				'Apache' => ':',
 				'Microsoft-IIS/7' => '%3A',
 			] ],
-
-			// remaining chars do not need encoding
-			[
-				';@$-_.!*',
-				';@$-_.!*',
-			],
-
-			# ## Other tests
-			// slash remain unchanged. %2F seems to break things
+			// Encoding a slash to %2F would actively break things
 			[ '/', '/' ],
-			// T105265
+			// Avoid redirect loop in Chromium T105265
 			[ '~', '~' ],
-
-			// Other 'funnies' chars
+			// Apostrophe
+			[ '\'', '%27' ],
 			[ '[]', '%5B%5D' ],
 			[ '<>', '%3C%3E' ],
-
-			// Apostrophe is encoded
-			[ '\'', '%27' ],
+			// Remaining special chars do not need encoding
+			[
+				';@$-_.!*()',
+				';@$-_.!*()',
+			],
 		];
 	}
 }

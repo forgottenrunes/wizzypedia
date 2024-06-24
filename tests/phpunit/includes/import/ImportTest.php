@@ -1,5 +1,9 @@
 <?php
 
+use MediaWiki\Title\ForeignTitle;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
+
 /**
  * Test class for Import methods.
  *
@@ -221,8 +225,9 @@ EOF
 	 */
 	public function testUnknownUserHandling( $assign, $create ) {
 		$hookId = -99;
-		$this->setMwGlobals( 'wgHooks', [
-			'ImportHandleUnknownUser' => [ function ( $name ) use ( $assign, $create, &$hookId ) {
+		$this->setTemporaryHook(
+			'ImportHandleUnknownUser',
+			function ( $name ) use ( $assign, $create, &$hookId ) {
 				if ( !$assign ) {
 					$this->fail( 'ImportHandleUnknownUser was called unexpectedly' );
 				}
@@ -235,8 +240,8 @@ EOF
 					return false;
 				}
 				return true;
-			} ]
-		] );
+			}
+		);
 
 		$user = $this->getTestUser()->getUser();
 
@@ -283,31 +288,19 @@ EOF
 		$importer->setUsernamePrefix( 'Xxx', $assign );
 		$importer->doImport();
 
-		$db = wfGetDB( DB_PRIMARY );
-		$revQuery = $services->getRevisionStore()->getQueryInfo();
-
-		$row = $db->selectRow(
-			$revQuery['tables'],
-			$revQuery['fields'],
-			[ 'rev_timestamp' => $db->timestamp( "201601010{$n}0000" ) ],
-			__METHOD__,
-			[],
-			$revQuery['joins']
-		);
+		$db = $this->getDb();
+		$row = $services->getRevisionStore()->newSelectQueryBuilder( $db )
+			->where( [ 'rev_timestamp' => $db->timestamp( "201601010{$n}0000" ) ] )
+			->caller( __METHOD__ )->fetchRow();
 		$this->assertSame(
 			$assign && $create ? 'UserDoesNotExist' : 'Xxx>UserDoesNotExist',
 			$row->rev_user_text
 		);
 		$this->assertSame( $assign && $create ? $hookId : 0, (int)$row->rev_user );
 
-		$row = $db->selectRow(
-			$revQuery['tables'],
-			$revQuery['fields'],
-			[ 'rev_timestamp' => $db->timestamp( "201601010{$n}0001" ) ],
-			__METHOD__,
-			[],
-			$revQuery['joins']
-		);
+		$row = $services->getRevisionStore()->newSelectQueryBuilder( $db )
+			->where( [ 'rev_timestamp' => $db->timestamp( "201601010{$n}0001" ) ] )
+			->caller( __METHOD__ )->fetchRow();
 		$this->assertSame( ( $assign ? '' : 'Xxx>' ) . $user->getName(), $row->rev_user_text );
 		$this->assertSame( $assign ? $user->getId() : 0, (int)$row->rev_user );
 	}

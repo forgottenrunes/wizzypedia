@@ -24,10 +24,15 @@
  * @ingroup Parser
  */
 
+namespace MediaWiki\Parser;
+
+use InvalidArgumentException;
+use LogicException;
+use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\MediaWikiServices;
-use MediaWiki\Parser\RemexRemoveTagHandler;
-use MediaWiki\Parser\RemexStripTagHandler;
 use MediaWiki\Tidy\RemexCompatFormatter;
+use StringUtils;
+use UnexpectedValueException;
 use Wikimedia\RemexHtml\HTMLData;
 use Wikimedia\RemexHtml\Serializer\Serializer as RemexSerializer;
 use Wikimedia\RemexHtml\Tokenizer\Tokenizer as RemexTokenizer;
@@ -47,9 +52,9 @@ class Sanitizer {
 	 */
 	private const CHAR_REFS_REGEX =
 		'/&([A-Za-z0-9\x80-\xff]+;)
-		 |&\#([0-9]+);
-		 |&\#[xX]([0-9A-Fa-f]+);
-		 |(&)/x';
+		|&\#([0-9]+);
+		|&\#[xX]([0-9A-Fa-f]+);
+		|(&)/x';
 
 	/**
 	 * Acceptable tag name charset from HTML5 parsing spec
@@ -225,7 +230,9 @@ class Sanitizer {
 		# Populate $htmlpairs and $htmlelements with the $extratags and $removetags arrays
 		$extratags = array_fill_keys( $extratags, true );
 		$removetags = array_fill_keys( $removetags, true );
+		// @phan-suppress-next-line PhanTypeMismatchArgumentNullableInternal The static var is always set
 		$htmlpairs = array_merge( $extratags, $htmlpairsStatic );
+		// @phan-suppress-next-line PhanTypeMismatchArgumentNullableInternal The static var is always set
 		$htmlelements = array_diff_key( array_merge( $extratags, $htmlelementsStatic ), $removetags );
 
 		$result = [
@@ -328,7 +335,7 @@ class Sanitizer {
 		# this might be possible using remex tidy itself
 		foreach ( $bits as $x ) {
 			if ( preg_match( self::ELEMENT_BITS_REGEX, $x, $regs ) ) {
-				list( /* $qbar */, $slash, $t, $params, $brace, $rest ) = $regs;
+				[ /* $qbar */, $slash, $t, $params, $brace, $rest ] = $regs;
 
 				$badtag = false;
 				$t = strtolower( $t );
@@ -395,7 +402,6 @@ class Sanitizer {
 		// These options are @internal:
 		$attrCallback = $options['attrCallback'] ?? null;
 		$attrCallbackArgs = $options['attrCallbackArgs'] ?? [];
-		$tidy = $options['tidy'] ?? true;
 
 		// This disallows HTML5-style "missing trailing semicolon" attributes
 		// In wikitext "clean&copy" does *not* contain an entity.
@@ -767,7 +773,7 @@ class Sanitizer {
 
 		// Reject problematic keywords and control characters
 		if ( preg_match( '/[\000-\010\013\016-\037\177]/', $value ) ||
-			strpos( $value, UtfNormal\Constants::UTF8_REPLACEMENT ) !== false ) {
+			strpos( $value, \UtfNormal\Constants::UTF8_REPLACEMENT ) !== false ) {
 			return '/* invalid control char */';
 		} elseif ( preg_match(
 			'! expression
@@ -780,7 +786,6 @@ class Sanitizer {
 				| image\s*\(
 				| image-set\s*\(
 				| attr\s*\([^)]+[\s,]+url
-				| var\s*\(
 			!ix', $value ) ) {
 			return '/* insecure input */';
 		}
@@ -796,7 +801,9 @@ class Sanitizer {
 			// Line continuation
 			return '';
 		} elseif ( $matches[2] !== '' ) {
-			$char = UtfNormal\Utils::codepointToUtf8( hexdec( $matches[2] ) );
+			# hexdec could return a float if the match is too long, but the
+			# regexp in question limits the string length to 6.
+			$char = \UtfNormal\Utils::codepointToUtf8( hexdec( $matches[2] ) );
 		} elseif ( $matches[3] !== '' ) {
 			$char = $matches[3];
 		} else {
@@ -851,7 +858,9 @@ class Sanitizer {
 	/**
 	 * Encode an attribute value for HTML output.
 	 * @param string $text
+	 * @param-taint $text escapes_html
 	 * @return string HTML-encoded text fragment
+	 * @return-taint escaped
 	 */
 	public static function encodeAttribute( $text ) {
 		$encValue = htmlspecialchars( $text, ENT_QUOTES );
@@ -893,7 +902,9 @@ class Sanitizer {
 	 * Encode an attribute value for HTML tags, with extra armoring
 	 * against further wiki processing.
 	 * @param string $text
+	 * @param-taint $text escapes_html
 	 * @return string HTML-encoded text fragment
+	 * @return-taint escaped
 	 */
 	public static function safeEncodeAttribute( $text ) {
 		$encValue = self::encodeAttribute( $text );
@@ -936,7 +947,7 @@ class Sanitizer {
 	 * @param string $id String to escape
 	 * @param int $mode One of ID_* constants, specifying whether the primary or fallback encoding
 	 *     should be used.
-	 * @return string|bool Escaped ID or false if fallback encoding is requested but it's not
+	 * @return string|false Escaped ID or false if fallback encoding is requested but it's not
 	 *     configured.
 	 *
 	 * @since 1.30
@@ -1057,21 +1068,6 @@ class Sanitizer {
 	 * Given a string containing a space delimited list of ids, escape each id
 	 * to match ids escaped by the escapeIdForAttribute() function.
 	 *
-	 * @since 1.27
-	 * @deprecated since 1.36. Unused outside this class, will be made private.
-	 *
-	 * @param string $referenceString Space delimited list of ids
-	 * @return string
-	 */
-	public static function escapeIdReferenceList( $referenceString ) {
-		wfDeprecated( __METHOD__, '1.36' );
-		return self::escapeIdReferenceListInternal( $referenceString );
-	}
-
-	/**
-	 * Given a string containing a space delimited list of ids, escape each id
-	 * to match ids escaped by the escapeIdForAttribute() function.
-	 *
 	 * @param string $referenceString Space delimited list of ids
 	 * @return string
 	 */
@@ -1115,7 +1111,9 @@ class Sanitizer {
 	 * This allows (generally harmless) entities like &#160; to survive.
 	 *
 	 * @param string $html HTML to escape
+	 * @param-taint $html escapes_htmlnoent
 	 * @return string Escaped input
+	 * @return-taint escaped
 	 */
 	public static function escapeHtmlAllowEntities( $html ) {
 		$html = self::decodeCharReferences( $html );
@@ -1192,7 +1190,6 @@ class Sanitizer {
 	 * attribs regex matches.
 	 *
 	 * @param array $set
-	 * @throws MWException When tag conditions are not met.
 	 * @return string
 	 */
 	private static function getTagAttributeCallback( $set ) {
@@ -1211,7 +1208,7 @@ class Sanitizer {
 			# https://www.w3.org/TR/html5/syntax.html#syntax-attribute-name
 			return "";
 		} else {
-			throw new MWException( "Tag conditions not met. This should never happen and is a bug." );
+			throw new LogicException( "Tag conditions not met. This should never happen and is a bug." );
 		}
 	}
 
@@ -1300,7 +1297,7 @@ class Sanitizer {
 		} elseif ( isset( HTMLData::$namedEntityTranslations[$name] ) ) {
 			// Beware: some entities expand to more than 1 codepoint
 			return preg_replace_callback( '/./Ssu', static function ( $m ) {
-				return '&#' . UtfNormal\Utils::utf8ToCodepoint( $m[0] ) . ';';
+				return '&#' . \UtfNormal\Utils::utf8ToCodepoint( $m[0] ) . ';';
 			}, HTMLData::$namedEntityTranslations[$name] );
 		} else {
 			return "&amp;$name";
@@ -1308,10 +1305,12 @@ class Sanitizer {
 	}
 
 	/**
-	 * @param int $codepoint
+	 * @param int|string $codepoint
 	 * @return null|string
 	 */
 	private static function decCharReference( $codepoint ) {
+		# intval() will (safely) saturate at the maximum signed integer
+		# value if $codepoint is too many digits
 		$point = intval( $codepoint );
 		if ( self::validateCodepoint( $point ) ) {
 			return sprintf( '&#%d;', $point );
@@ -1321,10 +1320,16 @@ class Sanitizer {
 	}
 
 	/**
-	 * @param int $codepoint
+	 * @param string $codepoint
 	 * @return null|string
 	 */
 	private static function hexCharReference( $codepoint ) {
+		# hexdec() will return a float (not an int) if $codepoint is too
+		# long, so protect against that.  The largest valid codepoint is
+		# 0x10FFFF.
+		if ( strlen( ltrim( $codepoint, '0' ) ) > 6 ) {
+			return null;
+		}
 		$point = hexdec( $codepoint );
 		if ( self::validateCodepoint( $point ) ) {
 			return sprintf( '&#x%x;', $point );
@@ -1401,6 +1406,12 @@ class Sanitizer {
 		} elseif ( $matches[2] != '' ) {
 			return self::decodeChar( intval( $matches[2] ) );
 		} elseif ( $matches[3] != '' ) {
+			# hexdec will return a float if the string is too long (!) so
+			# check the length of the string first.
+			if ( strlen( ltrim( $matches[3], '0' ) ) > 6 ) {
+				// Invalid character reference.
+				return \UtfNormal\Constants::UTF8_REPLACEMENT;
+			}
 			return self::decodeChar( hexdec( $matches[3] ) );
 		}
 		# Last case should be an ampersand by itself
@@ -1416,9 +1427,9 @@ class Sanitizer {
 	 */
 	private static function decodeChar( $codepoint ) {
 		if ( self::validateCodepoint( $codepoint ) ) {
-			return UtfNormal\Utils::codepointToUtf8( $codepoint );
+			return \UtfNormal\Utils::codepointToUtf8( $codepoint );
 		} else {
-			return UtfNormal\Constants::UTF8_REPLACEMENT;
+			return \UtfNormal\Constants::UTF8_REPLACEMENT;
 		}
 	}
 
@@ -1489,6 +1500,7 @@ class Sanitizer {
 			'aria-hidden',
 			'aria-label',
 			'aria-labelledby',
+			'aria-level',
 			'aria-owns',
 			'role',
 
@@ -1769,7 +1781,7 @@ class Sanitizer {
 		# Validate hostname portion
 		$matches = [];
 		if ( preg_match( '!^([^:]+:)(//[^/]+)?(.*)$!iD', $url, $matches ) ) {
-			list( /* $whole */, $protocol, $host, $rest ) = $matches;
+			[ /* $whole */, $protocol, $host, $rest ] = $matches;
 
 			// Characters that will be ignored in IDNs.
 			// https://datatracker.ietf.org/doc/html/rfc8264#section-9.13
@@ -1824,7 +1836,7 @@ class Sanitizer {
 			$host = preg_replace( $strip, '', $host );
 
 			// IPv6 host names are bracketed with [].  Url-decode these.
-			if ( substr_compare( "//%5B", $host, 0, 5 ) === 0 &&
+			if ( str_starts_with( $host, "//%5B" ) &&
 				preg_match( '!^//%5B([0-9A-Fa-f:.]+)%5D((:\d+)?)$!', $host, $matches )
 			) {
 				$host = '//[' . $matches[1] . ']' . $matches[2];
@@ -1877,7 +1889,8 @@ class Sanitizer {
 	public static function validateEmail( $addr ) {
 		$result = null;
 		// TODO This method should be non-static, and have a HookRunner injected
-		if ( !Hooks::runner()->onIsValidEmailAddr( $addr, $result ) ) {
+		$hookRunner = new HookRunner( MediaWikiServices::getInstance()->getHookContainer() );
+		if ( !$hookRunner->onIsValidEmailAddr( $addr, $result ) ) {
 			return $result;
 		}
 
@@ -1899,3 +1912,9 @@ class Sanitizer {
 		return (bool)preg_match( $html5_email_regexp, $addr );
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( Sanitizer::class, 'Sanitizer' );

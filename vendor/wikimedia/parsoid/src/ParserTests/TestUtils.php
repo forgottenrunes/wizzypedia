@@ -30,10 +30,19 @@ class TestUtils {
 	 * @param string $str
 	 * @return string
 	 */
-	public static function encodeXml( string $str ) {
+	public static function encodeXml( string $str ): string {
 		// PORT-FIXME: Find replacement
 		// return entities::encodeXML( $str );
 		return $str;
+	}
+
+	/**
+	 * Strip the actual about id from the string
+	 * @param string $str
+	 * @return string
+	 */
+	public static function normalizeAbout( string $str ): string {
+		return preg_replace( "/(about=\\\\?[\"']#mwt)\d+/", '$1', $str );
 	}
 
 	/**
@@ -67,7 +76,7 @@ class TestUtils {
 			//     If possible, get rid of it and diff-mark dependency
 			//     on the env object.
 			$mockEnv = new MockEnv( [] );
-			$mockSerializer = new WikitextSerializer( [ 'env' => $mockEnv ] );
+			$mockSerializer = new WikitextSerializer( $mockEnv, [] );
 			$mockState = new SerializerState( $mockSerializer, [ 'selserMode' => false ] );
 			if ( is_string( $domBody ) ) {
 				// Careful about the lifetime of this document
@@ -102,27 +111,20 @@ class TestUtils {
 		// Normalize COINS ids -- they aren't stable
 		$out = preg_replace( '/\s?id=[\'"]coins_\d+[\'"]/iu', '', $out );
 
-		// Eliminate transience from priority hints (T216499)
-		$out = preg_replace( '/\s?importance="high"/u', '', $out );
-		$out = preg_replace( '/\s?elementtiming="thumbnail-(high|top)"/u', '', $out );
-
 		// maplink extension
 		$out = preg_replace( '/\s?data-overlays=\'[^\']*\'/u', '', $out );
 
+		// unnecessary attributes, we don't need to check these.
+		$unnecessaryAttribs = 'data-parsoid|prefix|about|rev|datatype|inlist|usemap|vocab';
 		if ( $parsoidOnly ) {
-			// unnecessary attributes, we don't need to check these
-			// style is in there because we should only check classes.
-			$out = preg_replace(
-				'/ (data-parsoid|prefix|about|rev|datatype|inlist|usemap|vocab|content|style)=\\\\?"[^\"]*\\\\?"/u',
-				'', $out );
-			// single-quoted variant
-			$out = preg_replace(
-				"/ (data-parsoid|prefix|about|rev|datatype|inlist|usemap|vocab|content|style)=\\\\?'[^\']*\\\\?'/u",
-				'', $out );
-			// apos variant
-			$out = preg_replace(
-				'/ (data-parsoid|prefix|about|rev|datatype|inlist|usemap|vocab|content|style)=&apos;.*?&apos;/u',
-				'', $out );
+			$unnecessaryAttribs = "/ ($unnecessaryAttribs)=";
+			$out = preg_replace( $unnecessaryAttribs . '\\\\?"[^\"]*\\\\?"/u', '', $out );
+			$out = preg_replace( $unnecessaryAttribs . "\\\\?'[^\']*\\\\?'/u", '', $out ); // single-quoted variant
+			$out = preg_replace( $unnecessaryAttribs . '&apos;.*?&apos;/u', '', $out ); // apos variant
+			if ( !$options['externallinktarget'] ) {
+				$out = preg_replace( '/ nofollow/', '', $out );
+				$out = preg_replace( '/ noreferrer noopener/', '', $out );
+			}
 
 			// strip self-closed <nowiki /> because we frequently test WTS
 			// <nowiki> insertion by providing an html/parsoid section with the
@@ -146,21 +148,11 @@ class TestUtils {
 			'#</?(?:meta|link)(?: [^\0-\cZ\s"\'>/=]+(?:=(?:"[^"]*"|\'[^\']*\'))?)*/?>#u',
 			'', $out );
 		// Ignore troublesome attributes.
-		// Strip JSON attributes like data-mw and data-parsoid early so that
-		// comment stripping in normalizeNewlines does not match unbalanced
-		// comments in wikitext source.
-		$attribTrouble = [
-			'data-mw', 'data-parsoid', 'resource', 'rel', 'prefix', 'about',
-			'rev', 'datatype', 'inlist', 'property', 'usemap', 'vocab',
-			'content', 'class'
-		];
-		$out = preg_replace(
-			'/ (' . implode( '|', $attribTrouble ) . ')=\\\\?"[^"]*\\\\?"/u',
-			'', $out );
-		// single-quoted variant
-		$out = preg_replace(
-			'/ (' . implode( '|', $attribTrouble ) . ")=\\\\?'[^']*\\\\?'/u",
-			'', $out );
+		// In addition to attributes listed above, strip other Parsoid-inserted attributes
+		// since these won't be present in legacay parser output.
+		$attribTroubleRE = "/ ($unnecessaryAttribs|data-mw|resource|rel|property|class)=\\\\?";
+		$out = preg_replace( $attribTroubleRE . '"[^"]*\\\\?"/u', '', $out );
+		$out = preg_replace( $attribTroubleRE . "'[^']*\\\\?'/u", '', $out ); // single-quoted variant
 		// strip typeof last
 		$out = preg_replace( '/ typeof="[^\"]*"/u', '', $out );
 		// replace mwt ids
@@ -285,9 +277,7 @@ class TestUtils {
 		$child = $node->firstChild;
 		// Skip over the empty mw:FallbackId <span> and strip leading WS
 		// on the other side of it.
-		if ( preg_match( '/^h[1-6]$/D', DOMCompat::nodeName( $node ) ) &&
-			$child && WTUtils::isFallbackIdSpan( $child )
-		) {
+		if ( $child && DOMUtils::isHeading( $node ) && WTUtils::isFallbackIdSpan( $child ) ) {
 			$child = $child->nextSibling;
 		}
 		for ( ; $child; $child = $next ) {
@@ -356,16 +346,12 @@ class TestUtils {
 	 * @return string
 	 */
 	public static function normalizePhpOutput( string $html ): string {
-		$html = preg_replace(
+		return preg_replace(
 			// do not expect section editing for now
 			'/<span[^>]+class="mw-headline"[^>]*>(.*?)<\/span> '
 			. '*(<span class="mw-editsection"><span class="mw-editsection-bracket">'
 			. '\[<\/span>.*?<span class="mw-editsection-bracket">\]<\/span><\/span>)?/u',
 			'$1',
-			$html
-		);
-		return preg_replace(
-			'#<a[^>]+class="mw-headline-anchor"[^>]*>§</a>#', '',
 			$html
 		);
 	}
@@ -401,7 +387,7 @@ class TestUtils {
 				"#/index.php\\?title=([^']+?)&amp;action=edit&amp;redlink=1#", '/wiki/$1', $html );
 			// strip red link title info
 			$html = preg_replace(
-				"/ \\((?:page does not exist|encara no existeix|bet ele jaratılmag'an|lonkásá  ezalí tɛ̂)\\)/",
+				"/ \\((?:page does not exist|encara no existeix|bet ele jaratılmaǵan|lonkásá  ezalí tɛ̂)\\)/",
 				'', $html );
 			// the expected html has some extra space in tags, strip it
 			$html = preg_replace( '/<a +href/', '<a href', $html );

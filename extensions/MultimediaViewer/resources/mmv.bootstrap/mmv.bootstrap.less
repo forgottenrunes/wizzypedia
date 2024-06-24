@@ -1,3 +1,5 @@
+@import 'mediawiki.skin.variables.less';
+
 .mw-mmv-overlay {
 	position: fixed;
 	top: 0;
@@ -11,20 +13,8 @@
 body.mw-mmv-lightbox-open {
 	overflow-y: auto;
 
-	/* stylelint-disable selector-max-id */
-	#mw-page-base,
-	#mw-head-base,
-	#mw-navigation,
-	#content,
-	#footer,
-	#globalWrapper { // monobook
-		/** Stop the article from scrolling in the background - skin-specific but works in any browser */
-		display: none;
-	}
-	/* stylelint-enable selector-max-id */
-
-	> * {
-		/** Stop the article from scrolling in the background - works with any skin but needs modern browser */
+	// Stop the article from scrolling in the background
+	> *:not( .mw-notification-area-overlay ) {
 		display: none;
 	}
 
@@ -35,36 +25,19 @@ body.mw-mmv-lightbox-open {
 }
 
 .mw-mmv-filepage-buttons {
+	font-size: 1rem;
 	margin-top: 5px;
 
-	.mw-mmv-view-expanded,
-	.mw-mmv-view-config {
-		display: block;
-		// Work around some weirdness of MW-UI buttons. T127052
-		line-height: inherit;
+	.cdx-button:nth-child(n + 2) {
+		border-left: none;
 	}
 
-	.mw-mmv-view-expanded .mw-ui-icon:before {
-		/* @embed */
-		background-image: url( img/expand.svg );
+	.mw-mmv-view-expanded .cdx-button__icon {
+		.cdx-mixin-css-icon( @cdx-icon-image-gallery, @param-is-button-icon: true );
 	}
 
-	.mw-mmv-view-config .mw-ui-icon:before {
-		/* @embed */
-		background-image: url( img/gear.svg );
-		margin-right: 0;
-		opacity: 0.75;
-
-		&:hover {
-			opacity: 1;
-		}
-	}
-
-	.mw-mmv-view-config {
-
-		.mw-ui-icon span {
-			display: none;
-		}
+	.mw-mmv-view-config .cdx-button__icon {
+		.cdx-mixin-css-icon( @cdx-icon-settings, @param-is-button-icon: true );
 	}
 }
 

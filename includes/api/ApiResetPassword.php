@@ -20,7 +20,11 @@
  * @file
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\ParamValidator\TypeDef\UserDef;
+use MediaWiki\Status\Status;
+use MediaWiki\User\PasswordReset;
+use Wikimedia\ParamValidator\ParamValidator;
 
 /**
  * Reset password, with AuthManager
@@ -29,8 +33,7 @@ use MediaWiki\ParamValidator\TypeDef\UserDef;
  */
 class ApiResetPassword extends ApiBase {
 
-	/** @var PasswordReset */
-	private $passwordReset;
+	private PasswordReset $passwordReset;
 
 	/**
 	 * @param ApiMain $main
@@ -56,7 +59,7 @@ class ApiResetPassword extends ApiBase {
 	 */
 	private function hasAnyRoutes() {
 		if ( $this->hasAnyRoutes === null ) {
-			$resetRoutes = $this->getConfig()->get( 'PasswordResetRoutes' );
+			$resetRoutes = $this->getConfig()->get( MainConfigNames::PasswordResetRoutes );
 			$this->hasAnyRoutes = !empty( $resetRoutes['username'] ) || !empty( $resetRoutes['email'] );
 		}
 		return $this->hasAnyRoutes;
@@ -117,15 +120,15 @@ class ApiResetPassword extends ApiBase {
 
 		$ret = [
 			'user' => [
-				ApiBase::PARAM_TYPE => 'user',
+				ParamValidator::PARAM_TYPE => 'user',
 				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name' ],
 			],
 			'email' => [
-				ApiBase::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_TYPE => 'string',
 			],
 		];
 
-		$resetRoutes = $this->getConfig()->get( 'PasswordResetRoutes' );
+		$resetRoutes = $this->getConfig()->get( MainConfigNames::PasswordResetRoutes );
 		if ( empty( $resetRoutes['username'] ) ) {
 			unset( $ret['user'] );
 		}
@@ -138,7 +141,7 @@ class ApiResetPassword extends ApiBase {
 
 	protected function getExamplesMessages() {
 		$ret = [];
-		$resetRoutes = $this->getConfig()->get( 'PasswordResetRoutes' );
+		$resetRoutes = $this->getConfig()->get( MainConfigNames::PasswordResetRoutes );
 
 		if ( !empty( $resetRoutes['username'] ) ) {
 			$ret['action=resetpassword&user=Example&token=123ABC'] = 'apihelp-resetpassword-example-user';

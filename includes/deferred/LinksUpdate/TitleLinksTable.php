@@ -3,7 +3,7 @@
 namespace MediaWiki\Deferred\LinksUpdate;
 
 use MediaWiki\Page\PageReferenceValue;
-use Title;
+use MediaWiki\Title\Title;
 
 /**
  * An abstract base class for tables that link to local titles.
@@ -28,7 +28,7 @@ abstract class TitleLinksTable extends LinksTable {
 	 * @return Title
 	 */
 	protected function makeTitle( $linkId ): Title {
-		return Title::castFromPageReference( $this->makePageReferenceValue( $linkId ) );
+		return Title::newFromPageReference( $this->makePageReferenceValue( $linkId ) );
 	}
 
 	/**

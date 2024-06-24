@@ -813,9 +813,9 @@ ve.ui.MWMediaDialog.prototype.getLicenseIcon = function ( license ) {
 
 	// FIXME: Structured data from Commons will make this properly
 	// multilingual. For now, this is the limit of what is sensible.
-	if ( normalized.match( /^((cc )?pd|public domain)/ ) ) {
+	if ( /^((cc )?pd|public domain)/.test( normalized ) ) {
 		return 'public-domain';
-	} else if ( normalized.match( /^cc (by|sa)?/ ) ) {
+	} else if ( /^cc (by|sa)?/.test( normalized ) ) {
 		return 'logoCC';
 	} else {
 		return 'info';
@@ -899,7 +899,8 @@ ve.ui.MWMediaDialog.prototype.confirmSelectedImage = function () {
 					mediaType: info.mediatype,
 					type: 'thumb',
 					align: 'default',
-					defaultSize: true
+					defaultSize: true,
+					imageClassAttr: 'mw-file-element'
 				},
 				this.getFragment().getDocument()
 			);

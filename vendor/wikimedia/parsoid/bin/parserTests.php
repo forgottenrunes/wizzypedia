@@ -7,7 +7,7 @@ use Wikimedia\Parsoid\ParserTests\Stats;
 use Wikimedia\Parsoid\ParserTests\Test;
 use Wikimedia\Parsoid\ParserTests\TestRunner;
 use Wikimedia\Parsoid\ParserTests\TestUtils;
-use Wikimedia\Parsoid\Tools\ScriptUtils;
+use Wikimedia\Parsoid\Utils\ScriptUtils;
 
 // phpcs:ignore MediaWiki.Files.ClassMatchesFilename.WrongCase
 class ParserTests extends \Wikimedia\Parsoid\Tools\Maintenance {
@@ -41,9 +41,11 @@ class ParserTests extends \Wikimedia\Parsoid\Tools\Maintenance {
 			$testFilePaths = [ realpath( $testFile ) ];
 		} else {
 			$testFilePaths = [];
-			$testFiles = json_decode( file_get_contents( __DIR__ . '/../tests/parserTests.json' ), true );
-			foreach ( $testFiles as $f => $info ) {
-				$testFilePaths[] = realpath( __DIR__ . '/../tests/parser/' . $f );
+			$repos = json_decode( file_get_contents( __DIR__ . '/../tests/parserTests.json' ), true );
+			foreach ( $repos as $repo => $repoInfo ) {
+				foreach ( $repoInfo["targets"] as $f => $info ) {
+					$testFilePaths[] = realpath( __DIR__ . '/../tests/parser/' . $f );
+				}
 			}
 		}
 
@@ -58,10 +60,10 @@ class ParserTests extends \Wikimedia\Parsoid\Tools\Maintenance {
 			// See Ifaf53862b96e9127d8f375ad8dd0cc362cba9f5b in gerrit;
 			// this should use the \ParserTestRunner::runParsoidTest()
 			// method from core.
-			throw new \MWException( "Not yet implemented" );
+			throw new \RuntimeException( "Not yet implemented" );
 		} else {
 			foreach ( $testFilePaths as $testFile ) {
-				$testRunner = new TestRunner( $testFile, $this->processedOptions['modes'] );
+				$testRunner = new TestRunner( $testFile, 'standalone', $this->processedOptions['modes'] );
 				$result = $testRunner->run( $this->processedOptions );
 				$globalStats->accum( $result['stats'] ); // Sum all stats
 				$knownFailuresChanged = $knownFailuresChanged || $result['knownFailuresChanged'];
@@ -194,12 +196,19 @@ class ParserTests extends \Wikimedia\Parsoid\Tools\Maintenance {
 				'boolean' => true
 			],
 			'update-tests' => [
-				'description' => 'Update parserTests.txt with results from wt2html fails.'
+				'description' => 'Update parserTests.txt with results from wt2html fails.',
+				'default' => false,
+				'boolean' => true
 			],
 			'update-unexpected' => [
 				'description' => 'Update parserTests.txt with results from wt2html unexpected fails.',
 				'default' => false,
 				'boolean' => true
+			],
+			'update-format' => [
+				'description' => 'format with which to update tests; only useful in conjunction ' .
+					'with update-tests or update-unexpected. Values: raw, noDsr, actualNormalized.',
+				'default' => 'noDsr',
 			]
 		], [
 			// override defaults for standard options
@@ -310,21 +319,12 @@ class ParserTests extends \Wikimedia\Parsoid\Tools\Maintenance {
 		}
 
 		$options['modes'] = [];
-
-		if ( $options['wt2html'] ) {
-			$options['modes'][] = 'wt2html';
-		}
-		if ( $options['wt2wt'] ) {
-			$options['modes'][] = 'wt2wt';
-		}
-		if ( $options['html2html'] ) {
-			$options['modes'][] = 'html2html';
-		}
-		if ( $options['html2wt'] ) {
-			$options['modes'][] = 'html2wt';
-		}
-		if ( isset( $options['selser'] ) ) {
-			$options['modes'][] = 'selser';
+		foreach ( Test::ALL_TEST_MODES as $m ) {
+			if ( ( $m !== 'selser' && $options[$m] ) ||
+				( $m === 'selser' && isset( $options[$m] ) )
+			) {
+				$options['modes'][] = $m;
+			}
 		}
 
 		return $options;
@@ -514,11 +514,8 @@ class ParserTests extends \Wikimedia\Parsoid\Tools\Maintenance {
 		$knownFailures = false;
 		if ( ScriptUtils::booleanOption( $options['knownFailures'] ?? null ) && $expectFail !== null ) {
 			// compare with remembered output
-			$normalizeAbout = static function ( $s ) {
-				return preg_replace( "/(about=\\\\?[\"']#mwt)\d+/", '$1', $s );
-			};
 			$offsetType = $options['offsetType'] ?? 'byte';
-			if ( $normalizeAbout( $expectFail ) !== $normalizeAbout( $actual['raw'] ) && $offsetType === 'byte' ) {
+			if ( TestUtils::normalizeAbout( $expectFail ) !== TestUtils::normalizeAbout( $actual['raw'] ) && $offsetType === 'byte' ) {
 				$knownFailures = true;
 			} else {
 				if ( !$quiet && !$quieter ) {
@@ -558,6 +555,10 @@ class ParserTests extends \Wikimedia\Parsoid\Tools\Maintenance {
 			}
 			print TestUtils::colorString( 'INPUT', 'cyan' ) . ':' . "\n";
 			print $actual['input'] . "\n";
+			if ( $knownFailures ) {
+				print "\n" . TestUtils::colorString( 'KNOWN FAILURE OUTPUT', 'cyan' ) . ":\n";
+				print $expectFail . "\n";
+			}
 			print $options['getActualExpected']( $actual, $expected, $options['getDiff'] ) . "\n";
 		}
 
@@ -570,20 +571,30 @@ class ParserTests extends \Wikimedia\Parsoid\Tools\Maintenance {
 	 * @param array $options
 	 * @param string $mode
 	 * @param string $title
+	 * @param string $raw
 	 * @param bool $expectSuccess Whether this success was expected (or was it a known failure).
 	 * @return bool true if the success was expected.
 	 */
 	public static function printSuccess(
-		Stats $stats, Test $item, array $options, string $mode, string $title, bool $expectSuccess
+		Stats $stats, Test $item, array $options, string $mode, string $title, string $raw, bool $expectSuccess
 	): bool {
 		$quiet = ScriptUtils::booleanOption( $options['quiet'] ?? null );
 		$quieter = ScriptUtils::booleanOption( $options['quieter'] ?? null );
+		$quick = ScriptUtils::booleanOption( $options['quick'] ?? null );
+		$failureOnly = $quieter || $quick;
 
 		$extTitle = str_replace( "\n", ' ', "$title ($mode)" );
 
 		if ( ScriptUtils::booleanOption( $options['knownFailures'] ?? null ) && !$expectSuccess ) {
+			if ( !$failureOnly ) {
+				print "=====================================================\n";
+			}
 			print TestUtils::colorString( 'UNEXPECTED PASS', 'green', true ) . ': ' .
 				TestUtils::colorString( $extTitle, 'yellow' ) . "\n";
+			if ( !$failureOnly ) {
+				print TestUtils::colorString( 'RAW RENDERED', 'cyan' ) . ":\n";
+				print $raw . "\n";
+			}
 			return false;
 		}
 		if ( !$quiet && !$quieter ) {
@@ -693,10 +704,12 @@ class ParserTests extends \Wikimedia\Parsoid\Tools\Maintenance {
 		array $expected, array $actual, ?callable $pre = null, ?callable $post = null
 	): bool {
 		$title = $item->testName; // Title may be modified here, so pass it on.
+		$changeTree = $item->changetree;
 
 		$suffix = '';
 		if ( $mode === 'selser' ) {
-			$suffix = ' ' . ( $item->changes ? json_encode( $item->changes ) : '[manual]' );
+			$suffix = ' ' .
+				( $changeTree === [ 'manual' ] ? '[manual]' : json_encode( $changeTree ) );
 		} elseif ( $mode === 'wt2html' && isset( $item->options['langconv'] ) ) {
 			$title .= ' [langconv]';
 		}
@@ -714,8 +727,8 @@ class ParserTests extends \Wikimedia\Parsoid\Tools\Maintenance {
 
 		// don't report selser fails when nothing was changed or it's a dup
 		if (
-			$mode === 'selser' && $item->changetree !== [ 'manual' ] &&
-			( $item->changes === [] || $item->duplicateChange )
+			$mode === 'selser' && $changeTree !== [ 'manual' ] &&
+			( $changeTree === [] || $item->duplicateChange )
 		) {
 			return true;
 		}
@@ -743,7 +756,7 @@ class ParserTests extends \Wikimedia\Parsoid\Tools\Maintenance {
 		} else {
 			$stats->passedTests++;
 			$stats->modes[$mode]->passedTests++;
-			$asExpected = $reportSuccess( $stats, $item, $options, $mode, $title, $expectFail === null );
+			$asExpected = $reportSuccess( $stats, $item, $options, $mode, $title, $actual['raw'], $expectFail === null );
 			if ( !$asExpected ) {
 				$stats->passedTestsUnexpected++;
 				$stats->modes[$mode]->passedTestsUnexpected++;
@@ -855,7 +868,8 @@ class ParserTests extends \Wikimedia\Parsoid\Tools\Maintenance {
 	 * @inheritDoc printSuccess
 	 */
 	public static function reportSuccessXML(
-		Stats $stats, Test $item, array $options, string $mode, string $title, bool $expectSuccess
+		Stats $stats, Test $item, array $options, string $mode, string $title, string $raw,
+		bool $expectSuccess
 	): bool {
 		return ScriptUtils::booleanOption( $options['knownFailures'] ?? null ) && !$expectSuccess;
 	}

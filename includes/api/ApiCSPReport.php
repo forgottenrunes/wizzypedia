@@ -21,7 +21,10 @@
  */
 
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Request\ContentSecurityPolicy;
 use Psr\Log\LoggerInterface;
+use Wikimedia\ParamValidator\ParamValidator;
 
 /**
  * Api module to receive and log CSP violation reports
@@ -30,8 +33,7 @@ use Psr\Log\LoggerInterface;
  */
 class ApiCSPReport extends ApiBase {
 
-	/** @var LoggerInterface */
-	private $log;
+	private LoggerInterface $log;
 
 	/**
 	 * These reports should be small. Ignore super big reports out of paranoia
@@ -89,7 +91,7 @@ class ApiCSPReport extends ApiBase {
 	private function getFlags( $report, $userAgent ) {
 		$reportOnly = $this->getParameter( 'reportonly' );
 		$source = $this->getParameter( 'source' );
-		$falsePositives = $this->getConfig()->get( 'CSPFalsePositiveUrls' );
+		$falsePositives = $this->getConfig()->get( MainConfigNames::CSPFalsePositiveUrls );
 
 		$flags = [];
 		if ( $source !== 'internal' ) {
@@ -144,7 +146,7 @@ class ApiCSPReport extends ApiBase {
 			// We only use this pattern if it ends in a slash, this prevents
 			// "/foos" from matching "/foo", and "https://good.combo.bad" matching
 			// "https://good.com".
-			if ( substr( $pattern, -1 ) === '/' && strpos( $url, $pattern ) === 0 ) {
+			if ( str_ends_with( $pattern, '/' ) && str_starts_with( $url, $pattern ) ) {
 				// The pattern starts with the same as the url
 				// e.g. "https://example.org/foo/" matches "https://example.org/foo/b?a#r"
 				return true;
@@ -218,10 +220,9 @@ class ApiCSPReport extends ApiBase {
 		$line = isset( $report['line-number'] )
 			? ':' . $report['line-number']
 			: '';
-		$warningText = $flagText .
+		return $flagText .
 			' Received CSP report: <' . $blockedOrigin . '>' .
 			' blocked from being loaded on <' . $page . '>' . $line;
-		return $warningText;
 	}
 
 	/**
@@ -232,9 +233,8 @@ class ApiCSPReport extends ApiBase {
 		$bits = wfParseUrl( $url );
 		unset( $bits['user'], $bits['pass'], $bits['query'], $bits['fragment'] );
 		$bits['path'] = '';
-		$serverUrl = wfAssembleUrl( $bits );
 		// e.g. "https://example.org" from "https://example.org/foo/b?a#r"
-		return $serverUrl;
+		return wfAssembleUrl( $bits );
 	}
 
 	/**
@@ -258,13 +258,13 @@ class ApiCSPReport extends ApiBase {
 	public function getAllowedParams() {
 		return [
 			'reportonly' => [
-				ApiBase::PARAM_TYPE => 'boolean',
-				ApiBase::PARAM_DFLT => false
+				ParamValidator::PARAM_TYPE => 'boolean',
+				ParamValidator::PARAM_DEFAULT => false
 			],
 			'source' => [
-				ApiBase::PARAM_TYPE => 'string',
-				ApiBase::PARAM_DFLT => 'internal',
-				ApiBase::PARAM_REQUIRED => false
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_DEFAULT => 'internal',
+				ParamValidator::PARAM_REQUIRED => false
 			]
 		];
 	}

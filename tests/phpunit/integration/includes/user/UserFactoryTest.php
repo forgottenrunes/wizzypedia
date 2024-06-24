@@ -1,9 +1,14 @@
 <?php
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\Permissions\UltimateAuthority;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserIdentityValue;
 use Wikimedia\IPUtils;
+use Wikimedia\Rdbms\IDatabase;
+use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\LBFactory;
+use Wikimedia\Rdbms\UpdateQueryBuilder;
 
 /**
  * @covers \MediaWiki\User\UserFactory
@@ -37,9 +42,13 @@ class UserFactoryTest extends MediaWikiIntegrationTestCase {
 		// Unspecified name defaults to current user's IP address
 		$this->assertSame( $currentIp, $anon->getName() );
 
+		// FIXME: should be a query count performance assertion instead of this hack
+		$this->getServiceContainer()->disableService( 'DBLoadBalancer' );
+
 		$name = '192.0.2.0';
 		$anonIpSpecified = $factory->newAnonymous( $name );
 		$this->assertSame( $name, $anonIpSpecified->getName() );
+		$anonIpSpecified->load(); // no queries expected
 	}
 
 	public function testNewFromId() {
@@ -179,6 +188,76 @@ class UserFactoryTest extends MediaWikiIntegrationTestCase {
 		$user = $this->getUserFactory()->newFromAuthority( $authority );
 		$this->assertSame( 42, $user->getId() );
 		$this->assertSame( 'Test', $user->getName() );
+	}
+
+	public function testNewTempPlaceholder() {
+		$this->overrideConfigValue(
+			MainConfigNames::AutoCreateTempUser,
+			[
+				'enabled' => true,
+				'actions' => [ 'edit' ],
+				'genPattern' => '*Unregistered $1',
+				'matchPattern' => '*$1',
+				'serialProvider' => [ 'type' => 'local' ],
+				'serialMapping' => [ 'type' => 'plain-numeric' ],
+			]
+		);
+		$user = $this->getUserFactory()->newTempPlaceholder();
+		$this->assertTrue( $user->isTemp() );
+		$this->assertFalse( $user->isRegistered() );
+		$this->assertFalse( $user->isNamed() );
+		$this->assertSame( 0, $user->getId() );
+	}
+
+	public function testNewUnsavedTempUser() {
+		$this->overrideConfigValue(
+			MainConfigNames::AutoCreateTempUser,
+			[
+				'enabled' => true,
+				'actions' => [ 'edit' ],
+				'genPattern' => '*Unregistered $1',
+				'matchPattern' => '*$1',
+				'serialProvider' => [ 'type' => 'local' ],
+				'serialMapping' => [ 'type' => 'plain-numeric' ],
+			]
+		);
+		$user = $this->getUserFactory()->newUnsavedTempUser( '*Unregistered 1234' );
+		$this->assertTrue( $user->isTemp() );
+		$this->assertFalse( $user->isNamed() );
+	}
+
+	public function testInvalidateCacheLocal() {
+		$userMock = $this->createMock( User::class );
+		$userMock->method( 'isRegistered' )->willReturn( true );
+		$userMock->method( 'getWikiId' )->willReturn( User::LOCAL );
+		$userMock->expects( $this->once() )->method( 'invalidateCache' );
+
+		$this->getUserFactory()->invalidateCache( $userMock );
+	}
+
+	public function testInvalidateCacheCrossWiki() {
+		$dbMock = $this->createMock( IDatabase::class );
+		$dbMock->method( 'timestamp' )->willReturn( 'timestamp' );
+		$dbMock->expects( $this->once() )
+			->method( 'newUpdateQueryBuilder' )
+			->willReturn( new UpdateQueryBuilder( $dbMock ) );
+		$dbMock->expects( $this->once() )
+			->method( 'update' )
+			->with(
+				'user',
+				[ 'user_touched' => 'timestamp' ],
+				[ 'user_id' => 123 ]
+			);
+
+		$lbMock = $this->createMock( ILoadBalancer::class );
+		$lbMock->method( 'getConnection' )->willReturn( $dbMock );
+
+		$lbFactoryMock = $this->createMock( LBFactory::class );
+		$lbFactoryMock->method( 'getMainLB' )->willReturn( $lbMock );
+		$this->setService( 'DBLoadBalancerFactory', $lbFactoryMock );
+
+		$user = new UserIdentityValue( 123, 'UserIdentityCacheUpdaterTest', 'meta' );
+		$this->getUserFactory()->invalidateCache( $user );
 	}
 
 }

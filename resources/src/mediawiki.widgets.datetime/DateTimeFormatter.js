@@ -409,11 +409,10 @@
 			}
 		}
 
-		// eslint-disable-next-line no-restricted-properties
 		if ( v.normalize ) {
-			// eslint-disable-next-line no-restricted-properties
 			v = v.normalize();
 		}
+		// eslint-disable-next-line security/detect-non-literal-regexp
 		re = new RegExp( '^\\s*' + mw.util.escapeRegExp( v ), 'i' );
 		for ( k in this.values ) {
 			k = +k;

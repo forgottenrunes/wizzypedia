@@ -1,8 +1,10 @@
 <?php
 
 use MediaWiki\Block\DatabaseBlock;
+use MediaWiki\Block\Restriction\ActionRestriction;
 use MediaWiki\Block\Restriction\NamespaceRestriction;
 use MediaWiki\Block\Restriction\PageRestriction;
+use MediaWiki\MainConfigNames;
 
 /**
  * @group API
@@ -19,7 +21,7 @@ class ApiQueryBlocksTest extends ApiTestCase {
 	];
 
 	public function testExecute() {
-		list( $data ) = $this->doApiRequest( [
+		[ $data ] = $this->doApiRequest( [
 			'action' => 'query',
 			'list' => 'blocks',
 		] );
@@ -39,7 +41,7 @@ class ApiQueryBlocksTest extends ApiTestCase {
 
 		$this->getServiceContainer()->getDatabaseBlockStore()->insertBlock( $block );
 
-		list( $data ) = $this->doApiRequest( [
+		[ $data ] = $this->doApiRequest( [
 			'action' => 'query',
 			'list' => 'blocks',
 		] );
@@ -68,7 +70,7 @@ class ApiQueryBlocksTest extends ApiTestCase {
 
 		$this->getServiceContainer()->getDatabaseBlockStore()->insertBlock( $block );
 
-		list( $data ) = $this->doApiRequest( [
+		[ $data ] = $this->doApiRequest( [
 			'action' => 'query',
 			'list' => 'blocks',
 		] );
@@ -85,9 +87,7 @@ class ApiQueryBlocksTest extends ApiTestCase {
 	}
 
 	public function testExecuteRestrictions() {
-		$this->setMwGlobals( [
-			'wgEnablePartialActionBlocks' => true,
-		] );
+		$this->overrideConfigValue( MainConfigNames::EnablePartialActionBlocks, true );
 		$badActor = $this->getTestUser()->getUser();
 		$sysop = $this->getTestSysop()->getUser();
 
@@ -136,12 +136,13 @@ class ApiQueryBlocksTest extends ApiTestCase {
 		// Action (upload)
 		$this->db->insert( 'ipblocks_restrictions', [
 			'ir_ipb_id' => $block->getId(),
-			'ir_type' => 3,
+			'ir_type' => ActionRestriction::TYPE_ID,
+			// Value 1 = BlockActionInfo::ACTION_UPLOAD
 			'ir_value' => 1,
 		] );
 
 		// Test without requesting restrictions.
-		list( $data ) = $this->doApiRequest( [
+		[ $data ] = $this->doApiRequest( [
 			'action' => 'query',
 			'list' => 'blocks',
 		] );
@@ -155,7 +156,7 @@ class ApiQueryBlocksTest extends ApiTestCase {
 		$this->assertArrayNotHasKey( 'restrictions', $data['query']['blocks'][0] );
 
 		// Test requesting the restrictions.
-		list( $data ) = $this->doApiRequest( [
+		[ $data ] = $this->doApiRequest( [
 			'action' => 'query',
 			'list' => 'blocks',
 			'bkprop' => 'id|user|expiry|restrictions'
@@ -168,7 +169,7 @@ class ApiQueryBlocksTest extends ApiTestCase {
 				'pages' => [
 					[
 						'id' => $pageId,
-						'ns' => 0,
+						'ns' => NS_MAIN,
 						'title' => $title,
 					],
 				],

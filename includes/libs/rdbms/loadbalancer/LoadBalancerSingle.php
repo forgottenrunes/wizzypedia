@@ -1,7 +1,5 @@
 <?php
 /**
- * Simple generator of database connections that always returns the same object.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,19 +16,19 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Database
  */
-
 namespace Wikimedia\Rdbms;
 
 use InvalidArgumentException;
 
 /**
  * Trivial LoadBalancer that always returns an injected connection handle.
+ *
+ * @ingroup Database
  */
 class LoadBalancerSingle extends LoadBalancer {
-	/** @var IDatabase */
-	private $db;
+	/** @var Database */
+	private $conn;
 
 	/**
 	 * You probably want to use {@link newFromConnection} instead.
@@ -39,13 +37,13 @@ class LoadBalancerSingle extends LoadBalancer {
 	 *   - connection: An IDatabase connection object
 	 */
 	public function __construct( array $params ) {
-		/** @var IDatabase $conn */
+		/** @var Database $conn */
 		$conn = $params['connection'] ?? null;
 		if ( !$conn ) {
 			throw new InvalidArgumentException( "Missing 'connection' argument." );
 		}
 
-		$this->db = $conn;
+		$this->conn = $conn;
 
 		parent::__construct( [
 			'servers' => [ [
@@ -57,7 +55,7 @@ class LoadBalancerSingle extends LoadBalancer {
 			'trxProfiler' => $params['trxProfiler'] ?? null,
 			'srvCache' => $params['srvCache'] ?? null,
 			'wanCache' => $params['wanCache'] ?? null,
-			'localDomain' => $params['localDomain'] ?? $this->db->getDomainID(),
+			'localDomain' => $params['localDomain'] ?? $this->conn->getDomainID(),
 			'readOnlyReason' => $params['readOnlyReason'] ?? false,
 			'clusterName' => $params['clusterName'] ?? null,
 		] );
@@ -81,8 +79,16 @@ class LoadBalancerSingle extends LoadBalancer {
 		) );
 	}
 
-	protected function reallyOpenConnection( $i, DatabaseDomain $domain, array $lbInfo = [] ) {
-		return $this->db;
+	protected function reallyOpenConnection( $i, DatabaseDomain $domain, array $lbInfo ) {
+		foreach ( $lbInfo as $k => $v ) {
+			$this->conn->setLBInfo( $k, $v );
+		}
+
+		return $this->conn;
+	}
+
+	public function reuseConnection( IDatabase $conn ) {
+		// do nothing since the connection was injected
 	}
 
 	public function __destruct() {

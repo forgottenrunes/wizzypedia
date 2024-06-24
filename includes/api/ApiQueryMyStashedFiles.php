@@ -20,6 +20,9 @@
  * @file
  */
 
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\IntegerDef;
+
 /**
  * action=query&list=mystashedfiles module, gets all stashed files for
  * the current user.
@@ -51,11 +54,10 @@ class ApiQueryMyStashedFiles extends ApiQueryBase {
 		$this->addWhere( [ 'us_user' => $user->getId() ] );
 
 		if ( $params['continue'] !== null ) {
-			$cont = explode( '|', $params['continue'] );
-			$this->dieContinueUsageIf( count( $cont ) != 1 );
-			$cont_from = (int)$cont[0];
-			$this->dieContinueUsageIf( strval( $cont_from ) !== $cont[0] );
-			$this->addWhere( "us_id >= $cont_from" );
+			$cont = $this->parseContinueParamOrDie( $params['continue'], [ 'int' ] );
+			$this->addWhere( $this->getDB()->buildComparison( '>=', [
+				'us_id' => (int)$cont[0],
+			] ) );
 		}
 
 		$this->addOption( 'LIMIT', $params['limit'] + 1 );
@@ -117,18 +119,18 @@ class ApiQueryMyStashedFiles extends ApiQueryBase {
 	public function getAllowedParams() {
 		return [
 			'prop' => [
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_DFLT => '',
-				ApiBase::PARAM_TYPE => [ 'size', 'type' ],
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_DEFAULT => '',
+				ParamValidator::PARAM_TYPE => [ 'size', 'type' ],
 				ApiBase::PARAM_HELP_MSG_PER_VALUE => [],
 			],
 
 			'limit' => [
-				ApiBase::PARAM_TYPE => 'limit',
-				ApiBase::PARAM_DFLT => 10,
-				ApiBase::PARAM_MIN => 1,
-				ApiBase::PARAM_MAX => ApiBase::LIMIT_BIG1,
-				ApiBase::PARAM_MAX2 => ApiBase::LIMIT_BIG2,
+				ParamValidator::PARAM_TYPE => 'limit',
+				ParamValidator::PARAM_DEFAULT => 10,
+				IntegerDef::PARAM_MIN => 1,
+				IntegerDef::PARAM_MAX => ApiBase::LIMIT_BIG1,
+				IntegerDef::PARAM_MAX2 => ApiBase::LIMIT_BIG2,
 			],
 
 			'continue' => [

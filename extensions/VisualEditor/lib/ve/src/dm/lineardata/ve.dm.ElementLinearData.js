@@ -26,10 +26,12 @@ OO.inheritClass( ve.dm.ElementLinearData, ve.dm.FlatLinearData );
 
 /* Static Members */
 
+// eslint-disable-next-line security/detect-non-literal-regexp
 ve.dm.ElementLinearData.static.startWordRegExp = new RegExp(
 	'^(' + unicodeJS.characterclass.patterns.word + ')'
 );
 
+// eslint-disable-next-line security/detect-non-literal-regexp
 ve.dm.ElementLinearData.static.endWordRegExp = new RegExp(
 	'(' + unicodeJS.characterclass.patterns.word + ')$'
 );
@@ -602,9 +604,11 @@ ve.dm.ElementLinearData.prototype.getAnnotatedRangeFromSelection = function ( ra
  *
  * @param {ve.Range} range Range to get annotations for
  * @param {boolean} [all=false] Get all annotations found within the range, not just those that cover it
- * @return {ve.dm.AnnotationSet} All annotation objects range is covered by
+ * @param {boolean} [nullIfContentEmpty=false] Returns null (instead of an empty ve.dm.AnnotationSet) if
+ *  there is no content in the range.
+ * @return {ve.dm.AnnotationSet|null} All annotation objects range is covered by.
  */
-ve.dm.ElementLinearData.prototype.getAnnotationsFromRange = function ( range, all ) {
+ve.dm.ElementLinearData.prototype.getAnnotationsFromRange = function ( range, all, nullIfContentEmpty ) {
 	var ignoreChildrenDepth = 0;
 	var left, right;
 	// Iterator over the range, looking for annotations, starting at the 2nd character
@@ -648,7 +652,7 @@ ve.dm.ElementLinearData.prototype.getAnnotationsFromRange = function ( range, al
 			}
 		}
 	}
-	return left || new ve.dm.AnnotationSet( this.getStore() );
+	return left || ( nullIfContentEmpty ? null : new ve.dm.AnnotationSet( this.getStore() ) );
 };
 
 /**

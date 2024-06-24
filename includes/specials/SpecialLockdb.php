@@ -21,6 +21,14 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use ErrorPageError;
+use HTMLForm;
+use MediaWiki\MainConfigNames;
+use MediaWiki\SpecialPage\FormSpecialPage;
+use MediaWiki\Status\Status;
+use MediaWiki\User\User;
 use Wikimedia\AtEase\AtEase;
 
 /**
@@ -45,10 +53,10 @@ class SpecialLockdb extends FormSpecialPage {
 	public function checkExecutePermissions( User $user ) {
 		parent::checkExecutePermissions( $user );
 		# If the lock file isn't writable, we can do sweet bugger all
-		if ( !is_writable( dirname( $this->getConfig()->get( 'ReadOnlyFile' ) ) ) ) {
+		if ( !is_writable( dirname( $this->getConfig()->get( MainConfigNames::ReadOnlyFile ) ) ) ) {
 			throw new ErrorPageError( 'lockdb', 'lockfilenotwritable' );
 		}
-		if ( file_exists( $this->getConfig()->get( 'ReadOnlyFile' ) ) ) {
+		if ( file_exists( $this->getConfig()->get( MainConfigNames::ReadOnlyFile ) ) ) {
 			throw new ErrorPageError( 'lockdb', 'databaselocked' );
 		}
 	}
@@ -69,7 +77,7 @@ class SpecialLockdb extends FormSpecialPage {
 
 	protected function alterForm( HTMLForm $form ) {
 		$form->setWrapperLegend( false )
-			->setHeaderText( $this->msg( 'lockdbtext' )->parseAsBlock() )
+			->setHeaderHtml( $this->msg( 'lockdbtext' )->parseAsBlock() )
 			->setSubmitTextMsg( 'lockbtn' );
 	}
 
@@ -79,7 +87,7 @@ class SpecialLockdb extends FormSpecialPage {
 		}
 
 		AtEase::suppressWarnings();
-		$fp = fopen( $this->getConfig()->get( 'ReadOnlyFile' ), 'w' );
+		$fp = fopen( $this->getConfig()->get( MainConfigNames::ReadOnlyFile ), 'w' );
 		AtEase::restoreWarnings();
 
 		if ( $fp === false ) {
@@ -115,3 +123,8 @@ class SpecialLockdb extends FormSpecialPage {
 		return 'wiki';
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialLockdb::class, 'SpecialLockdb' );

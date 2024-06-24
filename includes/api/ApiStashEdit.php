@@ -23,7 +23,9 @@ use MediaWiki\Page\WikiPageFactory;
 use MediaWiki\Revision\RevisionLookup;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Storage\PageEditStash;
-use MediaWiki\User\UserIdentity;
+use MediaWiki\User\TempUser\TempUserCreator;
+use MediaWiki\User\UserFactory;
+use Wikimedia\ParamValidator\ParamValidator;
 
 /**
  * Prepare an edit in shared cache so that it can be reused on edit
@@ -40,20 +42,13 @@ use MediaWiki\User\UserIdentity;
  */
 class ApiStashEdit extends ApiBase {
 
-	/** @var IContentHandlerFactory */
-	private $contentHandlerFactory;
-
-	/** @var PageEditStash */
-	private $pageEditStash;
-
-	/** @var RevisionLookup */
-	private $revisionLookup;
-
-	/** @var IBufferingStatsdDataFactory */
-	private $statsdDataFactory;
-
-	/** @var WikiPageFactory */
-	private $wikiPageFactory;
+	private IContentHandlerFactory $contentHandlerFactory;
+	private PageEditStash $pageEditStash;
+	private RevisionLookup $revisionLookup;
+	private IBufferingStatsdDataFactory $statsdDataFactory;
+	private WikiPageFactory $wikiPageFactory;
+	private TempUserCreator $tempUserCreator;
+	private UserFactory $userFactory;
 
 	/**
 	 * @param ApiMain $main
@@ -63,6 +58,8 @@ class ApiStashEdit extends ApiBase {
 	 * @param RevisionLookup $revisionLookup
 	 * @param IBufferingStatsdDataFactory $statsdDataFactory
 	 * @param WikiPageFactory $wikiPageFactory
+	 * @param TempUserCreator $tempUserCreator
+	 * @param UserFactory $userFactory
 	 */
 	public function __construct(
 		ApiMain $main,
@@ -71,7 +68,9 @@ class ApiStashEdit extends ApiBase {
 		PageEditStash $pageEditStash,
 		RevisionLookup $revisionLookup,
 		IBufferingStatsdDataFactory $statsdDataFactory,
-		WikiPageFactory $wikiPageFactory
+		WikiPageFactory $wikiPageFactory,
+		TempUserCreator $tempUserCreator,
+		UserFactory $userFactory
 	) {
 		parent::__construct( $main, $action );
 
@@ -80,6 +79,8 @@ class ApiStashEdit extends ApiBase {
 		$this->revisionLookup = $revisionLookup;
 		$this->statsdDataFactory = $statsdDataFactory;
 		$this->wikiPageFactory = $wikiPageFactory;
+		$this->tempUserCreator = $tempUserCreator;
+		$this->userFactory = $userFactory;
 	}
 
 	public function execute() {
@@ -106,8 +107,6 @@ class ApiStashEdit extends ApiBase {
 
 		$this->requireOnlyOneParameter( $params, 'stashedtexthash', 'text' );
 
-		$text = null;
-		$textHash = null;
 		if ( $params['stashedtexthash'] !== null ) {
 			// Load from cache since the client indicates the text is the same as last stash
 			$textHash = $params['stashedtexthash'];
@@ -125,8 +124,9 @@ class ApiStashEdit extends ApiBase {
 			$textHash = sha1( $text );
 		}
 
-		$textContent = ContentHandler::makeContent(
-			$text, $title, $params['contentmodel'], $params['contentformat'] );
+		$textContent = $this->contentHandlerFactory
+			->getContentHandler( $params['contentmodel'] )
+			->unserializeContent( $text, $params['contentformat'] );
 
 		$page = $this->wikiPageFactory->newFromTitle( $title );
 		if ( $page->exists() ) {
@@ -192,9 +192,10 @@ class ApiStashEdit extends ApiBase {
 			return;
 		}
 
-		if ( $user->pingLimiter( 'stashedit' ) ) {
+		if ( !$user->authorizeWrite( 'stashedit', $title ) ) {
 			$status = 'ratelimited';
 		} else {
+			$user = $this->getUserForPreview();
 			$updater = $page->newPageUpdater( $user );
 			$status = $this->pageEditStash->parseAndCache( $updater, $content, $user, $params['summary'] );
 			$this->pageEditStash->stashInputText( $text, $textHash );
@@ -211,56 +212,51 @@ class ApiStashEdit extends ApiBase {
 		$this->getResult()->addValue( null, $this->getModuleName(), $ret );
 	}
 
-	/**
-	 * @param WikiPage $page
-	 * @param Content $content Edit content
-	 * @param UserIdentity $user
-	 * @param string $summary Edit summary
-	 * @return string ApiStashEdit::ERROR_* constant
-	 * @since 1.25
-	 * @deprecated Since 1.34, hard deprecated since 1.38
-	 */
-	public function parseAndStash( WikiPage $page, Content $content, UserIdentity $user, $summary ) {
-		wfDeprecated( __METHOD__, '1.34' );
-		$updater = $page->newPageUpdater( $user );
-		return $this->pageEditStash->parseAndCache( $updater, $content, $user, $summary ?? '' );
+	private function getUserForPreview() {
+		$user = $this->getUser();
+		if ( $this->tempUserCreator->shouldAutoCreate( $user, 'edit' ) ) {
+			return $this->userFactory->newUnsavedTempUser(
+				$this->tempUserCreator->getStashedName( $this->getRequest()->getSession() )
+			);
+		}
+		return $user;
 	}
 
 	public function getAllowedParams() {
 		return [
 			'title' => [
-				ApiBase::PARAM_TYPE => 'string',
-				ApiBase::PARAM_REQUIRED => true
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_REQUIRED => true
 			],
 			'section' => [
-				ApiBase::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_TYPE => 'string',
 			],
 			'sectiontitle' => [
-				ApiBase::PARAM_TYPE => 'string'
+				ParamValidator::PARAM_TYPE => 'string'
 			],
 			'text' => [
-				ApiBase::PARAM_TYPE => 'text',
-				ApiBase::PARAM_DFLT => null
+				ParamValidator::PARAM_TYPE => 'text',
+				ParamValidator::PARAM_DEFAULT => null
 			],
 			'stashedtexthash' => [
-				ApiBase::PARAM_TYPE => 'string',
-				ApiBase::PARAM_DFLT => null
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_DEFAULT => null
 			],
 			'summary' => [
-				ApiBase::PARAM_TYPE => 'string',
-				ApiBase::PARAM_DFLT => ''
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_DEFAULT => ''
 			],
 			'contentmodel' => [
-				ApiBase::PARAM_TYPE => $this->contentHandlerFactory->getContentModels(),
-				ApiBase::PARAM_REQUIRED => true
+				ParamValidator::PARAM_TYPE => $this->contentHandlerFactory->getContentModels(),
+				ParamValidator::PARAM_REQUIRED => true
 			],
 			'contentformat' => [
-				ApiBase::PARAM_TYPE => $this->contentHandlerFactory->getAllContentFormats(),
-				ApiBase::PARAM_REQUIRED => true
+				ParamValidator::PARAM_TYPE => $this->contentHandlerFactory->getAllContentFormats(),
+				ParamValidator::PARAM_REQUIRED => true
 			],
 			'baserevid' => [
-				ApiBase::PARAM_TYPE => 'integer',
-				ApiBase::PARAM_REQUIRED => true
+				ParamValidator::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_REQUIRED => true
 			]
 		];
 	}

@@ -1,7 +1,5 @@
 <?php
 /**
- * Gan Chinese specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -23,21 +21,13 @@
 /**
  * Gan Chinese
  *
- * class that handles both Traditional and Simplified Chinese
- * right now it only distinguish gan_hans, gan_hant.
+ * This handles both Traditional and Simplified Chinese.
+ * Right now, we only distinguish `gan_hans` and `gan_hant`.
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class LanguageGan extends LanguageZh {
-	/**
-	 * word segmentation
-	 *
-	 * @param string $string
-	 * @param string $autoVariant
-	 * @return string
-	 */
-	public function normalizeForSearch( $string, $autoVariant = 'gan-hans' ) {
-		// LanguageZh::normalizeForSearch
-		return parent::normalizeForSearch( $string, $autoVariant );
+	protected function getSearchIndexVariant() {
+		return 'gan-hans';
 	}
 }

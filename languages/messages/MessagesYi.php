@@ -1,10 +1,8 @@
 <?php
 /** Yiddish (ייִדיש)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Chaim Shel
  * @author Jiddisch

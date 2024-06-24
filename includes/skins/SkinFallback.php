@@ -5,7 +5,11 @@
  * @since 1.24
  * @file
  */
+
+use MediaWiki\Html\Html;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Output\OutputPage;
 
 /**
  * SkinTemplate class for the fallback skin
@@ -26,7 +30,7 @@ class SkinFallback extends SkinMustache {
 	 */
 	private function findInstalledSkins() {
 		$config = $this->getConfig();
-		$styleDirectory = $config->get( 'StyleDirectory' );
+		$styleDirectory = $config->get( MainConfigNames::StyleDirectory );
 		// Get all subdirectories which might contains skins
 		$possibleSkins = scandir( $styleDirectory );
 		$possibleSkins = array_filter( $possibleSkins, static function ( $maybeDir ) use ( $styleDirectory ) {
@@ -49,7 +53,7 @@ class SkinFallback extends SkinMustache {
 	 */
 	private function buildHelpfulInformationMessage() {
 		$config = $this->getConfig();
-		$defaultSkin = $config->get( 'DefaultSkin' );
+		$defaultSkin = $config->get( MainConfigNames::DefaultSkin );
 		$installedSkins = $this->findInstalledSkins();
 		$skinFactory = MediaWikiServices::getInstance()->getSkinFactory();
 		$enabledSkins = $skinFactory->getInstalledSkins();
@@ -116,7 +120,9 @@ class SkinFallback extends SkinMustache {
 		$data = parent::getTemplateData();
 		// If the default skin isn't configured correctly, append a warning to the
 		// subtitle to alert a sysadmin.
-		if ( !isset( $skinFactory->getInstalledSkins()[$config->get( 'DefaultSkin' )] ) ) {
+		if ( !isset(
+			$skinFactory->getInstalledSkins()[$config->get( MainConfigNames::DefaultSkin )]
+		) ) {
 			$data['html-fallback-warning'] = Html::warningBox( $this->buildHelpfulInformationMessage() );
 		}
 		return $data;

@@ -33,7 +33,7 @@ use Wikimedia\Rdbms\IDatabase;
  *
  * @since 1.35 (also backported to 1.33.3 and 1.34.1)
  */
-define( 'MW_VERSION', '1.38.1' );
+define( 'MW_VERSION', '1.41.0' );
 
 /** @{
  * Obsolete IDatabase::makeList() constants
@@ -87,6 +87,7 @@ define( 'CACHE_NONE', 0 ); // Do not cache
 define( 'CACHE_DB', 1 ); // Store cache objects in the DB
 define( 'CACHE_MEMCACHED', 'memcached-php' ); // Backwards-compatability alias for Memcached
 define( 'CACHE_ACCEL', 3 ); // APC or WinCache
+define( 'CACHE_HASH', 'hash' ); // A HashBagOStuff, mostly useful for testing. Not configurable
 /** @} */
 
 /** @{
@@ -151,13 +152,11 @@ define( 'MW_SUPPORTS_RESOURCE_MODULES', 1 );
  * - Parser::OT_HTML
  * - Parser::OT_WIKI
  * - Parser::OT_PREPROCESS
- * - Parser::OT_MSG
  * - Parser::OT_PLAIN
  */
 define( 'OT_HTML', 1 );
 define( 'OT_WIKI', 2 );
 define( 'OT_PREPROCESS', 3 );
-define( 'OT_MSG', 3 );  // b/c alias for OT_PREPROCESS
 define( 'OT_PLAIN', 4 );
 /** @} */
 
@@ -186,12 +185,15 @@ define( 'APCOND_ISBOT', 9 );
 /** @} */
 
 /** @{
- * Protocol constants for wfExpandUrl()
+ * Protocol constants for UrlUtils::expand()
+ * PROTO_FALLBACK is @since 1.39
  */
 define( 'PROTO_HTTP', 'http://' );
 define( 'PROTO_HTTPS', 'https://' );
 define( 'PROTO_RELATIVE', '//' );
-define( 'PROTO_CURRENT', null );
+define( 'PROTO_FALLBACK', null );
+// Legacy alias for PROTO_FALLBACK from when the current request's protocol was always the fallback
+define( 'PROTO_CURRENT', PROTO_FALLBACK );
 define( 'PROTO_CANONICAL', 1 );
 define( 'PROTO_INTERNAL', 2 );
 /** @} */

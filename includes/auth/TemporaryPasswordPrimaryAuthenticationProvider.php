@@ -21,12 +21,14 @@
 
 namespace MediaWiki\Auth;
 
-use MediaWiki\MediaWikiServices;
-use MediaWiki\User\UserNameUtils;
-use SpecialPage;
-use User;
+use MediaWiki\MainConfigNames;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
+use MediaWiki\User\UserOptionsLookup;
+use MediaWiki\User\UserRigorOptions;
 use Wikimedia\IPUtils;
-use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * A primary authentication provider that uses the temporary password field in
@@ -54,18 +56,26 @@ class TemporaryPasswordPrimaryAuthenticationProvider
 	/** @var bool */
 	protected $allowRequiringEmail = null;
 
-	/** @var ILoadBalancer */
-	private $loadBalancer;
+	/** @var IConnectionProvider */
+	private $dbProvider;
+
+	/** @var UserOptionsLookup */
+	private $userOptionsLookup;
 
 	/**
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
+	 * @param UserOptionsLookup $userOptionsLookup
 	 * @param array $params
 	 *  - emailEnabled: (bool) must be true for the option to email passwords to be present
-	 *  - newPasswordExpiry: (int) expiraton time of temporary passwords, in seconds
+	 *  - newPasswordExpiry: (int) expiration time of temporary passwords, in seconds
 	 *  - passwordReminderResendTime: (int) cooldown period in hours until a password reminder can
 	 *    be sent to the same user again
 	 */
-	public function __construct( ILoadBalancer $loadBalancer, $params = [] ) {
+	public function __construct(
+		IConnectionProvider $dbProvider,
+		UserOptionsLookup $userOptionsLookup,
+		$params = []
+	) {
 		parent::__construct( $params );
 
 		if ( isset( $params['emailEnabled'] ) ) {
@@ -80,22 +90,17 @@ class TemporaryPasswordPrimaryAuthenticationProvider
 		if ( isset( $params['allowRequiringEmailForResets'] ) ) {
 			$this->allowRequiringEmail = $params['allowRequiringEmailForResets'];
 		}
-		$this->loadBalancer = $loadBalancer;
+		$this->dbProvider = $dbProvider;
+		$this->userOptionsLookup = $userOptionsLookup;
 	}
 
 	protected function postInitSetup() {
-		if ( $this->emailEnabled === null ) {
-			$this->emailEnabled = $this->config->get( 'EnableEmail' );
-		}
-		if ( $this->newPasswordExpiry === null ) {
-			$this->newPasswordExpiry = $this->config->get( 'NewPasswordExpiry' );
-		}
-		if ( $this->passwordReminderResendTime === null ) {
-			$this->passwordReminderResendTime = $this->config->get( 'PasswordReminderResendTime' );
-		}
-		if ( $this->allowRequiringEmail === null ) {
-			$this->allowRequiringEmail = $this->config->get( 'AllowRequiringEmailForResets' );
-		}
+		$this->emailEnabled ??= $this->config->get( MainConfigNames::EnableEmail );
+		$this->newPasswordExpiry ??= $this->config->get( MainConfigNames::NewPasswordExpiry );
+		$this->passwordReminderResendTime ??=
+			$this->config->get( MainConfigNames::PasswordReminderResendTime );
+		$this->allowRequiringEmail ??=
+			$this->config->get( MainConfigNames::AllowRequiringEmailForResets );
 	}
 
 	protected function getPasswordResetData( $username, $data ) {
@@ -138,36 +143,30 @@ class TemporaryPasswordPrimaryAuthenticationProvider
 			return AuthenticationResponse::newAbstain();
 		}
 
-		$username = $this->userNameUtils->getCanonical( $req->username, UserNameUtils::RIGOR_USABLE );
+		$username = $this->userNameUtils->getCanonical(
+			$req->username, UserRigorOptions::RIGOR_USABLE );
 		if ( $username === false ) {
 			return AuthenticationResponse::newAbstain();
 		}
 
-		$dbr = $this->loadBalancer->getConnectionRef( DB_REPLICA );
-		$row = $dbr->selectRow(
-			'user',
-			[
-				'user_id', 'user_newpassword', 'user_newpass_time',
-			],
-			[ 'user_name' => $username ],
-			__METHOD__
-		);
+		$row = $this->dbProvider->getReplicaDatabase()->newSelectQueryBuilder()
+			->select( [ 'user_id', 'user_newpassword', 'user_newpass_time' ] )
+			->from( 'user' )
+			->where( [ 'user_name' => $username ] )
+			->caller( __METHOD__ )->fetchRow();
 		if ( !$row ) {
 			return AuthenticationResponse::newAbstain();
 		}
 
 		$status = $this->checkPasswordValidity( $username, $req->password );
 		if ( !$status->isOK() ) {
-			// Fatal, can't log in
-			return AuthenticationResponse::newFail( $status->getMessage() );
+			return $this->getFatalPasswordErrorResponse( $username, $status );
 		}
 
 		$pwhash = $this->getPassword( $row->user_newpassword );
-		if ( !$pwhash->verify( $req->password ) ) {
-			return $this->failResponse( $req );
-		}
-
-		if ( !$this->isTimestampValid( $row->user_newpass_time ) ) {
+		if ( !$pwhash->verify( $req->password ) ||
+			!$this->isTimestampValid( $row->user_newpass_time )
+		) {
 			return $this->failResponse( $req );
 		}
 
@@ -187,47 +186,35 @@ class TemporaryPasswordPrimaryAuthenticationProvider
 	}
 
 	public function testUserCanAuthenticate( $username ) {
-		$username = $this->userNameUtils->getCanonical( $username, UserNameUtils::RIGOR_USABLE );
+		$username = $this->userNameUtils->getCanonical( $username, UserRigorOptions::RIGOR_USABLE );
 		if ( $username === false ) {
 			return false;
 		}
 
-		$dbr = $this->loadBalancer->getConnectionRef( DB_REPLICA );
-		$row = $dbr->selectRow(
-			'user',
-			[ 'user_newpassword', 'user_newpass_time' ],
-			[ 'user_name' => $username ],
-			__METHOD__
-		);
-		if ( !$row ) {
-			return false;
-		}
-
-		if ( $this->getPassword( $row->user_newpassword ) instanceof \InvalidPassword ) {
-			return false;
-		}
-
-		if ( !$this->isTimestampValid( $row->user_newpass_time ) ) {
-			return false;
-		}
-
-		return true;
+		$row = $this->dbProvider->getReplicaDatabase()->newSelectQueryBuilder()
+			->select( [ 'user_newpassword', 'user_newpass_time' ] )
+			->from( 'user' )
+			->where( [ 'user_name' => $username ] )
+			->caller( __METHOD__ )->fetchRow();
+		return $row &&
+			!( $this->getPassword( $row->user_newpassword ) instanceof \InvalidPassword ) &&
+			$this->isTimestampValid( $row->user_newpass_time );
 	}
 
 	public function testUserExists( $username, $flags = User::READ_NORMAL ) {
-		$username = $this->userNameUtils->getCanonical( $username, UserNameUtils::RIGOR_USABLE );
+		$username = $this->userNameUtils->getCanonical( $username, UserRigorOptions::RIGOR_USABLE );
 		if ( $username === false ) {
 			return false;
 		}
 
-		list( $db, $options ) = \DBAccessObjectUtils::getDBOptions( $flags );
-		return (bool)$this->loadBalancer->getConnectionRef( $db )->selectField(
-			[ 'user' ],
-			'user_id',
-			[ 'user_name' => $username ],
-			__METHOD__,
-			$options
-		);
+		[ $mode, $options ] = \DBAccessObjectUtils::getDBOptions( $flags );
+		$db = \DBAccessObjectUtils::getDBFromIndex( $this->dbProvider, $mode );
+		return (bool)$db->newSelectQueryBuilder()
+			->select( [ 'user_id' ] )
+			->from( 'user' )
+			->where( [ 'user_name' => $username ] )
+			->options( $options )
+			->caller( __METHOD__ )->fetchField();
 	}
 
 	public function providerAllowsAuthenticationDataChange(
@@ -242,18 +229,17 @@ class TemporaryPasswordPrimaryAuthenticationProvider
 			return \StatusValue::newGood();
 		}
 
-		$username = $this->userNameUtils->getCanonical( $req->username, UserNameUtils::RIGOR_USABLE );
+		$username = $this->userNameUtils->getCanonical(
+			$req->username, UserRigorOptions::RIGOR_USABLE );
 		if ( $username === false ) {
 			return \StatusValue::newGood( 'ignored' );
 		}
 
-		$row = $this->loadBalancer->getConnectionRef( DB_PRIMARY )->selectRow(
-			'user',
-			[ 'user_id', 'user_newpass_time' ],
-			[ 'user_name' => $username ],
-			__METHOD__
-		);
-
+		$row = $this->dbProvider->getPrimaryDatabase()->newSelectQueryBuilder()
+			->select( [ 'user_id', 'user_newpass_time' ] )
+			->from( 'user' )
+			->where( [ 'user_name' => $username ] )
+			->caller( __METHOD__ )->fetchRow();
 		if ( !$row ) {
 			return \StatusValue::newGood( 'ignored' );
 		}
@@ -300,12 +286,12 @@ class TemporaryPasswordPrimaryAuthenticationProvider
 
 	public function providerChangeAuthenticationData( AuthenticationRequest $req ) {
 		$username = $req->username !== null ?
-			$this->userNameUtils->getCanonical( $req->username, UserNameUtils::RIGOR_USABLE ) : false;
+			$this->userNameUtils->getCanonical( $req->username, UserRigorOptions::RIGOR_USABLE ) : false;
 		if ( $username === false ) {
 			return;
 		}
 
-		$dbw = $this->loadBalancer->getConnectionRef( DB_PRIMARY );
+		$dbw = $this->dbProvider->getPrimaryDatabase();
 
 		$sendMail = false;
 		if ( $req->action !== AuthManager::ACTION_REMOVE &&
@@ -320,15 +306,14 @@ class TemporaryPasswordPrimaryAuthenticationProvider
 			$newpassTime = null;
 		}
 
-		$dbw->update(
-			'user',
-			[
+		$dbw->newUpdateQueryBuilder()
+			->update( 'user' )
+			->set( [
 				'user_newpassword' => $pwhash->toString(),
 				'user_newpass_time' => $newpassTime,
-			],
-			[ 'user_name' => $username ],
-			__METHOD__
-		);
+			] )
+			->where( [ 'user_name' => $username ] )
+			->caller( __METHOD__ )->execute();
 
 		if ( $sendMail ) {
 			// Send email after DB commit
@@ -404,7 +389,7 @@ class TemporaryPasswordPrimaryAuthenticationProvider
 
 		if ( $mailpassword ) {
 			// Send email after DB commit
-			$this->loadBalancer->getConnectionRef( DB_PRIMARY )->onTransactionCommitOrIdle(
+			$this->dbProvider->getPrimaryDatabase()->onTransactionCommitOrIdle(
 				function () use ( $user, $creator, $req ) {
 					$this->sendNewAccountEmail( $user, $creator, $req->password );
 				},
@@ -436,20 +421,20 @@ class TemporaryPasswordPrimaryAuthenticationProvider
 	 * @param User $user The new user account
 	 * @param User $creatingUser The user who created the account (can be anonymous)
 	 * @param string $password The temporary password
-	 * @return \Status
+	 * @return \MediaWiki\Status\Status
 	 */
 	protected function sendNewAccountEmail( User $user, User $creatingUser, $password ) {
 		$ip = $creatingUser->getRequest()->getIP();
 		// @codeCoverageIgnoreStart
 		if ( !$ip ) {
-			return \Status::newFatal( 'badipaddress' );
+			return \MediaWiki\Status\Status::newFatal( 'badipaddress' );
 		}
 		// @codeCoverageIgnoreEnd
 
 		$this->getHookRunner()->onUser__mailPasswordInternal( $creatingUser, $ip, $user );
 
-		$mainPageUrl = \Title::newMainPage()->getCanonicalURL();
-		$userLanguage = $user->getOption( 'language' );
+		$mainPageUrl = Title::newMainPage()->getCanonicalURL();
+		$userLanguage = $this->userOptionsLookup->getOption( $user, 'language' );
 		$subjectMessage = wfMessage( 'createaccount-title' )->inLanguage( $userLanguage );
 		$bodyMessage = wfMessage( 'createaccount-text', $ip, $user->getName(), $password,
 			'<' . $mainPageUrl . '>', round( $this->newPasswordExpiry / 86400 ) )
@@ -470,14 +455,14 @@ class TemporaryPasswordPrimaryAuthenticationProvider
 
 	/**
 	 * @param TemporaryPasswordAuthenticationRequest $req
-	 * @return \Status
+	 * @return \MediaWiki\Status\Status
 	 */
 	protected function sendPasswordResetEmail( TemporaryPasswordAuthenticationRequest $req ) {
 		$user = User::newFromName( $req->username );
 		if ( !$user ) {
-			return \Status::newFatal( 'noname' );
+			return \MediaWiki\Status\Status::newFatal( 'noname' );
 		}
-		$userLanguage = $user->getOption( 'language' );
+		$userLanguage = $this->userOptionsLookup->getOption( $user, 'language' );
 		$callerIsAnon = IPUtils::isValid( $req->caller );
 		$callerName = $callerIsAnon ? $req->caller : User::newFromName( $req->caller )->getName();
 		$passwordMessage = wfMessage( 'passwordreset-emailelement', $user->getName(),
@@ -485,10 +470,10 @@ class TemporaryPasswordPrimaryAuthenticationProvider
 		$emailMessage = wfMessage( $callerIsAnon ? 'passwordreset-emailtext-ip'
 			: 'passwordreset-emailtext-user' )->inLanguage( $userLanguage );
 		$body = $emailMessage->params( $callerName, $passwordMessage->text(), 1,
-			'<' . \Title::newMainPage()->getCanonicalURL() . '>',
+			'<' . Title::newMainPage()->getCanonicalURL() . '>',
 			round( $this->newPasswordExpiry / 86400 ) )->text();
 
-		if ( $this->allowRequiringEmail && !MediaWikiServices::getInstance()->getUserOptionsLookup()
+		if ( $this->allowRequiringEmail && !$this->userOptionsLookup
 			->getBoolOption( $user, 'requireemail' )
 		) {
 			$body .= "\n\n";

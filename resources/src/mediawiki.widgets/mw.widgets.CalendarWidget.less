@@ -1,11 +1,12 @@
 /*!
  * MediaWiki Widgets – CalendarWidget styles.
  *
- * @copyright 2011-2015 MediaWiki Widgets Team and others; see AUTHORS.txt
+ * @copyright 2011-2023 MediaWiki Widgets Team and others; see AUTHORS.txt
  * @license The MIT License (MIT); see LICENSE.txt
  */
 
 /* stylelint-disable no-duplicate-selectors */
+@import 'mediawiki.skin.variables.less';
 @import 'mediawiki.mixins.less';
 
 @calendarWidth: 21em;
@@ -90,7 +91,7 @@
 	.mw-widget-calendarWidget-body:first-child {
 		margin-top: 0 !important; /* stylelint-disable-line declaration-no-important */
 		margin-left: 0 !important; /* stylelint-disable-line declaration-no-important */
-		.transition( margin-left 500ms );
+		transition: margin-left 500ms;
 	}
 }
 
@@ -101,7 +102,7 @@
 	.mw-widget-calendarWidget-body:first-child {
 		margin-left: -@calendarWidth !important; /* stylelint-disable-line declaration-no-important */
 		margin-top: 0 !important; /* stylelint-disable-line declaration-no-important */
-		.transition( margin-left 500ms );
+		transition: margin-left 500ms;
 	}
 }
 
@@ -117,7 +118,7 @@
 	.mw-widget-calendarWidget-body:first-child {
 		margin-left: 0 !important; /* stylelint-disable-line declaration-no-important */
 		margin-top: 0 !important; /* stylelint-disable-line declaration-no-important */
-		.transition( margin-top 500ms );
+		transition: margin-top 500ms;
 	}
 }
 
@@ -133,7 +134,7 @@
 	.mw-widget-calendarWidget-body:first-child {
 		margin-left: 0 !important; /* stylelint-disable-line declaration-no-important */
 		margin-top: -@calendarHeight !important; /* stylelint-disable-line declaration-no-important */
-		.transition( margin-top 500ms );
+		transition: margin-top 500ms;
 	}
 }
 
@@ -236,23 +237,23 @@
 
 /* Theme-specific */
 .mw-widget-calendarWidget {
-	.box-sizing( border-box );
-	border: 1px solid #a2a9b1;
-	.transition( ~'border-color 100ms, box-shadow 100ms' );
+	box-sizing: border-box;
+	border: @border-base;
+	transition: border-color 100ms, box-shadow 100ms;
 
 	&:focus {
-		border-color: #36c;
-		box-shadow: inset 0 0 0 1px #36c;
-		outline: 0;
+		border-color: @border-color-progressive--focus;
+		box-shadow: @box-shadow-inset-small @box-shadow-color-progressive--focus;
+		outline: @outline-base--focus;
 	}
 
 	&-day {
-		color: #202122;
-		border-radius: 2px;
+		color: @color-base;
+		border-radius: @border-radius-base;
 	}
 
 	&-day-heading {
-		color: #54595d;
+		color: @color-subtle;
 		font-weight: bold;
 	}
 
@@ -265,11 +266,11 @@
 	}
 
 	&-day-today {
-		box-shadow: inset 0 0 0 1px #36c;
+		box-shadow: @box-shadow-inset-small @box-shadow-color-progressive-selected;
 	}
 
 	&-item {
-		.transition( ~'background-color 250ms, color 250ms' );
+		transition: background-color 250ms, color 250ms;
 
 		&:hover {
 			background-color: #36c;

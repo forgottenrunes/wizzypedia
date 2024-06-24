@@ -27,14 +27,18 @@
  * @defgroup Dump Dump
  */
 
+use MediaWiki\CommentStore\CommentStore;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Revision\RevisionAccessException;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\RevisionStore;
-use Wikimedia\Rdbms\IDatabase;
+use MediaWiki\Title\MalformedTitleException;
+use MediaWiki\Title\TitleParser;
+use Wikimedia\Rdbms\IReadableDatabase;
 use Wikimedia\Rdbms\IResultWrapper;
 
 /**
@@ -73,7 +77,7 @@ class WikiExporter {
 	/** @var XmlDumpWriter */
 	private $writer;
 
-	/** @var IDatabase */
+	/** @var IReadableDatabase */
 	protected $db;
 
 	/** @var array|int */
@@ -91,16 +95,21 @@ class WikiExporter {
 	/** @var HookRunner */
 	private $hookRunner;
 
+	/** @var CommentStore */
+	private $commentStore;
+
 	/**
 	 * Returns the default export schema version, as defined by the XmlDumpSchemaVersion setting.
 	 * @return string
 	 */
 	public static function schemaVersion() {
-		return MediaWikiServices::getInstance()->getMainConfig()->get( 'XmlDumpSchemaVersion' );
+		return MediaWikiServices::getInstance()->getMainConfig()->get(
+			MainConfigNames::XmlDumpSchemaVersion );
 	}
 
 	/**
-	 * @param IDatabase $db
+	 * @param IReadableDatabase $db
+	 * @param CommentStore $commentStore
 	 * @param HookContainer $hookContainer
 	 * @param RevisionStore $revisionStore
 	 * @param TitleParser $titleParser
@@ -114,6 +123,7 @@ class WikiExporter {
 	 */
 	public function __construct(
 		$db,
+		CommentStore $commentStore,
 		HookContainer $hookContainer,
 		RevisionStore $revisionStore,
 		TitleParser $titleParser,
@@ -122,10 +132,14 @@ class WikiExporter {
 		$limitNamespaces = null
 	) {
 		$this->db = $db;
+		$this->commentStore = $commentStore;
 		$this->history = $history;
-		// TODO: add a $hookContainer parameter to XmlDumpWriter so that we can inject
-		// and then be able to convert the factory test to a unit test
-		$this->writer = new XmlDumpWriter( $text, self::schemaVersion() );
+		$this->writer = new XmlDumpWriter(
+			$text,
+			self::schemaVersion(),
+			$hookContainer,
+			$commentStore
+		);
 		$this->sink = new DumpOutput();
 		$this->text = $text;
 		$this->limitNamespaces = $limitNamespaces;
@@ -271,21 +285,12 @@ class WikiExporter {
 		$this->author_list = "<contributors>";
 		// rev_deleted
 
-		$revQuery = $this->revisionStore->getQueryInfo( [ 'page' ] );
-		$res = $this->db->select(
-			$revQuery['tables'],
-			[
-				'rev_user_text' => $revQuery['fields']['rev_user_text'],
-				'rev_user' => $revQuery['fields']['rev_user'],
-			],
-			[
-				$this->db->bitAnd( 'rev_deleted', RevisionRecord::DELETED_USER ) . ' = 0',
-				$cond,
-			],
-			__METHOD__,
-			[ 'DISTINCT' ],
-			$revQuery['joins']
-		);
+		$res = $this->revisionStore->newSelectQueryBuilder( $this->db )
+			->joinPage()
+			->distinct()
+			->where( $this->db->bitAnd( 'rev_deleted', RevisionRecord::DELETED_USER ) . ' = 0' )
+			->andWhere( $cond )
+			->caller( __METHOD__ )->fetchResultSet();
 
 		foreach ( $res as $row ) {
 			$this->author_list .= "<contributor>" .
@@ -329,9 +334,8 @@ class WikiExporter {
 		if ( $cond ) {
 			$where[] = $cond;
 		}
-		$result = null; // Assuring $result is not undefined, if exception occurs early
 
-		$commentQuery = CommentStore::getStore()->getJoin( 'log_comment' );
+		$commentQuery = $this->commentStore->getJoin( 'log_comment' );
 
 		$tables = array_merge(
 			[ 'logging', 'actor' ], $commentQuery['tables']
@@ -365,6 +369,7 @@ class WikiExporter {
 			}
 
 			$lastLogId = $this->outputLogStream( $result );
+			$this->reloadDBConfig();
 		}
 	}
 
@@ -393,7 +398,6 @@ class WikiExporter {
 		unset( $join['page'] );
 
 		$fields = array_merge( $revQuery['fields'], $slotQuery['fields'] );
-		$fields[] = 'page_restrictions';
 
 		if ( $this->text != self::STUB ) {
 			$fields['_load_content'] = '1';
@@ -455,7 +459,6 @@ class WikiExporter {
 			throw new MWException( __METHOD__ . " given invalid history dump type." );
 		}
 
-		$result = null; // Assuring $result is not undefined, if exception occurs early
 		$done = false;
 		$lastRow = null;
 		$revPage = 0;
@@ -499,6 +502,10 @@ class WikiExporter {
 			// If we are finished, close off final page element (if any).
 			if ( $done && $lastRow ) {
 				$this->finishPageStreamOutput( $lastRow );
+			}
+
+			if ( !$done ) {
+				$this->reloadDBConfig();
 			}
 		}
 	}
@@ -559,6 +566,7 @@ class WikiExporter {
 			throw new LogicException( 'Error while processing a stream of slot rows' );
 		}
 
+		// @phan-suppress-next-line PhanTypeMismatchReturnNullable False positive
 		return $lastRow;
 	}
 
@@ -618,5 +626,16 @@ class WikiExporter {
 			$this->sink->writeLogItem( $row, $output );
 		}
 		return $row->log_id ?? null;
+	}
+
+	/**
+	 * Attempt to reload the database configuration, so any changes can take effect.
+	 * Dynamic reloading can be enabled by setting $wgLBFactoryConf['configCallback']
+	 * to a function that returns an array of any keys that should be updated
+	 * in LBFactoryConf.
+	 */
+	private function reloadDBConfig() {
+		MediaWikiServices::getInstance()->getDBLoadBalancerFactory()
+			->autoReconfigure();
 	}
 }

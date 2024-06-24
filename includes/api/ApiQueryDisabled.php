@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright © 2008 Roan Kattouw "<Firstname>.<Lastname>@gmail.com"
+ * Copyright © 2008 Roan Kattouw <roan.kattouw@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,10 +34,6 @@ class ApiQueryDisabled extends ApiQueryBase {
 
 	public function execute() {
 		$this->addWarning( [ 'apierror-moduledisabled', $this->getModuleName() ] );
-	}
-
-	public function getAllowedParams() {
-		return [];
 	}
 
 	public function getSummaryMessage() {

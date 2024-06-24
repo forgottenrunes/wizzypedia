@@ -20,13 +20,14 @@
 
 namespace MediaWiki\Logger;
 
+use MediaWiki\MainConfigNames;
 use MediaWikiIntegrationTestCase;
 use Psr\Log\LogLevel;
 
 class LegacyLoggerTest extends MediaWikiIntegrationTestCase {
 
 	/**
-	 * @covers MediaWiki\Logger\LegacyLogger::interpolate
+	 * @covers \MediaWiki\Logger\LegacyLogger::interpolate
 	 * @dataProvider provideInterpolate
 	 */
 	public function testInterpolate( $message, $context, $expect ) {
@@ -34,7 +35,7 @@ class LegacyLoggerTest extends MediaWikiIntegrationTestCase {
 			$expect, LegacyLogger::interpolate( $message, $context ) );
 	}
 
-	public function provideInterpolate() {
+	public static function provideInterpolate() {
 		$e = new \Exception( 'boom!' );
 		$d = new \DateTime();
 		$err = new \Error( 'Test error' );
@@ -135,11 +136,11 @@ class LegacyLoggerTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * @covers MediaWiki\Logger\LegacyLogger::shouldEmit
+	 * @covers \MediaWiki\Logger\LegacyLogger::shouldEmit
 	 * @dataProvider provideShouldEmit
 	 */
 	public function testShouldEmit( $level, $config, $expected ) {
-		$this->setMwGlobals( 'wgDebugLogGroups', [ 'fakechannel' => $config ] );
+		$this->overrideConfigValue( MainConfigNames::DebugLogGroups, [ 'fakechannel' => $config ] );
 		$this->assertEquals(
 			$expected,
 			LegacyLogger::shouldEmit( 'fakechannel', 'some message', $level, [] )
@@ -164,20 +165,17 @@ class LegacyLoggerTest extends MediaWikiIntegrationTestCase {
 				$dest + [ 'level' => LogLevel::CRITICAL ],
 				false,
 			],
-		];
-
-		if ( class_exists( \Monolog\Logger::class ) ) {
-			$tests[] = [
+			[
 				\Monolog\Logger::INFO,
 				$dest + [ 'level' => LogLevel::INFO ],
 				true,
-			];
-			$tests[] = [
+			],
+			[
 				\Monolog\Logger::WARNING,
 				$dest + [ 'level' => LogLevel::EMERGENCY ],
 				false,
-			];
-		}
+			]
+		];
 
 		return $tests;
 	}

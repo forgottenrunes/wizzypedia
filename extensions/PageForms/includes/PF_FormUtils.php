@@ -56,13 +56,17 @@ class PFFormUtils {
 			'value' => $value,
 			'name' => 'wpSummary',
 			'id' => 'wpSummary',
-			'maxlength' => 255,
+			'maxlength' => CommentStore::COMMENT_CHARACTER_LIMIT,
 			'title' => wfMessage( 'tooltip-summary' )->text(),
 			'accessKey' => wfMessage( 'accesskey-summary' )->text()
 		];
 		if ( $is_disabled ) {
 			$attr['disabled'] = true;
 		}
+		if ( array_key_exists( 'class', $attr ) ) {
+			$attr['classes'] = [ $attr['class'] ];
+		}
+
 		$text = new OOUI\FieldLayout(
 			new OOUI\TextInputWidget( $attr ),
 			[
@@ -80,7 +84,8 @@ class PFFormUtils {
 		$wgPageFormsTabIndex++;
 		if ( !$form_submitted ) {
 			$user = RequestContext::getMain()->getUser();
-			$is_checked = $user->getOption( 'minordefault' );
+			$is_checked = MediaWikiServices::getInstance()->getUserOptionsLookup()
+				->getOption( $user, 'minordefault' );
 		}
 
 		if ( $label == null ) {
@@ -89,6 +94,7 @@ class PFFormUtils {
 
 		$attrs += [
 			'id' => 'wpMinoredit',
+			'name' => 'wpMinoredit',
 			'accessKey' => wfMessage( 'accesskey-minoredit' )->text(),
 			'tabIndex' => $wgPageFormsTabIndex,
 		];
@@ -97,6 +103,10 @@ class PFFormUtils {
 		}
 		if ( $is_disabled ) {
 			$attrs['disabled'] = true;
+		}
+		// @phan-suppress-next-line PhanImpossibleTypeComparison
+		if ( array_key_exists( 'class', $attrs ) ) {
+			$attrs['classes'] = [ $attrs['class'] ];
 		}
 
 		// We can't use OOUI\FieldLayout here, because it will make the display too wide.
@@ -121,11 +131,10 @@ class PFFormUtils {
 		// this code borrowed from /includes/EditPage.php
 		if ( !$form_submitted ) {
 			$user = RequestContext::getMain()->getUser();
+			$services = MediaWikiServices::getInstance();
+			$userOptionsLookup = $services->getUserOptionsLookup();
 			if ( method_exists( \MediaWiki\Watchlist\WatchlistManager::class, 'isWatched' ) ) {
 				// MediaWiki 1.37+
-				// UserOptionsLookup::getOption was introduced in MW 1.35
-				$services = MediaWikiServices::getInstance();
-				$userOptionsLookup = $services->getUserOptionsLookup();
 				$watchlistManager = $services->getWatchlistManager();
 				if ( $userOptionsLookup->getOption( $user, 'watchdefault' ) ) {
 					# Watch all edits
@@ -139,10 +148,11 @@ class PFFormUtils {
 					$is_checked = true;
 				}
 			} else {
-				if ( $user->getOption( 'watchdefault' ) ) {
+				if ( $userOptionsLookup->getOption( $user, 'watchdefault' ) ) {
 					# Watch all edits
 					$is_checked = true;
-				} elseif ( $user->getOption( 'watchcreations' ) && !$wgTitle->exists() ) {
+				} elseif ( $userOptionsLookup->getOption( $user, 'watchcreations' ) &&
+					!$wgTitle->exists() ) {
 					# Watch creations
 					$is_checked = true;
 				} elseif ( $user->isWatched( $wgTitle ) ) {
@@ -156,6 +166,7 @@ class PFFormUtils {
 		}
 		$attrs += [
 			'id' => 'wpWatchthis',
+			'name' => 'wpWatchthis',
 			'accessKey' => wfMessage( 'accesskey-watch' )->text(),
 			'tabIndex' => $wgPageFormsTabIndex,
 		];
@@ -164,6 +175,10 @@ class PFFormUtils {
 		}
 		if ( $is_disabled ) {
 			$attrs['disabled'] = true;
+		}
+		// @phan-suppress-next-line PhanImpossibleTypeComparison
+		if ( array_key_exists( 'class', $attrs ) ) {
+			$attrs['classes'] = [ $attrs['class'] ];
 		}
 
 		// We can't use OOUI\FieldLayout here, because it will make the display too wide.
@@ -296,14 +311,19 @@ class PFFormUtils {
 		if ( $label == null ) {
 			$label = wfMessage( 'cancel' )->parse();
 		}
+		$attr['classes'] = [];
 		if ( $wgTitle == null || $wgTitle->isSpecial( 'FormEdit' ) ) {
-			$attr['classes'] = [ 'pfSendBack' ];
+			$attr['classes'][] = 'pfSendBack';
 		} else {
 			$attr['href'] = $wgTitle->getFullURL();
 		}
 		$attr['framed'] = false;
 		$attr['label'] = $label;
 		$attr['flags'] = [ 'destructive' ];
+		if ( array_key_exists( 'class', $attr ) ) {
+			$attr['classes'][] = $attr['class'];
+		}
+
 		return "\t\t" . new OOUI\ButtonWidget( $attr ) . "\n";
 	}
 
@@ -338,18 +358,15 @@ class PFFormUtils {
 	<div class='editOptions'>
 
 END;
-		$text .= self::summaryInputHTML( $is_disabled );
+		$req = RequestContext::getMain()->getRequest();
+		$summary = $req->getVal( 'wpSummary' );
+		$text .= self::summaryInputHTML( $is_disabled, null, [], $summary );
 		$user = RequestContext::getMain()->getUser();
 		if ( $user->isAllowed( 'minoredit' ) ) {
 			$text .= self::minorEditInputHTML( $form_submitted, $is_disabled, false );
 		}
 
-		if ( method_exists( $user, 'isRegistered' ) ) {
-			// MW 1.34+
-			$userIsRegistered = $user->isRegistered();
-		} else {
-			$userIsRegistered = $user->isLoggedIn();
-		}
+		$userIsRegistered = $user->isRegistered();
 		if ( $userIsRegistered ) {
 			$text .= self::watchInputHTML( $form_submitted, $is_disabled );
 		}
@@ -387,17 +404,10 @@ END;
 			return '';
 		}
 
-		if ( method_exists( 'MediaWiki\Permissions\PermissionManager', 'userCan' ) ) {
-			// MW 1.33+
-			$permissionManager = MediaWikiServices::getInstance()->getPermissionManager();
-			$user = RequestContext::getMain()->getUser();
-			if ( !$permissionManager->userCan( 'read', $user, $preloadTitle ) ) {
-				return '';
-			}
-		} else {
-			if ( !$preloadTitle->userCan( 'read' ) ) {
-				return '';
-			}
+		$permissionManager = MediaWikiServices::getInstance()->getPermissionManager();
+		$user = RequestContext::getMain()->getUser();
+		if ( !$permissionManager->userCan( 'read', $user, $preloadTitle ) ) {
+			return '';
 		}
 
 		$text = PFUtils::getPageText( $preloadTitle );
@@ -466,12 +476,13 @@ END;
 			}
 		}
 
-		if ( $form_id !== null ) {
+		if ( $form_def !== null ) {
+			// Do nothing.
+		} elseif ( $form_id !== null ) {
 			$form_title = Title::newFromID( $form_id );
 			$form_def = PFUtils::getPageText( $form_title );
-		} elseif ( $form_def == null ) {
-			// No id, no text -> nothing to do
-
+		} else {
+			// No text, no ID -> no form definition.
 			return '';
 		}
 
@@ -610,7 +621,7 @@ END;
 	 * Deletes the form definition associated with the given wiki page
 	 * from the main cache.
 	 *
-	 * Hooks: ArticlePurge, PageContentSave
+	 * Hooks: ArticlePurge
 	 *
 	 * @param WikiPage $wikipage
 	 * @return bool
@@ -645,14 +656,14 @@ END;
 
 	/**
 	 * Deletes the form definition associated with the given wiki page
-	 * from the main cache, for MW 1.35+.
+	 * from the main cache.
 	 *
 	 * Hook: MultiContentSave
 	 *
 	 * @param RenderedRevision $renderedRevision
 	 * @return bool
 	 */
-	public static function purgeCache2( RenderedRevision $renderedRevision ) {
+	public static function purgeCacheOnSave( RenderedRevision $renderedRevision ) {
 		$articleID = $renderedRevision->getRevision()->getPageId();
 		if ( method_exists( MediaWikiServices::class, 'getWikiPageFactory' ) ) {
 			// MW 1.36+
@@ -744,5 +755,19 @@ END;
 			}
 		}
 		return $old_i;
+	}
+
+	static function setShowOnSelect( $showOnSelectVals, $inputID, $isCheckbox = false ) {
+		global $wgPageFormsShowOnSelect;
+
+		foreach ( $showOnSelectVals as $divID => $options ) {
+			// A checkbox will just have div ID(s).
+			$data = $isCheckbox ? $divID : [ $options, $divID ];
+			if ( array_key_exists( $inputID, $wgPageFormsShowOnSelect ) ) {
+				$wgPageFormsShowOnSelect[$inputID][] = $data;
+			} else {
+				$wgPageFormsShowOnSelect[$inputID] = [ $data ];
+			}
+		}
 	}
 }

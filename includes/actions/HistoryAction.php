@@ -21,7 +21,17 @@
  * @ingroup Actions
  */
 
+use MediaWiki\Feed\AtomFeed;
+use MediaWiki\Feed\FeedItem;
+use MediaWiki\Feed\FeedUtils;
+use MediaWiki\Feed\RSSFeed;
+use MediaWiki\Html\Html;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Pager\HistoryPager;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Utils\MWTimestamp;
 use Wikimedia\Rdbms\FakeResultWrapper;
 use Wikimedia\Rdbms\IResultWrapper;
 
@@ -55,7 +65,7 @@ class HistoryAction extends FormlessAction {
 	}
 
 	protected function getPageTitle() {
-		return $this->msg( 'history-title', $this->getTitle()->getPrefixedText() )->text();
+		return $this->msg( 'history-title' )->plaintextParams( $this->getTitle()->getPrefixedText() );
 	}
 
 	protected function getDescription() {
@@ -89,7 +99,10 @@ class HistoryAction extends FormlessAction {
 		// Precache various messages
 		if ( !isset( $this->message ) ) {
 			$this->message = [];
-			$msgs = [ 'cur', 'tooltip-cur', 'last', 'tooltip-last', 'pipe-separator' ];
+			$msgs = [
+				'cur', 'tooltip-cur', 'last', 'tooltip-last', 'pipe-separator',
+				'changeslist-nocomment', 'updatedmarker',
+			];
 			foreach ( $msgs as $msg ) {
 				$this->message[$msg] = $this->msg( $msg )->escaped();
 			}
@@ -152,7 +165,7 @@ class HistoryAction extends FormlessAction {
 		// But, when all of the revisions are marked as seen, then only way for new unseen revision
 		// markers to appear, is for the page to be edited, which updates page_touched/Last-Modified.
 		$watchlistManager = $services->getWatchlistManager();
-		$hasUnseenRevisionMarkers = $config->get( 'ShowUpdatedMarker' ) &&
+		$hasUnseenRevisionMarkers = $config->get( MainConfigNames::ShowUpdatedMarker ) &&
 			$watchlistManager->getTitleNotificationTimestamp(
 				$this->getUser(),
 				$this->getTitle()
@@ -179,15 +192,10 @@ class HistoryAction extends FormlessAction {
 		$out->addModules( 'mediawiki.action.history' );
 		$out->addModuleStyles( [
 			'mediawiki.interface.helpers.styles',
+			'codex-search-styles',
 			'mediawiki.action.history.styles',
 			'mediawiki.special.changeslist',
 		] );
-		if ( $config->get( 'UseMediaWikiUIEverywhere' ) ) {
-			$out->addModuleStyles( [
-				'mediawiki.ui.input',
-				'mediawiki.ui.checkbox',
-			] );
-		}
 
 		// Handle atom/RSS feeds.
 		$feedType = $request->getRawVal( 'feed' );
@@ -203,13 +211,13 @@ class HistoryAction extends FormlessAction {
 
 		// Fail nicely if article doesn't exist.
 		if ( !$this->getWikiPage()->exists() ) {
-			$send404Code = $config->get( 'Send404Code' );
+			$send404Code = $config->get( MainConfigNames::Send404Code );
 			if ( $send404Code ) {
 				$out->setStatusCode( 404 );
 			}
 			$out->addWikiMsg( 'nohistory' );
 
-			$dbr = wfGetDB( DB_REPLICA );
+			$dbr = $services->getDBLoadBalancerFactory()->getReplicaDatabase();
 
 			# show deletion/move log if there is an entry
 			LogEventsList::showLogExtract(
@@ -241,32 +249,33 @@ class HistoryAction extends FormlessAction {
 
 		// Add the general form.
 		$fields = [
-			[
-				'name' => 'title',
-				'type' => 'hidden',
-				'default' => $this->getTitle()->getPrefixedDBkey(),
-			],
-			[
+			'action' => [
 				'name' => 'action',
 				'type' => 'hidden',
 				'default' => 'history',
 			],
-			[
+			'date-range-to' => [
 				'type' => 'date',
 				'default' => $ts,
 				'label' => $this->msg( 'date-range-to' )->text(),
 				'name' => 'date-range-to',
 			],
-			[
+			'tagfilter' => [
 				'label-message' => 'tag-filter',
 				'type' => 'tagfilter',
 				'id' => 'tagfilter',
 				'name' => 'tagfilter',
 				'value' => $tagFilter,
-			]
+			],
+			'tagInvert' => [
+				'type' => 'check',
+				'name' => 'tagInvert',
+				'label-message' => 'invert',
+				'hide-if' => [ '===', 'tagfilter', '' ],
+			],
 		];
-		if ( $this->getContext()->getAuthority()->isAllowed( 'deletedhistory' ) ) {
-			$fields[] = [
+		if ( $this->getAuthority()->isAllowed( 'deletedhistory' ) ) {
+			$fields['deleted'] = [
 				'type' => 'check',
 				'label' => $this->msg( 'history-show-deleted' )->text(),
 				'default' => $request->getBool( 'deleted' ),
@@ -283,8 +292,8 @@ class HistoryAction extends FormlessAction {
 			->setId( 'mw-history-searchform' )
 			->setSubmitTextMsg( 'historyaction-submit' )
 			->setWrapperAttributes( [ 'id' => 'mw-history-search' ] )
-			->setWrapperLegendMsg( 'history-fieldset-title' );
-		$htmlForm->loadData();
+			->setWrapperLegendMsg( 'history-fieldset-title' )
+			->prepareForm();
 
 		$out->addHTML( $htmlForm->getHTML( false ) );
 
@@ -308,12 +317,15 @@ class HistoryAction extends FormlessAction {
 			$this,
 			$y,
 			$m,
-			$tagFilter,
-			$conds,
 			$d,
+			$tagFilter,
+			$request->getCheck( 'tagInvert' ),
+			$conds,
 			$services->getLinkBatchFactory(),
 			$watchlistManager,
-			$services->getCommentFormatter()
+			$services->getCommentFormatter(),
+			$services->getHookContainer(),
+			$services->getChangeTagsStore()
 		);
 		$out->addHTML(
 			$pager->getNavigationBar() .
@@ -341,12 +353,12 @@ class HistoryAction extends FormlessAction {
 			return new FakeResultWrapper( [] );
 		}
 
-		$dbr = wfGetDB( DB_REPLICA );
+		$dbr = MediaWikiServices::getInstance()->getDBLoadBalancerFactory()->getReplicaDatabase();
 
 		if ( $direction === self::DIR_PREV ) {
-			list( $dirs, $oper ) = [ "ASC", ">=" ];
+			[ $dirs, $oper ] = [ "ASC", ">=" ];
 		} else { /* $direction === self::DIR_NEXT */
-			list( $dirs, $oper ) = [ "DESC", "<=" ];
+			[ $dirs, $oper ] = [ "DESC", "<=" ];
 		}
 
 		if ( $offset ) {
@@ -357,23 +369,17 @@ class HistoryAction extends FormlessAction {
 
 		$page_id = $this->getWikiPage()->getId();
 
-		$revQuery = MediaWikiServices::getInstance()->getRevisionStore()->getQueryInfo();
-		// T270033 Index renaming
-		$revIndex = $dbr->indexExists( 'revision', 'page_timestamp',  __METHOD__ )
-			? 'page_timestamp'
-			: 'rev_page_timestamp';
-		return $dbr->select(
-			$revQuery['tables'],
-			$revQuery['fields'],
-			array_merge( [ 'rev_page' => $page_id ], $offsets ),
-			__METHOD__,
-			[
-				'ORDER BY' => "rev_timestamp $dirs",
-				'USE INDEX' => [ 'revision' => $revIndex ],
-				'LIMIT' => $limit
-			],
-			$revQuery['joins']
-		);
+		$res = MediaWikiServices::getInstance()->getRevisionStore()->newSelectQueryBuilder( $dbr )
+			->joinComment()
+			->where( [ 'rev_page' => $page_id ] )
+			->andWhere( $offsets )
+			->useIndex( [ 'revision' => 'rev_page_timestamp' ] )
+			->orderBy( [ 'rev_timestamp' ], $dirs )
+			->limit( $limit )
+			->caller( __METHOD__ )
+			->fetchResultSet();
+
+		return $res;
 	}
 
 	/**
@@ -387,7 +393,7 @@ class HistoryAction extends FormlessAction {
 		}
 		$request = $this->getRequest();
 
-		$feedClasses = $this->context->getConfig()->get( 'FeedClasses' );
+		$feedClasses = $this->context->getConfig()->get( MainConfigNames::FeedClasses );
 		/** @var RSSFeed|AtomFeed $feed */
 		$feed = new $feedClasses[$type](
 			$this->getTitle()->getPrefixedText() . ' - ' .
@@ -401,7 +407,7 @@ class HistoryAction extends FormlessAction {
 		$limit = $request->getInt( 'limit', 10 );
 		$limit = min(
 			max( $limit, 1 ),
-			$this->context->getConfig()->get( 'FeedLimit' )
+			$this->context->getConfig()->get( MainConfigNames::FeedLimit )
 		);
 
 		$items = $this->fetchRevisions( $limit, 0, self::DIR_NEXT );
@@ -434,7 +440,7 @@ class HistoryAction extends FormlessAction {
 	}
 
 	/**
-	 * Generate a FeedItem object from a given revision table row
+	 * Generate a MediaWiki\Feed\FeedItem object from a given revision table row
 	 * Borrows Recent Changes' feed generation functions for formatting;
 	 * includes a diff to the previous revision (if any).
 	 *

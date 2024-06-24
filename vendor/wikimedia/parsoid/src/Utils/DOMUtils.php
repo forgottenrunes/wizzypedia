@@ -20,7 +20,7 @@ use Wikimedia\RemexHtml\TreeBuilder\TreeBuilder;
 
 /**
  * DOM utilities for querying the DOM. This is largely independent of Parsoid
- * although some Parsoid details (diff markers, TokenUtils, inline content version)
+ * although some Parsoid details (TokenUtils, inline content version)
  * have snuck in.
  */
 class DOMUtils {
@@ -145,7 +145,7 @@ class DOMUtils {
 		return $node instanceof Element &&
 			!isset( Consts::$HTML['OnlyInlineElements'][DOMCompat::nodeName( $node )] ) &&
 			// This is a superset of \\MediaWiki\Tidy\RemexCompatMunger::$metadataElements
-			!isset( Consts::$HTML['MetaDataTags'][DOMCompat::nodeName( $node )] );
+			!self::isMetaDataTag( $node );
 	}
 
 	/**
@@ -193,33 +193,6 @@ class DOMUtils {
 	}
 
 	/**
-	 * Test the number of children this node has without using
-	 * `DOMNode::$childNodes->count()`.  This walks the sibling list and so
-	 * takes O(`nchildren`) time -- so `nchildren` is expected to be small
-	 * (say: 0, 1, or 2).
-	 *
-	 * Skips all diff markers by default.
-	 * @param Node $node
-	 * @param int $nchildren
-	 * @param bool $countDiffMarkers
-	 * @return bool
-	 */
-	public static function hasNChildren(
-		Node $node, int $nchildren, bool $countDiffMarkers = false
-	): bool {
-		for ( $child = $node->firstChild; $child; $child = $child->nextSibling ) {
-			if ( !$countDiffMarkers && self::isDiffMarker( $child ) ) {
-				continue;
-			}
-			if ( $nchildren <= 0 ) {
-				return false;
-			}
-			$nchildren -= 1;
-		}
-		return ( $nchildren === 0 );
-	}
-
-	/**
 	 * Build path from a node to its passed-in ancestor.
 	 * Doesn't include the ancestor in the returned path.
 	 *
@@ -248,6 +221,16 @@ class DOMUtils {
 	 */
 	public static function pathToRoot( Node $node ): array {
 		return self::pathToAncestor( $node, null );
+	}
+
+	/**
+	 * Compute length of path from $node to the root.
+	 * Root document is at depth 0, <html> at 1, <body> at 2.
+	 * @param Node $node
+	 * @return int
+	 */
+	public static function nodeDepth( Node $node ): int {
+		return count( self::pathToAncestor( $node ) ) - 1;
 	}
 
 	/**
@@ -351,7 +334,7 @@ class DOMUtils {
 	 * @param string $type Expected value of "typeof" attribute (literal string)
 	 * @return bool True if the node matches.
 	 */
-	public static function hasNameAndTypeOf( Node $n, string $name, string $type ) {
+	public static function hasNameAndTypeOf( Node $n, string $name, string $type ): bool {
 		return self::matchNameAndTypeOf(
 			$n, $name, '/^' . preg_quote( $type, '/' ) . '$/'
 		) !== null;
@@ -367,10 +350,37 @@ class DOMUtils {
 	 *   no match.
 	 */
 	public static function matchTypeOf( Node $n, string $typeRe ): ?string {
+		return self::matchMultivalAttr( $n, 'typeof', $typeRe );
+	}
+
+	/**
+	 * Determine whether the node matches the given `rel` attribute value.
+	 *
+	 * @param Node $n The node to test
+	 * @param string $relRe Regular expression matching the expected value of
+	 *   the `rel` attribute.
+	 * @return ?string The matching `rel` value, or `null` if there is
+	 *   no match.
+	 */
+	public static function matchRel( Node $n, string $relRe ): ?string {
+		return self::matchMultivalAttr( $n, 'rel', $relRe );
+	}
+
+	/**
+	 * Determine whether the node matches the given multivalue attribute value.
+	 *
+	 * @param Node $n The node to test
+	 * @param string $attrName the attribute to test (typically 'rel' or 'typeof')
+	 * @param string $valueRe Regular expression matching the expected value of
+	 *   the attribute.
+	 * @return ?string The matching attribute value, or `null` if there is
+	 *   no match.
+	 */
+	public static function matchMultivalAttr( Node $n, string $attrName, string $valueRe ): ?string {
 		if ( !( $n instanceof Element ) ) {
 			return null;
 		}
-		$attrValue = $n->getAttribute( 'typeof' );
+		$attrValue = $n->getAttribute( $attrName );
 		if ( $attrValue === '' ) {
 			return null;
 		}
@@ -378,7 +388,7 @@ class DOMUtils {
 			if ( $ty === '' ) {
 				continue;
 			}
-			$count = preg_match( $typeRe, $ty );
+			$count = preg_match( $valueRe, $ty );
 			Assert::invariant( $count !== false, "Bad regexp" );
 			if ( $count ) {
 				return $ty;
@@ -395,20 +405,42 @@ class DOMUtils {
 	 *   string.
 	 * @return bool True if the node matches.
 	 */
-	public static function hasTypeOf( Node $n, string $type ) {
+	public static function hasTypeOf( Node $n, string $type ): bool {
+		return self::hasValueInMultivalAttr( $n, 'typeof', $type );
+	}
+
+	/**
+	 * Determine whether the node matches the given rel attribute value.
+	 *
+	 * @param Node $n
+	 * @param string $rel Expected value of "rel" attribute, as a literal string.
+	 * @return bool True if the node matches.
+	 */
+	public static function hasRel( Node $n, string $rel ): bool {
+		return self::hasValueInMultivalAttr( $n, 'rel', $rel );
+	}
+
+	/**
+	 * Determine whether the node matches the given attribute value for a multivalued attribute
+	 * @param Node $n
+	 * @param string $attrName name of the attribute to check (typically 'typeof', 'rel')
+	 * @param string $value Expected value of $attrName" attribute, as a literal string.
+	 * @return bool True if the node matches
+	 */
+	public static function hasValueInMultivalAttr( Node $n, string $attrName, string $value ): bool {
 		// fast path
 		if ( !( $n instanceof Element ) ) {
 			return false;
 		}
-		$attrValue = $n->getAttribute( 'typeof' );
+		$attrValue = $n->getAttribute( $attrName );
 		if ( $attrValue === '' ) {
 			return false;
 		}
-		if ( $attrValue === $type ) {
+		if ( $attrValue === $value ) {
 			return true;
 		}
 		// fallback
-		return in_array( $type, explode( ' ', $attrValue ), true );
+		return in_array( $value, explode( ' ', $attrValue ), true );
 	}
 
 	/**
@@ -420,16 +452,43 @@ class DOMUtils {
 	 * @param string $type type
 	 */
 	public static function addTypeOf( Element $node, string $type ): void {
-		$oldValue = $node->getAttribute( 'typeof' ) ?? '';
+		self::addValueToMultivalAttr( $node, 'typeof', $type );
+	}
+
+	/**
+	 * Add a type to the rel attribute.  This method should almost always
+	 * be used instead of `setAttribute`, to ensure we don't overwrite existing
+	 * rel information.
+	 *
+	 * @param Element $node node
+	 * @param string $rel type
+	 */
+	public static function addRel( Element $node, string $rel ): void {
+		self::addValueToMultivalAttr( $node, 'rel', $rel );
+	}
+
+	/**
+	 * Add an element to a multivalue attribute (typeof, rel).  This method should almost always
+	 * be used instead of `setAttribute`, to ensure we don't overwrite existing
+	 * multivalue information.
+	 *
+	 * @param Element $node
+	 * @param string $attr
+	 * @param string $value
+	 */
+	public static function addValueToMultivalAttr(
+		Element $node, string $attr, string $value
+	): void {
+		$oldValue = $node->getAttribute( $attr ) ?? '';
 		if ( $oldValue !== '' ) {
-			$types = explode( ' ', $oldValue );
-			if ( !in_array( $type, $types, true ) ) {
+			$values = explode( ' ', $oldValue );
+			if ( !in_array( $value, $values, true ) ) {
 				// not in type set yet, so add it.
-				$types[] = $type;
+				$values[] = $value;
 			}
-			$node->setAttribute( 'typeof', implode( ' ', $types ) );
+			$node->setAttribute( $attr, implode( ' ', $values ) );
 		} else {
-			$node->setAttribute( 'typeof', $type );
+			$node->setAttribute( $attr, $value );
 		}
 	}
 
@@ -539,31 +598,6 @@ class DOMUtils {
 		return self::hasNameAndTypeOf( $n, 'meta', $type );
 	}
 
-	// FIXME: This would ideally belong in DiffUtils.js
-	// but that would introduce circular dependencies.
-
-	/**
-	 * Check a node to see whether it's a diff marker.
-	 *
-	 * @param ?Node $node
-	 * @param ?string $mark
-	 * @return bool
-	 */
-	public static function isDiffMarker(
-		?Node $node, ?string $mark = null
-	): bool {
-		if ( !$node ) {
-			return false;
-		}
-
-		if ( $mark ) {
-			return self::isMarkerMeta( $node, 'mw:DiffMarker/' . $mark );
-		} else {
-			return DOMCompat::nodeName( $node ) === 'meta' &&
-				self::matchTypeOf( $node, '#^mw:DiffMarker/#' );
-		}
-	}
-
 	/**
 	 * Check whether a node has any children that are elements.
 	 *
@@ -629,152 +663,6 @@ class DOMUtils {
 	}
 
 	/**
-	 * Is a node a content node?
-	 *
-	 * @param ?Node $node
-	 * @return bool
-	 */
-	public static function isContentNode( ?Node $node ): bool {
-		return !( $node instanceof Comment ) &&
-			!self::isIEW( $node ) &&
-			!self::isDiffMarker( $node );
-	}
-
-	/**
-	 * Get the first child element or non-IEW text node, ignoring
-	 * whitespace-only text nodes, comments, and deleted nodes.
-	 *
-	 * @param Node $node
-	 * @return Node|null
-	 */
-	public static function firstNonSepChild( Node $node ): ?Node {
-		$child = $node->firstChild;
-		while ( $child && !self::isContentNode( $child ) ) {
-			$child = $child->nextSibling;
-		}
-		return $child;
-	}
-
-	/**
-	 * Get the last child element or non-IEW text node, ignoring
-	 * whitespace-only text nodes, comments, and deleted nodes.
-	 *
-	 * @param Node $node
-	 * @return Node|null
-	 */
-	public static function lastNonSepChild( Node $node ): ?Node {
-		$child = $node->lastChild;
-		while ( $child && !self::isContentNode( $child ) ) {
-			$child = $child->previousSibling;
-		}
-		return $child;
-	}
-
-	/**
-	 * Get the previous non separator sibling node.
-	 *
-	 * @param Node $node
-	 * @return Node|null
-	 */
-	public static function previousNonSepSibling( Node $node ): ?Node {
-		$prev = $node->previousSibling;
-		while ( $prev && !self::isContentNode( $prev ) ) {
-			$prev = $prev->previousSibling;
-		}
-		return $prev;
-	}
-
-	/**
-	 * Get the next non separator sibling node.
-	 *
-	 * @param Node $node
-	 * @return Node|null
-	 */
-	public static function nextNonSepSibling( Node $node ): ?Node {
-		$next = $node->nextSibling;
-		while ( $next && !self::isContentNode( $next ) ) {
-			$next = $next->nextSibling;
-		}
-		return $next;
-	}
-
-	/**
-	 * Return the numbler of non deleted child nodes.
-	 *
-	 * @param Node $node
-	 * @return int
-	 */
-	public static function numNonDeletedChildNodes( Node $node ): int {
-		$n = 0;
-		$child = $node->firstChild;
-		while ( $child ) {
-			if ( !self::isDiffMarker( $child ) ) { // FIXME: This is ignoring both inserted/deleted
-				$n++;
-			}
-			$child = $child->nextSibling;
-		}
-		return $n;
-	}
-
-	/**
-	 * Get the first non-deleted child of node.
-	 *
-	 * @param Node $node
-	 * @return Node|null
-	 */
-	public static function firstNonDeletedChild( Node $node ): ?Node {
-		$child = $node->firstChild;
-		// FIXME: This is ignoring both inserted/deleted
-		while ( $child && self::isDiffMarker( $child ) ) {
-			$child = $child->nextSibling;
-		}
-		return $child;
-	}
-
-	/**
-	 * Get the last non-deleted child of node.
-	 *
-	 * @param Node $node
-	 * @return Node|null
-	 */
-	public static function lastNonDeletedChild( Node $node ): ?Node {
-		$child = $node->lastChild;
-		// FIXME: This is ignoring both inserted/deleted
-		while ( $child && self::isDiffMarker( $child ) ) {
-			$child = $child->previousSibling;
-		}
-		return $child;
-	}
-
-	/**
-	 * Get the next non deleted sibling.
-	 *
-	 * @param Node $node
-	 * @return Node|null
-	 */
-	public static function nextNonDeletedSibling( Node $node ): ?Node {
-		$node = $node->nextSibling;
-		while ( $node && self::isDiffMarker( $node ) ) { // FIXME: This is ignoring both inserted/deleted
-			$node = $node->nextSibling;
-		}
-		return $node;
-	}
-
-	/**
-	 * Get the previous non deleted sibling.
-	 *
-	 * @param Node $node
-	 * @return Node|null
-	 */
-	public static function previousNonDeletedSibling( Node $node ): ?Node {
-		$node = $node->previousSibling;
-		while ( $node && self::isDiffMarker( $node ) ) { // FIXME: This is ignoring both inserted/deleted
-			$node = $node->previousSibling;
-		}
-		return $node;
-	}
-
-	/**
 	 * Are all children of this node text or comment nodes?
 	 *
 	 * @param Node $node
@@ -783,10 +671,7 @@ class DOMUtils {
 	public static function allChildrenAreTextOrComments( Node $node ): bool {
 		$child = $node->firstChild;
 		while ( $child ) {
-			if ( !self::isDiffMarker( $child )
-				&& !( $child instanceof Text )
-				&& !( $child instanceof Comment )
-			) {
+			if ( !( $child instanceof Text || $child instanceof Comment ) ) {
 				return false;
 			}
 			$child = $child->nextSibling;
@@ -795,43 +680,23 @@ class DOMUtils {
 	}
 
 	/**
-	 * Does `node` contain nothing or just non-newline whitespace?
-	 * `strict` adds the condition that all whitespace is forbidden.
-	 *
-	 * @param Node $node
-	 * @param bool $strict
-	 * @return bool
-	 */
-	public static function nodeEssentiallyEmpty( Node $node, bool $strict = false ): bool {
-		$n = $node->firstChild;
-		while ( $n ) {
-			if ( $n instanceof Element && !self::isDiffMarker( $n ) ) {
-				return false;
-			} elseif ( $n instanceof Text &&
-				( $strict || !preg_match( '/^[ \t]*$/D',  $n->nodeValue ) )
-			) {
-				return false;
-			} elseif ( $n instanceof Comment ) {
-				return false;
-			}
-			$n = $n->nextSibling;
-		}
-		return true;
-	}
-
-	/**
 	 * Check if the dom-subtree rooted at node has an element with tag name 'tagName'
-	 * The root node is not checked.
+	 * By default, the root node is not checked.
 	 *
-	 * @param Node $node
-	 * @param string $tagName
+	 * @param Node $node The DOM node whose tree should be checked
+	 * @param string $tagName Tag name to look for
+	 * @param bool $checkRoot Should the root be checked?
 	 * @return bool
 	 */
-	public static function treeHasElement( Node $node, string $tagName ): bool {
+	public static function treeHasElement( Node $node, string $tagName, bool $checkRoot = false ): bool {
+		if ( $checkRoot && DOMCompat::nodeName( $node ) === $tagName ) {
+			return true;
+		}
+
 		$node = $node->firstChild;
 		while ( $node ) {
 			if ( $node instanceof Element ) {
-				if ( DOMCompat::nodeName( $node ) === $tagName || self::treeHasElement( $node, $tagName ) ) {
+				if ( self::treeHasElement( $node, $tagName, true ) ) {
 					return true;
 				}
 			}
@@ -951,7 +816,7 @@ class DOMUtils {
 	 */
 	public static function setFragmentInnerHTML(
 		DocumentFragment $frag, string $html
-	) {
+	): void {
 		// FIXME: This should be an HTML5 template element
 		$body = $frag->ownerDocument->createElement( 'body' );
 		DOMCompat::setInnerHTML( $body, $html );
@@ -1009,10 +874,10 @@ class DOMUtils {
 	 * that it is, sort of.
 	 *
 	 * @param Element $element
-	 * @return string[]
+	 * @return array<string,string>
 	 * @see https://phabricator.wikimedia.org/T235295
 	 */
-	public static function attributes( $element ): array {
+	public static function attributes( Element $element ): array {
 		$result = [];
 		// The 'xmlns' attribute is "invisible" T235295
 		if ( $element->hasAttribute( 'xmlns' ) ) {
@@ -1023,4 +888,13 @@ class DOMUtils {
 		}
 		return $result;
 	}
+
+	/**
+	 * @param Element $node
+	 * @return bool
+	 */
+	public static function isMetaDataTag( Element $node ): bool {
+		return isset( Consts::$HTML['MetaDataTags'][DOMCompat::nodeName( $node )] );
+	}
+
 }

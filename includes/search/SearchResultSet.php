@@ -21,10 +21,13 @@
  * @ingroup Search
  */
 
+use MediaWiki\Title\Title;
+
 /**
  * @ingroup Search
  */
 class SearchResultSet extends BaseSearchResultSet {
+
 	use SearchResultSetTrait;
 
 	protected $containedSyntax = false;
@@ -69,7 +72,7 @@ class SearchResultSet extends BaseSearchResultSet {
 		return $this->count();
 	}
 
-	final public function count() {
+	final public function count(): int {
 		return count( $this->extractResults() );
 	}
 

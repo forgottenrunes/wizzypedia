@@ -45,43 +45,65 @@ ve.ce.MWTransclusionNode.static.iconWhenInvisible = 'puzzle';
 /* Static Methods */
 
 /**
- * Get a list of descriptions of template parts in a transclusion node, excluding raw wikitext
+ * Get a plain text description of the template parts in a transclusion node, excluding raw wikitext
  * snippets.
  *
  * @static
- * @param {ve.dm.MWTransclusionNode} model Node model
- * @return {(string|undefined)[]} List of template part descriptions
- */
-ve.ce.MWTransclusionNode.static.getTemplatePartDescriptions = function ( model ) {
-	return model.getPartsList().map( this.getTemplatePartDescription );
-};
-
-/**
- * Get a description of a template part in a transclusion node, except it's a raw wikitext snippet.
- *
- * @static
- * @param {Object} part Template part
- * @return {string|undefined}
- */
-ve.ce.MWTransclusionNode.static.getTemplatePartDescription = function ( part ) {
-	if ( part.templatePage ) {
-		return mw.Title.newFromText( part.templatePage )
-			.getRelativeText( mw.config.get( 'wgNamespaceIds' ).template );
-	} else if ( part.template ) {
-		// Not actually a template, but e.g. a parser function
-		return part.template;
-	}
-};
-
-/**
- * @inheritdoc
+ * @param {ve.dm.MWTransclusionNode} model
+ * @return {string} Comma-separated list of template names
  */
 ve.ce.MWTransclusionNode.static.getDescription = function ( model ) {
-	return this.getTemplatePartDescriptions( model )
+	return model.getPartsList()
+		.map( function ( part ) {
+			if ( part.templatePage ) {
+				return mw.Title.newFromText( part.templatePage )
+					.getRelativeText( mw.config.get( 'wgNamespaceIds' ).template );
+			}
+			// Not actually a template, but e.g. a parser function
+			return part.template || '';
+		} )
 		.filter( function ( desc ) {
 			return desc;
 		} )
 		.join( ve.msg( 'comma-separator' ) );
+};
+
+/**
+ * Get a formatted description of the template parts in a transclusion node, excluding raw wikitext
+ * snippets.
+ *
+ * Like #getDescription, but parts generated from templates are linked to
+ * those templates
+ *
+ * @static
+ * @param {ve.dm.MWTransclusionNode} model
+ * @return {HTMLElement} DOM node with comma-separated list of template names
+ */
+ve.ce.MWTransclusionNode.static.getDescriptionDom = function ( model ) {
+	var nodes = model.getPartsList()
+		.map( function ( part ) {
+			if ( part.templatePage ) {
+				var title = mw.Title.newFromText( part.templatePage );
+				var link = document.createElement( 'a' );
+				link.textContent = title.getRelativeText( mw.config.get( 'wgNamespaceIds' ).template );
+				link.setAttribute( 'href', title.getUrl() );
+				return link;
+			}
+			// Not actually a template, but e.g. a parser function
+			return part.template ? document.createTextNode( part.template ) : null;
+		} )
+		.filter( function ( desc ) {
+			return desc;
+		} );
+	var span = document.createElement( 'span' );
+	nodes.forEach( function ( node, i ) {
+		if ( i ) {
+			span.appendChild( document.createTextNode( ve.msg( 'comma-separator' ) ) );
+		}
+		span.appendChild( node );
+	} );
+	ve.targetLinksToNewWindow( span );
+	return span;
 };
 
 /**
@@ -115,7 +137,7 @@ ve.ce.MWTransclusionNode.static.filterRendering = function ( contentNodes ) {
 	} );
 
 	function isWhitespaceNode( node ) {
-		return node && node.nodeType === Node.TEXT_NODE && !!node.data.match( whitespaceRegex );
+		return node && node.nodeType === Node.TEXT_NODE && whitespaceRegex.test( node.data );
 	}
 
 	while ( isWhitespaceNode( contentNodes[ 0 ] ) ) {
@@ -138,10 +160,17 @@ ve.ce.MWTransclusionNode.static.filterRendering = function ( contentNodes ) {
 /** @inheritDoc */
 ve.ce.MWTransclusionNode.prototype.executeCommand = function () {
 	var contextItems = this.focusableSurface.getSurface().getContext().items;
-	if ( contextItems[ 0 ] instanceof ve.ui.MWTransclusionContextItem ) {
-		// Utilize the context item when it's there instead of triggering the command manually.
-		// Required to make the context item show the "Loading…" message (see T297773).
-		contextItems[ 0 ].onEditButtonClick( 'command' );
+	var contextClicked = contextItems.some( function ( contextItem ) {
+		if ( contextItem instanceof ve.ui.MWTransclusionContextItem ) {
+			// Utilize the context item when it's there instead of triggering the command manually.
+			// Required to make the context item show the "Loading…" message (see T297773).
+			contextItem.onEditButtonClick();
+			return true;
+		}
+		return false;
+	} );
+
+	if ( contextClicked ) {
 		return;
 	}
 
@@ -226,7 +255,7 @@ ve.ce.MWTransclusionNode.prototype.getRenderedDomElements = function () {
  */
 ve.ce.MWTransclusionNode.prototype.filterRenderedDomElements = function ( domElements ) {
 	// We want to remove all styles and links which aren't from TemplateStyles.
-	var selector = 'style:not([data-mw-deduplicate^="TemplateStyles:"]), link:not([rel="mw-deduplicated-inline-style"][href^="mw-data:TemplateStyles:"])';
+	var selector = 'style:not([data-mw-deduplicate^="TemplateStyles:"]), link:not([rel~="mw-deduplicated-inline-style"][href^="mw-data:TemplateStyles:"])';
 	return $( domElements ).find( selector ).addBack( selector ).remove().end().end().toArray();
 };
 

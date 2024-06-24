@@ -24,7 +24,7 @@ use Html;
 use HTMLForm;
 use MediaWiki\Extension\OATHAuth\HTMLForm\IManageForm;
 use MediaWiki\Extension\OATHAuth\IModule;
-use MediaWiki\Extension\OATHAuth\OATHAuth;
+use MediaWiki\Extension\OATHAuth\OATHAuthModuleRegistry;
 use MediaWiki\Extension\OATHAuth\OATHUser;
 use MediaWiki\Extension\OATHAuth\OATHUserRepository;
 use Message;
@@ -43,9 +43,9 @@ class OATHManage extends SpecialPage {
 	public const ACTION_DISABLE = 'disable';
 
 	/**
-	 * @var OATHAuth
+	 * @var OATHAuthModuleRegistry
 	 */
-	protected $auth;
+	protected $moduleRegistry;
 
 	/**
 	 * @var OATHUserRepository
@@ -63,7 +63,7 @@ class OATHManage extends SpecialPage {
 	protected $action;
 
 	/**
-	 * @var IModule
+	 * @var IModule|null
 	 */
 	protected $requestedModule;
 
@@ -71,17 +71,24 @@ class OATHManage extends SpecialPage {
 	 * Initializes a page to manage available 2FA modules
 	 *
 	 * @param OATHUserRepository $userRepo
-	 * @param OATHAuth $auth
+	 * @param OATHAuthModuleRegistry $moduleRegistry
 	 *
 	 * @throws ConfigException
 	 * @throws MWException
 	 */
-	public function __construct( $userRepo, $auth ) {
+	public function __construct( $userRepo, OATHAuthModuleRegistry $moduleRegistry ) {
 		parent::__construct( 'OATHManage', 'oathauth-enable' );
 
 		$this->userRepo = $userRepo;
-		$this->auth = $auth;
+		$this->moduleRegistry = $moduleRegistry;
 		$this->authUser = $this->userRepo->findByUser( $this->getUser() );
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	protected function getGroupName() {
+		return 'login';
 	}
 
 	/**
@@ -148,7 +155,7 @@ class OATHManage extends SpecialPage {
 
 	private function setModule() {
 		$moduleKey = $this->getRequest()->getVal( 'module', '' );
-		$this->requestedModule = $this->auth->getModuleByKey( $moduleKey );
+		$this->requestedModule = $this->moduleRegistry->getModuleByKey( $moduleKey );
 	}
 
 	private function hasEnabled() {
@@ -175,7 +182,7 @@ class OATHManage extends SpecialPage {
 	}
 
 	private function addInactiveHTML() {
-		foreach ( $this->auth->getAllModules() as $key => $module ) {
+		foreach ( $this->moduleRegistry->getAllModules() as $module ) {
 			if ( $this->isModuleEnabled( $module ) ) {
 				continue;
 			}
@@ -351,7 +358,7 @@ class OATHManage extends SpecialPage {
 	}
 
 	private function hasAlternativeModules() {
-		foreach ( $this->auth->getAllModules() as $key => $module ) {
+		foreach ( $this->moduleRegistry->getAllModules() as $module ) {
 			if ( !$this->isModuleEnabled( $module ) ) {
 				return true;
 			}

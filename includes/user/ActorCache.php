@@ -44,8 +44,7 @@ class ActorCache {
 	/** @var string Key by user name */
 	public const KEY_USER_NAME = 'name';
 
-	/** @var int */
-	private $maxSize;
+	private int $maxSize;
 
 	/**
 	 * @var array[][] Contains 3 keys, KEY_ACTOR_ID, KEY_USER_ID, and KEY_USER_NAME,
@@ -88,8 +87,7 @@ class ActorCache {
 	 */
 	public function add( int $actorId, UserIdentity $actor ) {
 		while ( count( $this->cache[self::KEY_ACTOR_ID] ) >= $this->maxSize ) {
-			reset( $this->cache[self::KEY_ACTOR_ID] );
-			$evictId = key( $this->cache[self::KEY_ACTOR_ID] );
+			$evictId = array_key_first( $this->cache[self::KEY_ACTOR_ID] );
 			$this->remove( $this->cache[self::KEY_ACTOR_ID][$evictId]['actor'] );
 		}
 		$value = [ 'actorId' => $actorId, 'actor' => $actor ];

@@ -24,7 +24,6 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
-use MediaWiki\MediaWikiServices;
 use Wikimedia\Rdbms\DBQueryError;
 use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Rdbms\IResultWrapper;
@@ -58,7 +57,7 @@ class MwSql extends Maintenance {
 		// We want to allow "" for the wikidb, meaning don't call select_db()
 		$wiki = $this->hasOption( 'wikidb' ) ? $this->getOption( 'wikidb' ) : false;
 		// Get the appropriate load balancer (for this wiki)
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
+		$lbFactory = $this->getServiceContainer()->getDBLoadBalancerFactory();
 		if ( $this->hasOption( 'cluster' ) ) {
 			$lb = $lbFactory->getExternalLB( $this->getOption( 'cluster' ) );
 		} else {
@@ -110,7 +109,7 @@ class MwSql extends Maintenance {
 		if ( $this->hasOption( 'query' ) ) {
 			$query = $this->getOption( 'query' );
 			$res = $this->sqlDoQuery( $db, $query, /* dieOnError */ true );
-			$lbFactory->waitForReplication();
+			$this->waitForReplication();
 			if ( $this->hasOption( 'status' ) && !$res ) {
 				$this->fatalError( 'Failed.', 2 );
 			}
@@ -158,12 +157,12 @@ class MwSql extends Maintenance {
 			$res = $this->sqlDoQuery( $db, $wholeLine, $doDie );
 			if ( $this->getBatchSize() && ++$batchCount >= $this->getBatchSize() ) {
 				$batchCount = 0;
-				$lbFactory->waitForReplication();
+				$this->waitForReplication();
 			}
 			$prompt = $newPrompt;
 			$wholeLine = '';
 		}
-		$lbFactory->waitForReplication();
+		$this->waitForReplication();
 		if ( $this->hasOption( 'status' ) && !$res ) {
 			$this->fatalError( 'Failed.', 2 );
 		}

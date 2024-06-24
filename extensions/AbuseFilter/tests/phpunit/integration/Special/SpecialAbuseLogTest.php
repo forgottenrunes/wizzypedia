@@ -37,7 +37,7 @@ class SpecialAbuseLogTest extends MediaWikiIntegrationTestCase {
 		$user = $this->createMock( UserIdentity::class );
 		$authority = new SimpleAuthority( $user, $canSeeSuppressed ? [ 'viewsuppressed' ] : [] );
 		$afPermManager = $this->createMock( AbuseFilterPermissionManager::class );
-		$afPermManager->method( 'canSeeHiddenLogEntries' )->with( $user )->willReturn( $canSeeHidden );
+		$afPermManager->method( 'canSeeHiddenLogEntries' )->with( $authority )->willReturn( $canSeeHidden );
 		$revLookup = $this->createMock( RevisionLookup::class );
 		$revLookup->method( 'getRevisionById' )->willReturn( $revRec );
 		$this->setService( 'RevisionLookup', $revLookup );
@@ -47,7 +47,7 @@ class SpecialAbuseLogTest extends MediaWikiIntegrationTestCase {
 		);
 	}
 
-	public function provideEntryAndVisibility(): Generator {
+	public static function provideEntryAndVisibility(): Generator {
 		$visibleRow = (object)[ 'afl_rev_id' => 1, 'afl_deleted' => 0 ];
 		$hiddenRow = (object)[ 'afl_rev_id' => 1, 'afl_deleted' => 1 ];
 		$page = new PageIdentityValue( 1, NS_MAIN, 'Foo', PageIdentityValue::LOCAL );

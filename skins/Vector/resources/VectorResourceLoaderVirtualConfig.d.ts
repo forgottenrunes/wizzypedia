@@ -1,8 +1,4 @@
-/** See Vector\Hooks::getVectorResourceLoaderConfig */
+/** For virtual configuration of resources/skins.vector.js/config.json */
 interface VectorResourceLoaderVirtualConfig {
-	wgVectorSearchHost: string;
-	/**
-	 * The name of the ResourceLoader module that contains search.
-	 */
-	wgVectorUseWvuiSearch: boolean
+	VectorSearchApiUrl: string;
 }

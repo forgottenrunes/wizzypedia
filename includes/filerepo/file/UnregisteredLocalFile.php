@@ -1,8 +1,5 @@
 <?php
-
 /**
- * File without associated database record.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -19,14 +16,16 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup FileAbstraction
  */
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
 
 /**
- * A file object referring to either a standalone local file, or a file in a
- * local repository with no database, for example an FileRepo repository.
+ * File without associated database record.
+ *
+ * Represents a standalone local file, or a file in a local repository
+ * with no database, for example a FileRepo repository.
  *
  * Read-only.
  *
@@ -43,7 +42,7 @@ class UnregisteredLocalFile extends File {
 	/** @var string */
 	protected $path;
 
-	/** @var bool|string */
+	/** @var string|false */
 	protected $mime;
 
 	/** @var array[]|bool[] Dimension data */
@@ -78,10 +77,10 @@ class UnregisteredLocalFile extends File {
 	 * A FileRepo object is not required here, unlike most other File classes.
 	 *
 	 * @throws MWException
-	 * @param Title|bool $title
-	 * @param FileRepo|bool $repo
-	 * @param string|bool $path
-	 * @param string|bool $mime
+	 * @param Title|false $title
+	 * @param FileRepo|false $repo
+	 * @param string|false $path
+	 * @param string|false $mime
 	 */
 	public function __construct( $title = false, $repo = false, $path = false, $mime = false ) {
 		if ( !( $title && $repo ) && !$path ) {
@@ -111,7 +110,7 @@ class UnregisteredLocalFile extends File {
 
 	/**
 	 * @param int $page
-	 * @return array|bool
+	 * @return array|false
 	 */
 	private function cachePageDimensions( $page = 1 ) {
 		$page = (int)$page;
@@ -158,12 +157,17 @@ class UnregisteredLocalFile extends File {
 	}
 
 	/**
-	 * @return bool|string
+	 * @return string|false
 	 */
 	public function getMimeType() {
 		if ( !isset( $this->mime ) ) {
-			$magic = MediaWikiServices::getInstance()->getMimeAnalyzer();
-			$this->mime = $magic->guessMimeType( $this->getLocalRefPath() );
+			$refPath = $this->getLocalRefPath();
+			if ( $refPath !== false ) {
+				$magic = MediaWikiServices::getInstance()->getMimeAnalyzer();
+				$this->mime = $magic->guessMimeType( $refPath );
+			} else {
+				$this->mime = false;
+			}
 		}
 
 		return $this->mime;
@@ -204,7 +208,7 @@ class UnregisteredLocalFile extends File {
 	}
 
 	/**
-	 * @return bool|string
+	 * @return string|false
 	 */
 	public function getURL() {
 		if ( $this->repo ) {

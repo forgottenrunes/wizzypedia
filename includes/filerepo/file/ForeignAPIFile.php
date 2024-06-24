@@ -16,11 +16,11 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup FileAbstraction
  */
 
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Permissions\Authority;
+use MediaWiki\Title\Title;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
 
@@ -38,7 +38,7 @@ class ForeignAPIFile extends File {
 	protected $repoClass = ForeignAPIRepo::class;
 
 	/**
-	 * @param Title|string|bool $title
+	 * @param Title|string|false $title
 	 * @param ForeignApiRepo $repo
 	 * @param array $info
 	 * @param bool $exists
@@ -96,7 +96,7 @@ class ForeignAPIFile extends File {
 	}
 
 	/**
-	 * @return ForeignAPIRepo|bool
+	 * @return ForeignAPIRepo|false
 	 */
 	public function getRepo() {
 		return $this->repo;
@@ -121,7 +121,7 @@ class ForeignAPIFile extends File {
 	/**
 	 * @param array $params
 	 * @param int $flags
-	 * @return bool|MediaTransformOutput
+	 * @return MediaTransformOutput|false
 	 */
 	public function transform( $params, $flags = 0 ) {
 		if ( !$this->canRender() ) {
@@ -246,7 +246,7 @@ class ForeignAPIFile extends File {
 	}
 
 	/**
-	 * @return bool|int|null
+	 * @return int|null|false
 	 */
 	public function getSize() {
 		return isset( $this->mInfo['size'] ) ? intval( $this->mInfo['size'] ) : null;
@@ -306,7 +306,7 @@ class ForeignAPIFile extends File {
 	}
 
 	/**
-	 * @return bool|string
+	 * @return string|false
 	 */
 	public function getTimestamp() {
 		return wfTimestamp( TS_MW,
@@ -341,7 +341,7 @@ class ForeignAPIFile extends File {
 	}
 
 	/**
-	 * @return bool|string
+	 * @return string|false
 	 */
 	public function getDescriptionUrl() {
 		return $this->mInfo['descriptionurl'] ?? false;

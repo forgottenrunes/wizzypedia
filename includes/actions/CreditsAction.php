@@ -23,33 +23,35 @@
  * @author <evan@wikitravel.org>
  */
 
+use MediaWiki\Html\Html;
+use MediaWiki\Linker\Linker;
 use MediaWiki\Linker\LinkRenderer;
+use MediaWiki\MainConfigNames;
+use MediaWiki\User\User;
 use MediaWiki\User\UserFactory;
+use MediaWiki\User\UserRigorOptions;
 
 /**
  * @ingroup Actions
  */
 class CreditsAction extends FormlessAction {
 
-	/** @var LinkRenderer */
-	private $linkRenderer;
-
-	/** @var UserFactory */
-	private $userFactory;
+	private LinkRenderer $linkRenderer;
+	private UserFactory $userFactory;
 
 	/**
-	 * @param Page $page
+	 * @param Article $article
 	 * @param IContextSource $context
 	 * @param LinkRenderer $linkRenderer
 	 * @param UserFactory $userFactory
 	 */
 	public function __construct(
-		Page $page,
+		Article $article,
 		IContextSource $context,
 		LinkRenderer $linkRenderer,
 		UserFactory $userFactory
 	) {
-		parent::__construct( $page, $context );
+		parent::__construct( $article, $context );
 		$this->linkRenderer = $linkRenderer;
 		$this->userFactory = $userFactory;
 	}
@@ -108,7 +110,7 @@ class CreditsAction extends FormlessAction {
 	 */
 	private function getAuthor() {
 		$page = $this->getWikiPage();
-		$user = $this->userFactory->newFromName( $page->getUserText(), UserFactory::RIGOR_NONE );
+		$user = $this->userFactory->newFromName( $page->getUserText(), UserRigorOptions::RIGOR_NONE );
 
 		$timestamp = $page->getTimestamp();
 		if ( $timestamp ) {
@@ -121,6 +123,7 @@ class CreditsAction extends FormlessAction {
 		}
 
 		return $this->msg( 'lastmodifiedatby', $d, $t )->rawParams(
+			// @phan-suppress-next-line PhanTypeMismatchArgumentNullable RIGOR_NONE never returns null
 			$this->userLink( $user ) )->params( $user->getName() )->escaped();
 	}
 
@@ -131,7 +134,7 @@ class CreditsAction extends FormlessAction {
 	 * @return bool
 	 */
 	protected function canShowRealUserName() {
-		$hiddenPrefs = $this->context->getConfig()->get( 'HiddenPrefs' );
+		$hiddenPrefs = $this->context->getConfig()->get( MainConfigNames::HiddenPrefs );
 		return !in_array( 'realname', $hiddenPrefs );
 	}
 

@@ -1,22 +1,14 @@
 @import 'variables.less';
 
-figure[ typeof~='mw:Image/Thumb' ],
-figure[ typeof~='mw:Video/Thumb' ],
-figure[ typeof~='mw:Audio/Thumb' ],
-figure[ typeof~='mw:Image/Frame' ],
-figure[ typeof~='mw:Video/Frame' ],
-figure[ typeof~='mw:Audio/Frame' ] {
+figure[ typeof~='mw:File/Thumb' ],
+figure[ typeof~='mw:File/Frame' ] {
 	border: @border-thumbinner-screen;
 	border-bottom: 0;  // No border to figcaption
 	background-color: @background-color-thumbinner-screen;
 
-	> *:first-child {
-		> audio,
-		> img,
-		> video {
-			border: @border-thumbimage-screen;
-			background: @background-color-thumbimage-screen;
-		}
+	> :not( figcaption ) .mw-file-element {
+		border: @border-thumbimage-screen;
+		background: @background-color-thumbimage-screen;
 	}
 
 	> figcaption {
@@ -31,62 +23,74 @@ figure[ typeof~='mw:Audio/Frame' ] {
 	}
 }
 
-.mw-image-border > *:first-child {
-	> audio,
-	> img,
-	> video {
-		border: @border-thumbborder-screen;
-	}
+.mw-image-border .mw-file-element {
+	border: @border-thumbborder-screen;
 }
 
-/* Magnify clip, not present for broken media */
-figure[ typeof~='mw:Image/Thumb' ]:not( [ typeof~='mw:Error' ] ),
-figure[ typeof~='mw:Video/Thumb' ]:not( [ typeof~='mw:Error' ] ),
-figure[ typeof~='mw:Audio/Thumb' ]:not( [ typeof~='mw:Error' ] ) {
-	> figcaption:before {
+figure[ typeof~='mw:File/Thumb' ] {
+	> figcaption::before {
 		content: '';
 		width: 15px;
 		height: 11px;
 
+		// Default where page content language is not set
+		// Allow to flip
+		margin: 0 0 0 3px;
+		float: right;
+
+		// Defaults for page content language
+
 		.mw-content-ltr & {
 			/* @noflip */
-			margin-left: 3px;
+			margin: 0 0 0 3px;
 			/* @noflip */
 			float: right;
 		}
 
 		.mw-content-rtl & {
 			/* @noflip */
-			margin-right: 3px;
+			margin: 0 3px 0 0;
 			/* @noflip */
 			float: left;
 		}
 	}
 
-	> a {
-		display: inline-block;
+	> .mw-file-description,
+	> .mw-file-magnify {
+		display: block;
 		position: relative;
-	}
 
-	> a:after {
-		content: '';
-		width: 15px;
-		height: 11px;
-		position: absolute;
-		bottom: -11px;
+		&::after {
+			content: '';
+			width: 15px;
+			height: 11px;
+			position: absolute;
+			bottom: -11px;
 
-		.mw-content-ltr & {
-			/* @noflip */
+			// Default where page content language is not set
+			// Allow to flip
 			right: 6px;
-			/* @noflip */
 			background-image: @background-image-magnify-ltr;
-		}
 
-		.mw-content-rtl & {
-			/* @noflip */
-			left: 6px;
-			/* @noflip */
-			background-image: @background-image-magnify-rtl;
+			// Defaults for page content language
+
+			.mw-content-ltr & {
+				/* @noflip */
+				right: 6px;
+				/* @noflip */
+				left: auto;
+				/* @noflip */
+				background-image: @background-image-magnify-ltr;
+			}
+
+			.mw-content-rtl & {
+				/* @noflip */
+				right: auto;
+				/* @noflip */
+				left: 6px;
+				/* @noflip */
+				background-image: @background-image-magnify-rtl;
+			}
 		}
 	}
 }

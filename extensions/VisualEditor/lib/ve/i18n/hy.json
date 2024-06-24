@@ -14,7 +14,6 @@
 		]
 	},
 	"visualeditor": "Վիզուալ խմբագրիչ",
-	"visualeditor-aliencontextitem-title": "Տարր",
 	"visualeditor-aliennode-tooltip": "Ցավում եմ, սակայն այս տարրը կարելի է խմբագրել միայն ելատեքստում։",
 	"visualeditor-align-desc-center": "Կենտրոն",
 	"visualeditor-align-desc-left": "Ձախ",
@@ -49,7 +48,6 @@
 	"visualeditor-clipboard-paste-special": "Փակցնել միայն տեքստը",
 	"visualeditor-command-dialog-cancel": "Ընտրել / չեղարկել փոփոխությունը",
 	"visualeditor-command-dialog-confirm": "Հաստատել փոփոխությունը",
-	"visualeditor-commentinspector-edit": "Խմբագրել մեկնաբանությունը",
 	"visualeditor-commentinspector-title": "Մեկնաբանություն",
 	"visualeditor-commentinspector-tooltip": "Մեկնաբանություն",
 	"visualeditor-content-select-all": "Նշել ամբողջը",

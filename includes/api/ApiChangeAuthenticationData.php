@@ -21,6 +21,7 @@
  */
 
 use MediaWiki\Auth\AuthManager;
+use MediaWiki\MainConfigNames;
 
 /**
  * Change authentication data with AuthManager
@@ -28,8 +29,7 @@ use MediaWiki\Auth\AuthManager;
  * @ingroup API
  */
 class ApiChangeAuthenticationData extends ApiBase {
-	/** @var AuthManager */
-	private $authManager;
+	private AuthManager $authManager;
 
 	/**
 	 * @param ApiMain $main
@@ -46,7 +46,7 @@ class ApiChangeAuthenticationData extends ApiBase {
 	}
 
 	public function execute() {
-		if ( !$this->getUser()->isRegistered() ) {
+		if ( !$this->getUser()->isNamed() ) {
 			$this->dieWithError( 'apierror-mustbeloggedin-changeauthenticationdata', 'notloggedin' );
 		}
 
@@ -58,7 +58,7 @@ class ApiChangeAuthenticationData extends ApiBase {
 		// Fetch the request
 		$reqs = ApiAuthManagerHelper::blacklistAuthenticationRequests(
 			$helper->loadAuthenticationRequests( AuthManager::ACTION_CHANGE ),
-			$this->getConfig()->get( 'ChangeCredentialsBlacklist' )
+			$this->getConfig()->get( MainConfigNames::ChangeCredentialsBlacklist )
 		);
 		if ( count( $reqs ) !== 1 ) {
 			$this->dieWithError( 'apierror-changeauth-norequest', 'badrequest' );

@@ -1,6 +1,11 @@
 <?php
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\Page\PageReferenceValue;
+use MediaWiki\Parser\ParserOutputFlags;
+use MediaWiki\Title\Title;
+use MediaWiki\User\UserIdentity;
+use Wikimedia\TestingAccessWrapper;
 
 /**
  * See also unit tests at \MediaWiki\Tests\Unit\WikitextContentHandlerTest
@@ -16,41 +21,6 @@ class WikitextContentHandlerTest extends MediaWikiLangTestCase {
 
 		$this->handler = $this->getServiceContainer()->getContentHandlerFactory()
 			->getContentHandler( CONTENT_MODEL_WIKITEXT );
-	}
-
-	/**
-	 * @dataProvider provideMakeRedirectContent
-	 * @param Title|string $title Title object or string for Title::newFromText()
-	 * @param string $expected Serialized form of the content object built
-	 * @covers WikitextContentHandler::makeRedirectContent
-	 */
-	public function testMakeRedirectContent( $title, $expected ) {
-		$this->getServiceContainer()->getContentLanguage()->resetNamespaces();
-
-		$this->getServiceContainer()->resetServiceForTesting( 'MagicWordFactory' );
-
-		if ( is_string( $title ) ) {
-			$title = Title::newFromText( $title );
-		}
-		$content = $this->handler->makeRedirectContent( $title );
-		$this->assertEquals( $expected, $content->serialize() );
-	}
-
-	public static function provideMakeRedirectContent() {
-		return [
-			[ 'Hello', '#REDIRECT [[Hello]]' ],
-			[ 'Template:Hello', '#REDIRECT [[Template:Hello]]' ],
-			[ 'Hello#section', '#REDIRECT [[Hello#section]]' ],
-			[ 'user:john_doe#section', '#REDIRECT [[User:John doe#section]]' ],
-			[ 'MEDIAWIKI:FOOBAR', '#REDIRECT [[MediaWiki:FOOBAR]]' ],
-			[ 'Category:Foo', '#REDIRECT [[:Category:Foo]]' ],
-			[ Title::makeTitle( NS_MAIN, 'en:Foo' ), '#REDIRECT [[en:Foo]]' ],
-			[ Title::makeTitle( NS_MAIN, 'Foo', '', 'en' ), '#REDIRECT [[:en:Foo]]' ],
-			[
-				Title::makeTitle( NS_MAIN, 'Bar', 'fragment', 'google' ),
-				'#REDIRECT [[google:Bar#fragment]]'
-			],
-		];
 	}
 
 	public static function dataMerge3() {
@@ -248,7 +218,7 @@ class WikitextContentHandlerTest extends MediaWikiLangTestCase {
 	 * @covers WikitextContentHandler::getChangeTag
 	 */
 	public function testGetChangeTag( $old, $new, $flags, $expected ) {
-		$this->setMwGlobals( 'wgSoftwareTags', [
+		$this->overrideConfigValue( MainConfigNames::SoftwareTags, [
 			'mw-new-redirect' => true,
 			'mw-removed-redirect' => true,
 			'mw-changed-redirect-target' => true,
@@ -270,8 +240,13 @@ class WikitextContentHandlerTest extends MediaWikiLangTestCase {
 	 */
 	public function testDataIndexFieldsFile() {
 		$mockEngine = $this->createMock( SearchEngine::class );
-		$title = Title::newFromText( 'Somefile.jpg', NS_FILE );
-		$page = new WikiPage( $title );
+		$title = Title::makeTitle( NS_FILE, 'Somefile.jpg' );
+		$page = $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( $title );
+		// Mark the page as not existent to avoid DB queries.
+		$pageWrapper = TestingAccessWrapper::newFromObject( $page );
+		$pageWrapper->mLatest = null;
+		$pageWrapper->mId = 0;
+		$pageWrapper->mDataLoadedFrom = WikiPage::READ_NORMAL;
 
 		$fileHandler = $this->getMockBuilder( FileContentHandler::class )
 			->disableOriginalConstructor()
@@ -288,7 +263,7 @@ class WikitextContentHandlerTest extends MediaWikiLangTestCase {
 			->method( 'getDataForSearchIndex' )
 			->willReturn( [ 'file_text' => 'This is file content' ] );
 
-		$data = $handler->getDataForSearchIndex( $page, new ParserOutput(), $mockEngine );
+		$data = $handler->getDataForSearchIndex( $page, new ParserOutput( '' ), $mockEngine );
 		$this->assertArrayHasKey( 'file_text', $data );
 		$this->assertEquals( 'This is file content', $data['file_text'] );
 	}
@@ -298,20 +273,31 @@ class WikitextContentHandlerTest extends MediaWikiLangTestCase {
 	 */
 	public function testHadSignature() {
 		$services = $this->getServiceContainer();
+
+		$pageObj = PageReferenceValue::localReference( NS_MAIN, __CLASS__ );
+		// Force a content model in the converted Title to avoid DB queries.
+		$title = $services->getTitleFactory()->newFromPageReference( $pageObj );
+		$title->setContentModel( CONTENT_MODEL_WIKITEXT );
+		$titleFactory = $this->createMock( TitleFactory::class );
+		$titleFactory->method( 'newFromPageReference' )
+			->with( $pageObj )
+			->willReturn( $title );
+		$this->setService( 'TitleFactory', $titleFactory );
+
 		$contentTransformer = $services->getContentTransformer();
 		$contentRenderer = $services->getContentRenderer();
 		$this->hideDeprecated( 'AbstractContent::preSaveTransform' );
-
-		$pageObj = PageReferenceValue::localReference( NS_MAIN, __CLASS__ );
 
 		$content = new WikitextContent( '~~~~' );
 		$pstContent = $contentTransformer->preSaveTransform(
 			$content,
 			$pageObj,
-			$this->getTestUser()->getUser(),
+			$this->createMock( UserIdentity::class ),
 			ParserOptions::newFromAnon()
 		);
 
-		$this->assertTrue( $contentRenderer->getParserOutput( $pstContent, $pageObj )->getFlag( 'user-signature' ) );
+		$this->assertTrue( $contentRenderer->getParserOutput( $pstContent, $pageObj )->getOutputFlag(
+			ParserOutputFlags::USER_SIGNATURE
+		) );
 	}
 }

@@ -1,10 +1,8 @@
 <?php
 /** Cornish (kernowek)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Kernoweger
  * @author Kw-Moon
@@ -127,6 +125,7 @@ $specialPageAliases = [
 	'Randomredirect'            => [ 'DaskedyansDreJons' ],
 	'Recentchanges'             => [ 'Chanjyow_a-dhiwedhes' ],
 	'Recentchangeslinked'       => [ 'ChanjyowKelmys' ],
+	'Renameuser'                => [ 'DashenwelDevnydhyer' ],
 	'Revisiondelete'            => [ 'DileaAmendyans' ],
 	'Search'                    => [ 'Hwilas' ],
 	'Shortpages'                => [ 'FolennowBerr' ],

@@ -21,7 +21,16 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use HTMLForm;
+use MediaWiki\SpecialPage\FormSpecialPage;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\MalformedTitleException;
+use MediaWiki\Title\Title;
 use MediaWiki\User\UserFactory;
+use PermissionsError;
+use RepoGroup;
 
 /**
  * A special page that redirects to: the user for a numeric user id,
@@ -50,11 +59,8 @@ class SpecialRedirect extends FormSpecialPage {
 	 */
 	protected $mValue;
 
-	/** @var RepoGroup */
-	private $repoGroup;
-
-	/** @var UserFactory */
-	private $userFactory;
+	private RepoGroup $repoGroup;
+	private UserFactory $userFactory;
 
 	/**
 	 * @param RepoGroup $repoGroup
@@ -74,12 +80,12 @@ class SpecialRedirect extends FormSpecialPage {
 
 	/**
 	 * Set $mType and $mValue based on parsed value of $subpage.
-	 * @param string $subpage
+	 * @param string|null $subpage
 	 */
 	public function setParameter( $subpage ) {
 		// parse $subpage to pull out the parts
-		$parts = explode( '/', $subpage, 2 );
-		$this->mType = $parts[0];
+		$parts = $subpage !== null ? explode( '/', $subpage, 2 ) : [];
+		$this->mType = $parts[0] ?? null;
 		$this->mValue = $parts[1] ?? null;
 	}
 
@@ -90,14 +96,12 @@ class SpecialRedirect extends FormSpecialPage {
 	 */
 	public function dispatchUser() {
 		if ( !ctype_digit( $this->mValue ) ) {
-			// Message: redirect-not-numeric
-			return Status::newFatal( $this->getMessagePrefix() . '-not-numeric' );
+			return Status::newFatal( 'redirect-not-numeric' );
 		}
 		$user = $this->userFactory->newFromId( (int)$this->mValue );
 		$user->load(); // Make sure the id is validated by loading the user
 		if ( $user->isAnon() ) {
-			// Message: redirect-not-exists
-			return Status::newFatal( $this->getMessagePrefix() . '-not-exists' );
+			return Status::newFatal( 'redirect-not-exists' );
 		}
 		if ( $user->isHidden() && !$this->getAuthority()->isAllowed( 'hideuser' ) ) {
 			throw new PermissionsError( null, [ 'badaccess-group0' ] );
@@ -123,11 +127,11 @@ class SpecialRedirect extends FormSpecialPage {
 		} catch ( MalformedTitleException $e ) {
 			return Status::newFatal( $e->getMessageObject() );
 		}
+		// @phan-suppress-next-line PhanTypeMismatchArgumentNullable False positive
 		$file = $this->repoGroup->findFile( $title );
 
 		if ( !$file || !$file->exists() ) {
-			// Message: redirect-not-exists
-			return Status::newFatal( $this->getMessagePrefix() . '-not-exists' );
+			return Status::newFatal( 'redirect-not-exists' );
 		}
 		// Default behavior: Use the direct link to the file.
 		$url = $file->getUrl();
@@ -159,13 +163,11 @@ class SpecialRedirect extends FormSpecialPage {
 	public function dispatchRevision() {
 		$oldid = $this->mValue;
 		if ( !ctype_digit( $oldid ) ) {
-			// Message: redirect-not-numeric
-			return Status::newFatal( $this->getMessagePrefix() . '-not-numeric' );
+			return Status::newFatal( 'redirect-not-numeric' );
 		}
 		$oldid = (int)$oldid;
 		if ( $oldid === 0 ) {
-			// Message: redirect-not-exists
-			return Status::newFatal( $this->getMessagePrefix() . '-not-exists' );
+			return Status::newFatal( 'redirect-not-exists' );
 		}
 
 		return Status::newGood( wfAppendQuery( wfScript( 'index' ), [
@@ -181,13 +183,11 @@ class SpecialRedirect extends FormSpecialPage {
 	public function dispatchPage() {
 		$curid = $this->mValue;
 		if ( !ctype_digit( $curid ) ) {
-			// Message: redirect-not-numeric
-			return Status::newFatal( $this->getMessagePrefix() . '-not-numeric' );
+			return Status::newFatal( 'redirect-not-numeric' );
 		}
 		$curid = (int)$curid;
 		if ( $curid === 0 ) {
-			// Message: redirect-not-exists
-			return Status::newFatal( $this->getMessagePrefix() . '-not-exists' );
+			return Status::newFatal( 'redirect-not-exists' );
 		}
 
 		return Status::newGood( wfAppendQuery( wfScript( 'index' ), [
@@ -205,13 +205,11 @@ class SpecialRedirect extends FormSpecialPage {
 	public function dispatchLog() {
 		$logid = $this->mValue;
 		if ( !ctype_digit( $logid ) ) {
-			// Message: redirect-not-numeric
-			return Status::newFatal( $this->getMessagePrefix() . '-not-numeric' );
+			return Status::newFatal( 'redirect-not-numeric' );
 		}
 		$logid = (int)$logid;
 		if ( $logid === 0 ) {
-			// Message: redirect-not-exists
-			return Status::newFatal( $this->getMessagePrefix() . '-not-exists' );
+			return Status::newFatal( 'redirect-not-exists' );
 		}
 		$query = [ 'title' => 'Special:Log', 'logid' => $logid ];
 		return Status::newGood( wfAppendQuery( wfScript( 'index' ), $query ) );
@@ -252,7 +250,7 @@ class SpecialRedirect extends FormSpecialPage {
 			// so varnish cache.
 			$value = $status->getValue();
 			if ( is_array( $value ) ) {
-				list( $url, $code ) = $value;
+				[ $url, $code ] = $value;
 			} else {
 				$url = $value;
 				$code = 301;
@@ -269,6 +267,7 @@ class SpecialRedirect extends FormSpecialPage {
 		if ( $this->mValue !== null ) {
 			$this->getOutput()->setStatusCode( 404 );
 
+			// @phan-suppress-next-line PhanTypeMismatchReturnNullable Null of $status seems unreachable
 			return $status;
 		}
 
@@ -276,21 +275,18 @@ class SpecialRedirect extends FormSpecialPage {
 	}
 
 	protected function getFormFields() {
-		$mp = $this->getMessagePrefix();
 		$ns = [
 			// subpage => message
-			// Messages: redirect-user, redirect-page, redirect-revision,
-			// redirect-file, redirect-logid
-			'user' => $mp . '-user',
-			'page' => $mp . '-page',
-			'revision' => $mp . '-revision',
-			'file' => $mp . '-file',
-			'logid' => $mp . '-logid',
+			'user' => 'redirect-user',
+			'page' => 'redirect-page',
+			'revision' => 'redirect-revision',
+			'file' => 'redirect-file',
+			'logid' => 'redirect-logid',
 		];
 		$a = [];
 		$a['type'] = [
 			'type' => 'select',
-			'label-message' => $mp . '-lookup', // Message: redirect-lookup
+			'label-message' => 'redirect-lookup',
 			'options' => [],
 			'default' => current( array_keys( $ns ) ),
 		];
@@ -300,13 +296,13 @@ class SpecialRedirect extends FormSpecialPage {
 		}
 		$a['value'] = [
 			'type' => 'text',
-			'label-message' => $mp . '-value' // Message: redirect-value
+			'label-message' => 'redirect-value'
 		];
 		// set the defaults according to the parsed subpage path
-		if ( !empty( $this->mType ) ) {
+		if ( $this->mType ) {
 			$a['type']['default'] = $this->mType;
 		}
-		if ( !empty( $this->mValue ) ) {
+		if ( $this->mValue ) {
 			$a['value']['default'] = $this->mValue;
 		}
 
@@ -327,13 +323,8 @@ class SpecialRedirect extends FormSpecialPage {
 	}
 
 	protected function alterForm( HTMLForm $form ) {
-		/* display summary at top of page */
-		$this->outputHeader();
 		// tweak label on submit button
-		// Message: redirect-submit
-		$form->setSubmitTextMsg( $this->getMessagePrefix() . '-submit' );
-		/* submit form every time */
-		$form->setMethod( 'get' );
+		$form->setSubmitTextMsg( 'redirect-submit' );
 	}
 
 	protected function getDisplayFormat() {
@@ -358,14 +349,7 @@ class SpecialRedirect extends FormSpecialPage {
 	/**
 	 * @return bool
 	 */
-	public function requiresWrite() {
-		return false;
-	}
-
-	/**
-	 * @return bool
-	 */
-	public function requiresUnblock() {
+	public function requiresPost() {
 		return false;
 	}
 
@@ -373,3 +357,9 @@ class SpecialRedirect extends FormSpecialPage {
 		return 'redirects';
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialRedirect::class, 'SpecialRedirect' );

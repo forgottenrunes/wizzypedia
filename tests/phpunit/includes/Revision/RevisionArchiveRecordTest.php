@@ -10,13 +10,13 @@ use MediaWiki\Revision\RevisionArchiveRecord;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\RevisionSlots;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleValue;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
 use MediaWikiIntegrationTestCase;
 use stdClass;
 use TextContent;
-use Title;
-use TitleValue;
 use Wikimedia\Assert\PreconditionException;
 
 /**
@@ -25,7 +25,7 @@ use Wikimedia\Assert\PreconditionException;
  */
 class RevisionArchiveRecordTest extends MediaWikiIntegrationTestCase {
 
-	public function provideConstructor() {
+	public static function provideConstructor() {
 		$user = new UserIdentityValue( 11, 'Tester' );
 		$comment = CommentStoreComment::newUnsavedComment( 'Hello World' );
 
@@ -64,7 +64,7 @@ class RevisionArchiveRecordTest extends MediaWikiIntegrationTestCase {
 			$slots,
 		];
 
-		$title = Title::newFromText( 'Dummy' );
+		$title = Title::makeTitle( NS_MAIN, 'Dummy' );
 		$title->resetArticleID( 17 );
 
 		yield 'all info, local, with Title' => [
@@ -111,8 +111,10 @@ class RevisionArchiveRecordTest extends MediaWikiIntegrationTestCase {
 		];
 
 		$row = $protoRow;
+		$nonExistingTitle = Title::makeTitle( NS_MAIN, 'DummyDoesNotExist' );
+		$nonExistingTitle->resetArticleID( 0 );
 		yield 'no length, no hash' => [
-			Title::newFromText( 'DummyDoesNotExist' ),
+			$nonExistingTitle,
 			$user,
 			$comment,
 			(object)$row,
@@ -128,7 +130,7 @@ class RevisionArchiveRecordTest extends MediaWikiIntegrationTestCase {
 	 * @param CommentStoreComment $comment
 	 * @param stdClass $row
 	 * @param RevisionSlots $slots
-	 * @param bool $wikiId
+	 * @param string|false $wikiId
 	 * @param string|null $expectedException
 	 */
 	public function testConstructorAndGetters(
@@ -144,7 +146,8 @@ class RevisionArchiveRecordTest extends MediaWikiIntegrationTestCase {
 
 		$this->assertTrue( $page->isSamePageAs( $rec->getPage() ), 'getPage' );
 		$this->assertSame( $user, $rec->getUser( RevisionRecord::RAW ), 'getUser' );
-		$this->assertSame( $comment, $rec->getComment(), 'getComment' );
+		$this->assertSame( null, $rec->getComment(), 'getComment (public)' );
+		$this->assertSame( $comment, $rec->getComment( RevisionRecord::RAW ), 'getComment (raw)' );
 
 		$this->assertSame( $slots->getSlotRoles(), $rec->getSlotRoles(), 'getSlotRoles' );
 		$this->assertSame( $wikiId, $rec->getWikiId(), 'getWikiId' );
@@ -185,8 +188,8 @@ class RevisionArchiveRecordTest extends MediaWikiIntegrationTestCase {
 		}
 	}
 
-	public function provideConstructorFailure() {
-		$title = Title::newFromText( 'Dummy' );
+	public static function provideConstructorFailure() {
+		$title = Title::makeTitle( NS_MAIN, 'Dummy' );
 		$title->resetArticleID( 17 );
 
 		$user = new UserIdentityValue( 11, 'Tester' );
@@ -259,7 +262,7 @@ class RevisionArchiveRecordTest extends MediaWikiIntegrationTestCase {
 	 * @param CommentStoreComment $comment
 	 * @param stdClass $row
 	 * @param RevisionSlots $slots
-	 * @param bool $wikiId
+	 * @param string|false $wikiId
 	 * @param string|null $expectedException
 	 */
 	public function testConstructorFailure(

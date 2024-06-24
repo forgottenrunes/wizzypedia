@@ -10,14 +10,14 @@ namespace MediaWiki\Extension\WikiEditor;
 
 use ApiMessage;
 use Article;
-use Config;
 use Content;
-use EditPage;
 use ExtensionRegistry;
-use Html;
 use MediaWiki\Cache\CacheKeyHelper;
 use MediaWiki\ChangeTags\Hook\ChangeTagsListActiveHook;
 use MediaWiki\ChangeTags\Hook\ListDefinedTagsHook;
+use MediaWiki\Config\Config;
+use MediaWiki\EditPage\EditPage;
+use MediaWiki\Extension\DiscussionTools\Hooks as DiscussionToolsHooks;
 use MediaWiki\Extension\EventLogging\EventLogging;
 use MediaWiki\Hook\EditPage__attemptSave_afterHook;
 use MediaWiki\Hook\EditPage__attemptSaveHook;
@@ -25,19 +25,21 @@ use MediaWiki\Hook\EditPage__showEditForm_fieldsHook;
 use MediaWiki\Hook\EditPage__showEditForm_initialHook;
 use MediaWiki\Hook\EditPageGetPreviewContentHook;
 use MediaWiki\Hook\RecentChange_saveHook;
+use MediaWiki\Html\Html;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Output\OutputPage;
 use MediaWiki\Preferences\Hook\GetPreferencesHook;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\ResourceLoader as RL;
+use MediaWiki\Status\Status;
+use MediaWiki\User\User;
 use MediaWiki\User\UserEditTracker;
 use MediaWiki\User\UserOptionsLookup;
+use MediaWiki\WikiMap\WikiMap;
 use MessageLocalizer;
 use MWCryptRand;
-use OutputPage;
 use RecentChange;
 use RequestContext;
-use ResourceLoaderContext;
-use Status;
-use User;
-use WebRequest;
 use WikimediaEvents\WikimediaEventsHooks;
 
 /**
@@ -95,38 +97,53 @@ class Hooks implements
 		// Sample 6.25%
 		$samplingRate = $this->config->has( 'WMESchemaEditAttemptStepSamplingRate' ) ?
 			$this->config->get( 'WMESchemaEditAttemptStepSamplingRate' ) : 0.0625;
+
+		// (T314896) Convert whatever we've been given to a string of hex, as that's what EL needs
+		$hexValue = hash( 'md5', $sessionId, false );
+
 		$inSample = EventLogging::sessionInSample(
-			(int)( 1 / $samplingRate ), $sessionId
+			(int)( 1 / $samplingRate ), $hexValue
 		);
 		return $inSample;
 	}
 
 	/**
-	 * Log stuff to EventLogging's Schema:EditAttemptStep -
-	 * see https://meta.wikimedia.org/wiki/Schema:EditAttemptStep
-	 * If you don't have EventLogging installed, does nothing.
+	 * Log stuff to the eventlogging_EditAttemptStep stream in a shape that conforms to the
+	 * analytics/legacy/editattemptstep schema.
+	 *
+	 * If the EventLogging extension is not loaded, then this is a NOP.
+	 *
+	 * @see https://meta.wikimedia.org/wiki/Schema:EditAttemptStep
 	 *
 	 * @param string $action
 	 * @param Article $article Which article (with full context, page, title, etc.)
 	 * @param array $data Data to log for this action
-	 * @return bool Whether the event was logged or not.
+	 * @return void
 	 */
 	public function doEventLogging( $action, $article, $data = [] ) {
+		if ( defined( 'MW_PHPUNIT_TEST' ) ) {
+			return;
+		}
+
 		$extensionRegistry = ExtensionRegistry::getInstance();
-		if ( !$extensionRegistry->isLoaded( 'EventLogging' ) ) {
-			return false;
+		if ( !$extensionRegistry->isLoaded( 'EventLogging' ) || !$extensionRegistry->isLoaded( 'WikimediaEvents' ) ) {
+			return;
+		}
+		if ( $extensionRegistry->isLoaded( 'MobileFrontend' ) ) {
+			$mobFrontContext = MediaWikiServices::getInstance()->getService( 'MobileFrontend.Context' );
+			if ( $mobFrontContext->shouldDisplayMobileView() ) {
+				// on a MobileFrontend page the logging should be handled by it
+				return;
+			}
 		}
 		$inSample = $this->inEventSample( $data['editing_session_id'] );
-		$shouldOversample = $extensionRegistry->isLoaded( 'WikimediaEvents' ) &&
-			WikimediaEventsHooks::shouldSchemaEditAttemptStepOversample( $article->getContext() );
-		if ( !$inSample && !$shouldOversample ) {
-			return false;
-		}
+		$shouldOversample = WikimediaEventsHooks::shouldSchemaEditAttemptStepOversample( $article->getContext() );
 
 		$user = $article->getContext()->getUser();
 		$page = $article->getPage();
 		$title = $article->getTitle();
 		$revisionRecord = $page->getRevisionRecord();
+		$skin = $article->getContext()->getSkin();
 
 		$data = [
 			'action' => $action,
@@ -141,25 +158,81 @@ class Hooks implements
 			'page_ns' => $title->getNamespace(),
 			'revision_id' => $revisionRecord ? $revisionRecord->getId() : 0,
 			'user_id' => $user->getId(),
+			'user_is_temp' => $user->isTemp(),
 			'user_editcount' => $this->userEditTracker->getUserEditCount( $user ) ?: 0,
 			'mw_version' => MW_VERSION,
+			'skin' => $skin ? $skin->getSkinName() : null,
+			'is_bot' => $user->isRegistered() && $user->isBot(),
+			'is_anon' => $user->isAnon(),
+			'wiki' => WikiMap::getCurrentWikiId(),
 		] + $data;
 
-		if ( $this->userOptionsLookup->getOption( $user, 'discussiontools-abtest2' ) ) {
-			$data['bucket'] = $this->userOptionsLookup->getOption( $user, 'discussiontools-abtest2' );
+		$bucket = ExtensionRegistry::getInstance()->isLoaded( 'DiscussionTools' ) ?
+			// @phan-suppress-next-line PhanUndeclaredClassMethod
+			DiscussionToolsHooks\HookUtils::determineUserABTestBucket( $user ) : false;
+		if ( $bucket ) {
+			$data['bucket'] = $bucket;
 		}
 
 		if ( $user->isAnon() ) {
 			$data['user_class'] = 'IP';
 		}
 
-		return EventLogging::logEvent( 'EditAttemptStep', 18530416, $data );
+		$this->doMetricsPlatformLogging( $action, $data );
+
+		if ( !$inSample && !$shouldOversample ) {
+			return;
+		}
+
+		EventLogging::submit(
+			'eventlogging_EditAttemptStep',
+			[
+				'$schema' => '/analytics/legacy/editattemptstep/2.0.0',
+				'event' => $data,
+			]
+		);
+	}
+
+	/**
+	 * @see https://phabricator.wikimedia.org/T309013
+	 * @see https://phabricator.wikimedia.org/T309985
+	 */
+	private function doMetricsPlatformLogging( string $action, array $data ): void {
+		unset( $data['version'] );
+		unset( $data['action'] );
+
+		// Sampling rate (and therefore whether a stream should oversample) is captured in
+		// the stream config ($wgEventStreams).
+		unset( $data['is_oversample'] );
+		unset( $data['session_token'] );
+
+		// Platform can be derived from the agent_client_platform_family context attribute
+		// mixed in by the JavaScript Metrics Platform Client. The context attribute will be
+		// "desktop_browser" or "mobile_browser" depending on whether the MobileFrontend
+		// extension has signalled that it is enabled.
+		unset( $data['platform'] );
+
+		unset( $data['page_id'] );
+		unset( $data['page_title'] );
+		unset( $data['page_ns'] );
+
+		// If the revision ID can be fetched (i.e. it is a positive integer), then it will be
+		//mixed in by the Metrics Platform Client.
+		if ( $data['revision_id'] ) {
+			unset( $data['revision_id'] );
+		}
+
+		unset( $data['user_id'] );
+		unset( $data['user_editcount'] );
+		unset( $data['mw_version'] );
+
+		EventLogging::submitMetricsEvent( 'eas.wt.' . $action, $data );
 	}
 
 	/**
 	 * Log stuff to EventLogging's Schema:VisualEditorFeatureUse -
 	 * see https://meta.wikimedia.org/wiki/Schema:VisualEditorFeatureUse
-	 * If you don't have EventLogging installed, does nothing.
+	 * If you don't have EventLogging and WikimediaEvents installed, does nothing.
 	 *
 	 * @param string $feature
 	 * @param string $action
@@ -169,12 +242,11 @@ class Hooks implements
 	 */
 	public function doVisualEditorFeatureUseLogging( $feature, $action, $article, $sessionId ) {
 		$extensionRegistry = ExtensionRegistry::getInstance();
-		if ( !$extensionRegistry->isLoaded( 'EventLogging' ) ) {
+		if ( !$extensionRegistry->isLoaded( 'EventLogging' ) || !$extensionRegistry->isLoaded( 'WikimediaEvents' ) ) {
 			return false;
 		}
 		$inSample = $this->inEventSample( $sessionId );
-		$shouldOversample = $extensionRegistry->isLoaded( 'WikimediaEvents' ) &&
-			WikimediaEventsHooks::shouldSchemaEditAttemptStepOversample( $article->getContext() );
+		$shouldOversample = WikimediaEventsHooks::shouldSchemaEditAttemptStepOversample( $article->getContext() );
 		if ( !$inSample && !$shouldOversample ) {
 			return false;
 		}
@@ -190,15 +262,22 @@ class Hooks implements
 			'integration' => 'page',
 			'editor_interface' => 'wikitext',
 			'user_id' => $user->getId(),
+			'user_is_temp' => $user->isTemp(),
 			'user_editcount' => $editCount ?: 0,
 		];
 
-		$bucket = $this->userOptionsLookup->getOption( $user, 'discussiontools-abtest2' );
+		$bucket = ExtensionRegistry::getInstance()->isLoaded( 'DiscussionTools' ) ?
+			// @phan-suppress-next-line PhanUndeclaredClassMethod
+			DiscussionToolsHooks\HookUtils::determineUserABTestBucket( $user ) : false;
 		if ( $bucket ) {
 			$data['bucket'] = $bucket;
 		}
 
-		return EventLogging::logEvent( 'VisualEditorFeatureUse', 21199762, $data );
+		// NOTE: The 'VisualEditorFeatureUse' event was migrated to the Event Platform and is no
+		//  longer using the legacy EventLogging schema from metawiki. $revId is actually
+		//  overridden by the EventLoggingSchemas extension attribute in
+		//  WikimediaEvents/extension.json.
+		return EventLogging::logEvent( 'VisualEditorFeatureUse', -1, $data );
 	}
 
 	/**
@@ -222,7 +301,6 @@ class Hooks implements
 		if ( $this->userOptionsLookup->getBoolOption( $user, 'usebetatoolbar' ) ) {
 			$outputPage->addModuleStyles( 'ext.wikiEditor.styles' );
 			$outputPage->addModules( 'ext.wikiEditor' );
-			// Optionally enable Realtime Preview.
 			if ( $this->config->get( 'WikiEditorRealtimePreview' ) ) {
 				$outputPage->addModules( 'ext.wikiEditor.realtimepreview' );
 			}
@@ -259,6 +337,9 @@ class Hooks implements
 					$data['init_mechanism'] = 'url';
 				}
 			}
+			if ( $request->getRawVal( 'wvprov' ) === 'sticky-header' ) {
+				$data['init_mechanism'] .= '-sticky-header';
+			}
 
 			$this->doEventLogging( 'init', $article, $data );
 		}
@@ -274,6 +355,7 @@ class Hooks implements
 	 * @param OutputPage $outputPage object.
 	 */
 	public static function editPageShowEditFormInitial( EditPage $editPage, OutputPage $outputPage ) {
+		wfDeprecated( __METHOD__, '1.38' );
 		$services = MediaWikiServices::getInstance();
 		( new self(
 			$services->getMainConfig(),
@@ -345,30 +427,37 @@ class Hooks implements
 			'help-message' => 'wikieditor-toolbar-preference-help',
 			'section' => 'editing/editor',
 		];
-	}
-
-	/**
-	 * @param ResourceLoaderContext $context
-	 * @param Config $config
-	 * @return array
-	 */
-	public static function getModuleData( ResourceLoaderContext $context, Config $config ) {
-		return [
-			// expose magic words for use by the wikieditor toolbar
-			'magicWords' => self::getMagicWords(),
-			'signature' => self::getSignatureMessage( $context )
+		$defaultPreferences['wikieditor-realtimepreview'] = [
+			'type' => 'api',
 		];
 	}
 
 	/**
-	 * @param ResourceLoaderContext $context
+	 * @param RL\Context $context
 	 * @param Config $config
 	 * @return array
 	 */
-	public static function getModuleDataSummary( ResourceLoaderContext $context, Config $config ) {
+	public static function getModuleData( RL\Context $context, Config $config ) {
+		return [
+			// expose magic words for use by the wikieditor toolbar
+			'magicWords' => self::getMagicWords(),
+			'signature' => self::getSignatureMessage( $context ),
+			'realtimeDebounce' => $config->get( 'WikiEditorRealtimePreviewDebounce' ),
+			'realtimeDisableDuration' => $config->get( 'WikiEditorRealtimeDisableDuration' ),
+		];
+	}
+
+	/**
+	 * @param RL\Context $context
+	 * @param Config $config
+	 * @return array
+	 */
+	public static function getModuleDataSummary( RL\Context $context, Config $config ) {
 		return [
 			'magicWords' => self::getMagicWords(),
-			'signature' => self::getSignatureMessage( $context, true )
+			'signature' => self::getSignatureMessage( $context, true ),
+			'realtimeDebounce' => $config->get( 'WikiEditorRealtimePreviewDebounce' ),
+			'realtimeDisableDuration' => $config->get( 'WikiEditorRealtimeDisableDuration' ),
 		];
 	}
 

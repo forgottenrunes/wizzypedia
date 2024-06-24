@@ -1,11 +1,15 @@
 <?php
 
+use MediaWiki\EditPage\EditPage;
+use MediaWiki\Extension\SpamBlacklist\BaseBlacklist;
+use MediaWiki\Extension\SpamBlacklist\SpamBlacklist;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
 
 /**
  * @group SpamBlacklist
  * @group Database
- * @covers SpamBlacklist
+ * @covers \MediaWiki\Extension\SpamBlacklist\SpamBlacklist
  */
 class SpamBlacklistTest extends MediaWikiIntegrationTestCase {
 	/**
@@ -36,7 +40,7 @@ class SpamBlacklistTest extends MediaWikiIntegrationTestCase {
 	 */
 	protected $whitelist = [ 'a5b\.sytes\.net' ];
 
-	public function spamProvider() {
+	public static function spamProvider() {
 		return [
 			'no spam' => [
 				[ 'https://example.com' ],
@@ -71,7 +75,7 @@ class SpamBlacklistTest extends MediaWikiIntegrationTestCase {
 		$this->assertEquals( $expected, $returnValue );
 	}
 
-	public function spamEditProvider() {
+	public static function spamEditProvider() {
 		return [
 			'no spam' => [
 				'https://example.com',
@@ -142,7 +146,7 @@ class SpamBlacklistTest extends MediaWikiIntegrationTestCase {
 
 		// That only works if the spam blacklist is really reset
 		$instance = BaseBlacklist::getInstance( 'spam' );
-		$reflProp = new \ReflectionProperty( $instance, 'regexes' );
+		$reflProp = new ReflectionProperty( $instance, 'regexes' );
 		$reflProp->setAccessible( true );
 		$reflProp->setValue( $instance, false );
 	}

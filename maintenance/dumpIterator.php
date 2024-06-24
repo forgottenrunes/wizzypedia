@@ -26,14 +26,15 @@
  * @ingroup Maintenance
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Settings\SettingsBuilder;
+use MediaWiki\Title\Title;
 
 require_once __DIR__ . '/Maintenance.php';
 
 /**
- * Base class for interating over a dump.
+ * Base class for iterating over a dump.
  *
  * @ingroup Maintenance
  */
@@ -62,7 +63,7 @@ abstract class DumpIterator extends Maintenance {
 
 		if ( $this->hasOption( 'file' ) ) {
 			$file = $this->getOption( 'file' );
-			$revision = new WikiRevision( $this->getConfig() );
+			$revision = new WikiRevision();
 			$text = file_get_contents( $file );
 			$title = Title::newFromText( rawurldecode( basename( $file, '.txt' ) ) );
 			$revision->setTitle( $title );
@@ -84,7 +85,7 @@ abstract class DumpIterator extends Maintenance {
 				. "Use - and provide it on stdin on the meantime." );
 		}
 
-		$importer = MediaWikiServices::getInstance()
+		$importer = $this->getServiceContainer()
 			->getWikiImporterFactory()
 			->getWikiImporter( $source );
 
@@ -118,12 +119,13 @@ abstract class DumpIterator extends Maintenance {
 		if ( $this->getDbType() == Maintenance::DB_NONE ) {
 			// TODO: Allow hooks to be registered via SettingsBuilder as well!
 			//       This matches the idea of unifying SettingsBuilder with ExtensionRegistry.
+			// phpcs:disable MediaWiki.Usage.DeprecatedGlobalVariables.Deprecated$wgHooks
 			global $wgHooks;
 			$wgHooks['InterwikiLoadPrefix'][] = 'DumpIterator::disableInterwikis';
 
 			$settingsBuilder->putConfigValues( [
-				'UseDatabaseMessages' => false,
-				'LocalisationCacheConf' => [ 'storeClass' => LCStoreNull::class ],
+				MainConfigNames::UseDatabaseMessages => false,
+				MainConfigNames::LocalisationCacheConf => [ 'storeClass' => LCStoreNull::class ],
 			] );
 		}
 	}

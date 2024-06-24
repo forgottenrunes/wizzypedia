@@ -1,5 +1,5 @@
 <?php
-namespace Vector;
+namespace MediaWiki\Skins\Vector;
 
 use FatalError;
 
@@ -11,19 +11,18 @@ use FatalError;
  */
 final class Constants {
 	/**
-	 * This is tightly coupled to the ConfigRegistry field in skin.json.
+	 * This is tightly coupled to the ValidSkinNames field in skin.json.
 	 * @var string
 	 */
 	public const SKIN_NAME_MODERN = 'vector-2022';
 
 	/**
-	 * This is tightly coupled to the ConfigRegistry field in skin.json.
+	 * This is tightly coupled to the ValidSkinNames field in skin.json.
 	 * @var string
 	 */
 	public const SKIN_NAME_LEGACY = 'vector';
 
-	// These are tightly coupled to PREF_KEY_SKIN_VERSION and skin.json's configs. See skin.json for
-	// documentation.
+	// These are used to provide different default skin for new users.
 	/**
 	 * @var string
 	 */
@@ -36,27 +35,9 @@ final class Constants {
 	/**
 	 * @var string
 	 */
-	public const SERVICE_CONFIG = 'Vector.Config';
-
-	/**
-	 * @var string
-	 */
 	public const SERVICE_FEATURE_MANAGER = 'Vector.FeatureManager';
 
-	// These are tightly coupled to skin.json's config.
-	/**
-	 * @var string
-	 */
-	public const CONFIG_KEY_SHOW_SKIN_PREFERENCES = 'VectorShowSkinPreferences';
-	/**
-	 * @var string
-	 */
-	public const CONFIG_KEY_DEFAULT_SKIN_VERSION = 'VectorDefaultSkinVersion';
-	/**
-	 * @var string
-	 */
-	public const CONFIG_KEY_DEFAULT_SKIN_VERSION_FOR_EXISTING_ACCOUNTS =
-		'VectorDefaultSkinVersionForExistingAccounts';
+	// These are tightly coupled to skin.json's configs. See skin.json for documentation.
 	/**
 	 * @var string
 	 */
@@ -66,29 +47,7 @@ final class Constants {
 	/**
 	 * @var string
 	 */
-	public const CONFIG_KEY_DEFAULT_SIDEBAR_VISIBLE_FOR_AUTHORISED_USER =
-		'VectorDefaultSidebarVisibleForAuthorisedUser';
-
-	/**
-	 * @var string
-	 */
-	public const CONFIG_KEY_DEFAULT_SIDEBAR_VISIBLE_FOR_ANONYMOUS_USER =
-		'VectorDefaultSidebarVisibleForAnonymousUser';
-
-	/**
-	 * @var string
-	 */
 	public const PREF_KEY_SKIN = 'skin';
-
-	/**
-	 * @var string
-	 */
-	public const PREF_KEY_SKIN_VERSION = 'VectorSkinVersion';
-
-	/**
-	 * @var string
-	 */
-	public const PREF_KEY_SIDEBAR_VISIBLE = 'VectorSidebarVisible';
 
 	// These are used in the Feature Management System.
 	/**
@@ -105,22 +64,12 @@ final class Constants {
 	/**
 	 * @var string
 	 */
-	public const REQUIREMENT_LATEST_SKIN_VERSION = 'LatestSkinVersion';
-
-	/**
-	 * @var string
-	 */
-	public const FEATURE_LATEST_SKIN = 'LatestSkin';
+	public const REQUIREMENT_LOGGED_IN = 'LoggedIn';
 
 	/**
 	 * @var string
 	 */
 	public const FEATURE_LANGUAGE_IN_HEADER = 'LanguageInHeader';
-
-	/**
-	 * @var string
-	 */
-	public const CONFIG_KEY_DISABLE_SIDEBAR_PERSISTENCE = 'VectorDisableSidebarPersistence';
 
 	/**
 	 * @var string
@@ -133,60 +82,9 @@ final class Constants {
 	public const REQUIREMENT_LANGUAGE_IN_HEADER = 'LanguageInHeader';
 
 	/**
-	 * Defines whether or not the Language in header A/B test is running. See
-	 * https://phabricator.wikimedia.org/T280825 for additional detail about the test.
-	 *
-	 * Note well that if the associated config value is falsy, then we fall back to choosing the
-	 * language treatment based on the `VectorLanguageInHeader` config variable.
-	 *
-	 * @var string
-	 */
-	public const CONFIG_LANGUAGE_IN_HEADER_TREATMENT_AB_TEST = 'VectorLanguageInHeaderTreatmentABTest';
-
-	// These are used for query parameters.
-	/**
-	 * If undefined and AB test enabled, user will be bucketed as usual.
-	 *
-	 * If set, overrides the language in header AB test config:
-	 *
-	 * 'languageinheader=0' will show existing treatment.
-	 * 'languageinheader=1' will show new treatment.
-	 *
-	 * @var string
-	 */
-	public const QUERY_PARAM_LANGUAGE_IN_HEADER = 'languageinheader';
-
-	/**
-	 * Override the skin version user preference and site Config. See readme.
-	 * @var string
-	 */
-	public const QUERY_PARAM_SKIN_VERSION = 'useskinversion';
-
-	/**
-	 * Override the skin user preference and site Config. See readme.
-	 * @var string
-	 */
-	public const QUERY_PARAM_SKIN = 'useskin';
-
-	/**
-	 * @var string
-	 */
-	public const QUERY_PARAM_STICKY_HEADER = 'vectorstickyheader';
-
-	/**
-	 * @var string
-	 */
-	public const QUERY_PARAM_STICKY_HEADER_EDIT = 'vectorstickyheaderedit';
-
-	/**
 	 * @var string
 	 */
 	public const CONFIG_STICKY_HEADER = 'VectorStickyHeader';
-
-	/**
-	 * @var string
-	 */
-	public const CONFIG_STICKY_HEADER_EDIT = 'VectorStickyHeaderEdit';
 
 	/**
 	 * @var string
@@ -196,25 +94,14 @@ final class Constants {
 	/**
 	 * @var string
 	 */
-	public const REQUIREMENT_STICKY_HEADER_EDIT = 'StickyHeaderEdit';
-
-	/**
-	 * @var string
-	 */
 	public const FEATURE_STICKY_HEADER = 'StickyHeader';
 
 	/**
-	 * @var string
-	 */
-	public const FEATURE_STICKY_HEADER_EDIT = 'StickyHeaderEdit';
-
-	/**
-	 * Defines whether the Sticky Header A/B test is running. See
-	 * https://phabricator.wikimedia.org/T292587 for additional detail about the test.
+	 * Defines whether an A/B test is running.
 	 *
 	 * @var string
 	 */
-	public const CONFIG_STICKY_HEADER_TREATMENT_AB_TEST_ENROLLMENT = 'VectorWebABTestEnrollment';
+	public const CONFIG_WEB_AB_TEST_ENROLLMENT = 'VectorWebABTestEnrollment';
 
 	/**
 	 * The `mediawiki.searchSuggest` protocol piece of the SearchSatisfaction instrumention reads
@@ -259,52 +146,154 @@ final class Constants {
 	/**
 	 * @var string
 	 */
-	public const QUERY_PARAM_LANGUAGE_IN_MAIN_PAGE_HEADER = 'languageinmainpageheader';
-
-	/**
-	 * @var string
-	 */
 	public const FEATURE_LANGUAGE_IN_MAIN_PAGE_HEADER = 'LanguageInMainPageHeader';
 
 	/**
 	 * @var string
 	 */
-	public const REQUIREMENT_LANGUAGE_ALERT_IN_SIDEBAR = 'LanguageAlertInSidebar';
+	public const WEB_AB_TEST_ARTICLE_ID_FACTORY_SERVICE = 'WikimediaEvents.WebABTestArticleIdFactory';
 
 	/**
 	 * @var string
 	 */
-	public const CONFIG_LANGUAGE_ALERT_IN_SIDEBAR = 'VectorLanguageAlertInSidebar';
+	public const FEATURE_PAGE_TOOLS_PINNED = 'PageToolsPinned';
 
 	/**
 	 * @var string
 	 */
-	public const QUERY_PARAM_LANGUAGE_ALERT_IN_SIDEBAR = 'languagealertinsidebar';
+	public const REQUIREMENT_PAGE_TOOLS_PINNED = 'PageToolsPinned';
 
 	/**
 	 * @var string
 	 */
-	public const FEATURE_LANGUAGE_ALERT_IN_SIDEBAR = 'LanguageAlertInSidebar';
+	public const PREF_KEY_PAGE_TOOLS_PINNED = 'vector-page-tools-pinned';
 
 	/**
 	 * @var string
 	 */
-	public const REQUIREMENT_TABLE_OF_CONTENTS = 'TableOfContents';
+	public const REQUIREMENT_TOC_PINNED = 'TOCPinned';
 
 	/**
 	 * @var string
 	 */
-	public const CONFIG_TABLE_OF_CONTENTS = 'VectorTableOfContents';
+	public const PREF_KEY_TOC_PINNED = 'vector-toc-pinned';
 
 	/**
 	 * @var string
 	 */
-	public const QUERY_PARAM_TABLE_OF_CONTENTS = 'tableofcontents';
+	public const FEATURE_TOC_PINNED = 'TOCPinned';
 
 	/**
 	 * @var string
 	 */
-	public const FEATURE_TABLE_OF_CONTENTS = 'TableOfContents';
+	public const FEATURE_MAIN_MENU_PINNED = 'MainMenuPinned';
+
+	/**
+	 * @var string
+	 */
+	public const REQUIREMENT_MAIN_MENU_PINNED = 'MainMenuPinned';
+
+	/**
+	 * @var string
+	 */
+	public const PREF_KEY_MAIN_MENU_PINNED = 'vector-main-menu-pinned';
+
+	/**
+	 * @var string
+	 */
+	public const FEATURE_LIMITED_WIDTH = 'LimitedWidth';
+
+	/**
+	 * @var string
+	 */
+	public const REQUIREMENT_LIMITED_WIDTH = 'LimitedWidth';
+
+	/**
+	 * @var string
+	 */
+	public const PREF_KEY_LIMITED_WIDTH = 'vector-limited-width';
+
+	/**
+	 * @var string
+	 */
+	public const FEATURE_LIMITED_WIDTH_CONTENT = 'LimitedWidthContent';
+
+	/**
+	 * @var string
+	 */
+	public const REQUIREMENT_LIMITED_WIDTH_CONTENT = 'LimitedWidthContent';
+
+	/**
+	 * @var bool
+	 */
+	public const CONFIG_DEFAULT_LIMITED_WIDTH = 1;
+
+	/**
+	 * @var string
+	 */
+	public const FEATURE_ZEBRA_DESIGN = 'ZebraDesign';
+
+	/**
+	 * @var string
+	 */
+	public const REQUIREMENT_ZEBRA_DESIGN = 'ZebraDesign';
+
+	/**
+	 * @var string
+	 */
+	public const CONFIG_ZEBRA_DESIGN = 'VectorZebraDesign';
+
+	/**
+	 * Requirement that checks the value of ABTestEnrollment.
+	 *
+	 * @var string
+	 */
+	public const REQUIREMENT_ZEBRA_AB_TEST = 'VectorZebraDesign';
+
+	/**
+	 * @var string
+	 */
+	public const PREF_KEY_FONT_SIZE = 'vector-font-size';
+
+	/**
+	 * @var string
+	 */
+	public const FEATURE_FONT_SIZE = 'CustomFontSize';
+
+	/**
+	 * @var string
+	 */
+	public const REQUIREMENT_FONT_SIZE = 'CustomFontSize';
+
+	/**
+	 * @var string
+	 */
+	public const CONFIG_KEY_CLIENT_PREFERENCES = 'VectorClientPreferences';
+
+	/**
+	 * @var string
+	 */
+	public const PREF_KEY_TYPOGRAPHY_SURVEY = 'vector-typography-survey';
+
+	/**
+	 * @var string
+	 */
+	public const FEATURE_TYPOGRAPHY_SURVEY = 'TypographySurvey';
+
+	/**
+	 * @var string
+	 */
+	public const REQUIREMENT_TYPOGRAPHY_SURVEY = 'TypographySurvey';
+
+	/**
+	 * @var string
+	 */
+	public const FEATURE_CLIENT_PREFERENCES = 'ClientPreferences';
+
+	/**
+	 * @var string
+	 */
+	public const REQUIREMENT_CLIENT_PREFERENCES = 'ClientPreferences';
 
 	/**
 	 * This class is for namespacing constants only. Forbid construction.

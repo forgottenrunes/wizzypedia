@@ -1,242 +1,152 @@
 <?php
 
-namespace Tests\MediaWiki\Minerva\Menu;
+namespace MediaWiki\Minerva\Menu;
 
 use DomainException;
 use MediaWiki\Minerva\Menu\Entries\IMenuEntry;
-use MediaWiki\Minerva\Menu\Group;
+use MediaWiki\Minerva\Menu\Entries\SingleMenuEntry;
+use MediaWikiIntegrationTestCase;
 
 /**
  * @group MinervaNeue
  * @coversDefaultClass \MediaWiki\Minerva\Menu\Group
  */
-class GroupTest extends \MediaWikiIntegrationTestCase {
+class GroupTest extends MediaWikiIntegrationTestCase {
 	/** @var string[] */
 	private $homeComponent = [
 		'text' => 'Home',
 		'href' => '/Main_page',
-		'class' => 'mw-ui-icon mw-ui-icon-before mw-ui-icon-home',
-		'data-event-name' => 'home',
-		'icon' => null,
+		'class' => '',
+		'data-event-name' => 'menu.home',
+		'icon' => 'home'
 	];
 
 	/** @var string[] */
 	private $nearbyComponent = [
 		'text' => 'Nearby',
 		'href' => '/wiki/Special:Nearby',
-		'class' => 'mw-ui-icon mw-ui-icon-before mw-ui-icon-nearby',
-		'icon' => null
+		'class' => '',
+		'icon' => 'nearby'
 	];
 
 	/**
 	 * @covers ::getEntries
+	 * @covers ::hasEntries
 	 */
 	public function testItShouldntHaveEntriesByDefault() {
 		$menu = new Group( 'p-test' );
 
-		$this->assertEmpty( $menu->getEntries() );
+		$this->assertSame( [], $menu->getEntries() );
+		$this->assertFalse( $menu->hasEntries() );
 	}
 
 	/**
-	 * @covers ::insert
+	 * @covers ::insertEntry
 	 * @covers ::search
 	 * @covers ::getEntries
-	 * @covers \MediaWiki\Minerva\Menu\Entries\MenuEntry::addComponent
+	 * @covers ::hasEntries
 	 */
 	public function testInsertingAnEntry() {
 		$menu = new Group( 'p-test' );
-		$menu->insert( 'home' )
-			->addComponent(
-				$this->homeComponent['text'],
-				$this->homeComponent['href'],
-				$this->homeComponent['class'],
-				[
-					'data-event-name' => $this->homeComponent['data-event-name']
-				]
-			);
+		$entry = SingleMenuEntry::create(
+			'home',
+			$this->homeComponent['text'],
+			$this->homeComponent['href'],
+			$this->homeComponent['class'],
+			$this->homeComponent['icon'],
+			true
+		);
+		$menu->insertEntry( $entry );
 
 		$expectedEntries = [
 			[
 				'name' => 'home',
-				'components' => [ $this->homeComponent ],
+				'components' => [
+					[
+						'tag-name' => 'a',
+						'label' => $this->homeComponent['text'],
+						'array-attributes' => [
+							[
+								'key' => 'href',
+								'value' => $this->homeComponent['href'],
+							],
+							[
+								'key' => 'data-event-name',
+								'value' => 'menu.home'
+							],
+							[
+								'key' => 'data-mw',
+								'value' => 'interface'
+							],
+						],
+						'classes' => 'menu__item--home',
+						'data-icon' => [
+							'icon' => 'home',
+						],
+					]
+				 ],
 			],
 		];
 
 		$this->assertEquals( $expectedEntries, $menu->getEntries() );
+		$this->assertTrue( $menu->hasEntries() );
 	}
 
 	/**
-	 * @covers ::insert
-	 * @covers ::search
-	 * @covers ::getEntries
-	 * @covers \MediaWiki\Minerva\Menu\Entries\MenuEntry::addComponent
-	 */
-	public function testInsertingAnEntryAfterAnother() {
-		$menu = new Group( 'p-test' );
-		$menu->insert( 'home' )
-			->addComponent(
-				$this->homeComponent['text'],
-				$this->homeComponent['href'],
-				$this->homeComponent['class'],
-				[
-					'data-event-name' => $this->homeComponent['data-event-name']
-				]
-			);
-		$menu->insert( 'another_home' )
-			->addComponent(
-				$this->homeComponent['text'],
-				$this->homeComponent['href'],
-				$this->homeComponent['class'],
-				[
-					'data-event-name' => $this->homeComponent['data-event-name']
-				]
-			);
-		$menu->insertAfter( 'home', 'nearby' )
-			->addComponent(
-				$this->nearbyComponent['text'],
-				$this->nearbyComponent['href'],
-				$this->nearbyComponent['class']
-			);
-
-		$expectedEntries = [
-			[
-				'name' => 'home',
-				'components' => [ $this->homeComponent ],
-			],
-			[
-				'name' => 'nearby',
-				'components' => [ $this->nearbyComponent ],
-			],
-			[
-				'name' => 'another_home',
-				'components' => [ $this->homeComponent ],
-			],
-		];
-
-		$this->assertEquals( $expectedEntries, $menu->getEntries() );
-	}
-
-	/**
-	 * @covers ::insertAfter
-	 * @covers ::search
-	 * @covers \MediaWiki\Minerva\Menu\Entries\MenuEntry::addComponent
-	 */
-	public function testInsertAfterWhenTargetEntryDoesntExist() {
-		$menu = new Group( 'p-test' );
-		$this->expectException( DomainException::class );
-		$this->expectExceptionMessage( 'The "home" entry doesn\'t exist.' );
-		$menu->insertAfter( 'home', 'nearby' )
-			->addComponent(
-				$this->nearbyComponent['text'],
-				$this->nearbyComponent['href'],
-				$this->nearbyComponent['class']
-			);
-	}
-
-	/**
-	 * @covers ::insertAfter
-	 */
-	public function testInsertAfterWithAnEntryWithAnExistingName() {
-		$menu = new Group( 'p-test' );
-		$menu->insert( 'home' );
-		$menu->insert( 'car' );
-		$this->expectException( DomainException::class );
-		$this->expectExceptionMessage( 'The "car" entry already exists.' );
-		$menu->insertAfter( 'home', 'car' );
-	}
-
-	/**
-	 * @covers ::insert
+	 * @covers ::insertEntry
 	 */
 	public function testInsertingAnEntryWithAnExistingName() {
 		$menu = new Group( 'p-test' );
-		$menu->insert( 'home' );
+		$entryHome = SingleMenuEntry::create(
+			'home',
+			$this->homeComponent['text'],
+			$this->homeComponent['href'],
+			$this->homeComponent['class']
+		);
+		$menu->insertEntry( $entryHome );
 		$this->expectException( DomainException::class );
 		$this->expectExceptionMessage( 'The "home" entry already exists.' );
-		$menu->insert( 'home' );
+		$menu->insertEntry( $entryHome );
 	}
 
 	/**
-	 * @covers ::insert
-	 * @covers ::insertAfter
-	 */
-	public function testInsertingAnEntryAfterAnotherOne() {
-		$menu = new Group( 'p-test' );
-		$menu->insert( 'first' );
-		$menu->insert( 'last' );
-		$menu->insertAfter( 'first', 'middle' );
-		$items = $menu->getEntries();
-		$this->assertCount( 3, $items );
-		$this->assertSame( 'first', $items[0]['name'] );
-		$this->assertSame( 'middle', $items[1]['name'] );
-		$this->assertSame( 'last', $items[2]['name'] );
-	}
-
-	/**
-	 * @covers ::insert
+	 * @covers ::insertEntry
 	 * @covers ::getEntries
-	 * @covers \MediaWiki\Minerva\Menu\Entries\MenuEntry::addComponent
-	 */
-	public function testinsertingAnEntryWithMultipleComponents() {
-		$authLoginComponent = [
-			'text' => 'Phuedx (WMF)',
-			'href' => '/wiki/User:Phuedx_(WMF)',
-			'class' =>
-				'mw-ui-icon mw-ui-icon-before mw-ui-icon-profile',
-			'icon' => null,
-		];
-		$authLogoutComponent = [
-			'text' => 'Logout',
-			'href' => '/wiki/Special:UserLogout',
-			'class' =>
-				'mw-ui-icon mw-ui-icon-element secondary-logout',
-			'icon' => null,
-		];
-
-		$menu = new Group( 'p-test' );
-		$menu->insert( 'auth' )
-			->addComponent(
-				$authLoginComponent['text'],
-				$authLoginComponent['href'],
-				$authLoginComponent['class']
-			)
-			->addComponent(
-				$authLogoutComponent['text'],
-				$authLogoutComponent['href'],
-				$authLogoutComponent['class']
-			);
-
-		$expectedEntries = [
-			[
-				'name' => 'auth',
-				'components' => [
-					$authLoginComponent,
-					$authLogoutComponent
-				],
-			],
-		];
-
-		$this->assertEquals( $expectedEntries, $menu->getEntries() );
-	}
-
-	/**
-	 * @covers ::insert
-	 * @covers ::getEntries
-	 * @covers \MediaWiki\Minerva\Menu\Entries\MenuEntry::addComponent
 	 */
 	public function testInsertingAJavascriptOnlyEntry() {
 		$menu = new Group( 'p-test' );
-		$menu->insert( 'nearby', $isJSOnly = true )
-			->addComponent(
-				$this->nearbyComponent['text'],
-				$this->nearbyComponent['href'],
-				$this->nearbyComponent['class']
-			);
+		$entryHome = SingleMenuEntry::create(
+			'nearby',
+			$this->nearbyComponent['text'],
+			$this->nearbyComponent['href'],
+			$this->nearbyComponent['class']
+		);
+		$entryHome->setJSOnly();
+		$menu->insertEntry( $entryHome );
 
 		$expectedEntries = [
 			[
 				'name' => 'nearby',
-				'components' => [ $this->nearbyComponent ],
+				'components' => [
+					[
+						'tag-name' => 'a',
+						'label' => $this->nearbyComponent['text'],
+						'array-attributes' => [
+							[
+								'key' => 'href',
+								'value' => $this->nearbyComponent['href'],
+							],
+							[
+								'key' => 'data-mw',
+								'value' => 'interface'
+							],
+						],
+						'classes' => 'menu__item--nearby',
+						'data-icon' => [
+							'icon' => 'nearby',
+						]
+					]
+				],
 				'class' => 'jsonly'
 			],
 		];
@@ -250,11 +160,13 @@ class GroupTest extends \MediaWikiIntegrationTestCase {
 	 */
 	public function testGetEntryByName() {
 		$menu = new Group( 'p-test' );
-		$menu->insert( 'home' )
-			->addComponent(
-				$this->homeComponent['text'],
-				$this->homeComponent['href']
-			);
+		$entryHome = SingleMenuEntry::create(
+			'home',
+			$this->homeComponent['text'],
+			$this->homeComponent['href'],
+			$this->homeComponent['class']
+		);
+		$menu->insertEntry( $entryHome );
 		$this->assertInstanceOf( IMenuEntry::class, $menu->getEntryByName( 'home' ) );
 	}
 

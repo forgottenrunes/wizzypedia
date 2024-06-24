@@ -26,7 +26,7 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\MainConfigNames;
 
 /**
  * Maintenance script that removes unused preferences from the database.
@@ -64,7 +64,7 @@ class CleanupPreferences extends Maintenance {
 
 		// Remove hidden prefs. Iterate over them to avoid the IN on a large table
 		if ( $hidden ) {
-			$hiddenPrefs = $this->getConfig()->get( 'HiddenPrefs' );
+			$hiddenPrefs = $this->getConfig()->get( MainConfigNames::HiddenPrefs );
 			if ( !$hiddenPrefs ) {
 				$this->output( "No hidden preferences, skipping\n" );
 			}
@@ -79,7 +79,7 @@ class CleanupPreferences extends Maintenance {
 
 		// Remove unknown preferences. Special-case 'userjs-' as we can't control those names.
 		if ( $unknown ) {
-			$defaultUserOptions = MediaWikiServices::getInstance()->getUserOptionsLookup()->getDefaultOptions();
+			$defaultUserOptions = $this->getServiceContainer()->getUserOptionsLookup()->getDefaultOptions();
 			$where = [
 				'up_property NOT' . $dbr->buildLike( 'userjs-', $dbr->anyString() ),
 				'up_property NOT IN (' . $dbr->makeList( array_keys( $defaultUserOptions ) ) . ')',
@@ -108,7 +108,6 @@ class CleanupPreferences extends Maintenance {
 		$iterator->addConditions( $where );
 		$iterator->setCaller( __METHOD__ );
 
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 		$dbw = $this->getDB( DB_PRIMARY );
 		$total = 0;
 		foreach ( $iterator as $batch ) {
@@ -138,7 +137,7 @@ class CleanupPreferences extends Maintenance {
 					__METHOD__
 				);
 
-				$lbFactory->waitForReplication();
+				$this->waitForReplication();
 			}
 		}
 		$this->output( "DONE! (handled $total entries)\n" );

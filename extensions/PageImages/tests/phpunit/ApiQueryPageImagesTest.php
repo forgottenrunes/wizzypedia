@@ -2,11 +2,12 @@
 
 namespace PageImages\Tests;
 
-use ApiBase;
+use MediaWiki\Title\Title;
 use PageImages\ApiQueryPageImages;
 use PageImages\PageImages;
 use PHPUnit\Framework\TestCase;
-use Title;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\IntegerDef;
 use Wikimedia\Rdbms\FakeResultWrapper;
 use Wikimedia\TestingAccessWrapper;
 
@@ -66,15 +67,15 @@ class ApiQueryPageImagesTest extends TestCase {
 		$this->assertNotEmpty( $params );
 		$this->assertContainsOnly( 'array', $params );
 		$this->assertArrayHasKey( 'limit', $params );
-		$this->assertSame( 50, $params['limit'][ApiBase::PARAM_DFLT] );
-		$this->assertSame( 'limit', $params['limit'][ApiBase::PARAM_TYPE] );
-		$this->assertSame( 1, $params['limit'][ApiBase::PARAM_MIN] );
-		$this->assertSame( 50, $params['limit'][ApiBase::PARAM_MAX] );
-		$this->assertSame( 100, $params['limit'][ApiBase::PARAM_MAX2] );
+		$this->assertSame( 50, $params['limit'][ParamValidator::PARAM_DEFAULT] );
+		$this->assertSame( 'limit', $params['limit'][ParamValidator::PARAM_TYPE] );
+		$this->assertSame( 1, $params['limit'][IntegerDef::PARAM_MIN] );
+		$this->assertSame( 50, $params['limit'][IntegerDef::PARAM_MAX] );
+		$this->assertSame( 100, $params['limit'][IntegerDef::PARAM_MAX2] );
 		$this->assertArrayHasKey( 'license', $params );
-		$this->assertSame( [ 'free', 'any' ], $params['license'][ApiBase::PARAM_TYPE] );
-		$this->assertSame( 'free', $params['license'][ApiBase::PARAM_DFLT] );
-		$this->assertFalse( $params['license'][ApiBase::PARAM_ISMULTI] );
+		$this->assertSame( [ 'free', 'any' ], $params['license'][ParamValidator::PARAM_TYPE] );
+		$this->assertSame( 'free', $params['license'][ParamValidator::PARAM_DEFAULT] );
+		$this->assertFalse( $params['license'][ParamValidator::PARAM_ISMULTI] );
 	}
 
 	/**
@@ -93,7 +94,7 @@ class ApiQueryPageImagesTest extends TestCase {
 		$this->assertEquals( $expected, $queryPageImages->getTitles() );
 	}
 
-	public function provideGetTitles() {
+	public static function provideGetTitles() {
 		return [
 			[
 				[ Title::makeTitle( NS_MAIN, 'Foo' ) ],
@@ -176,7 +177,7 @@ class ApiQueryPageImagesTest extends TestCase {
 		$mock->execute();
 	}
 
-	public function provideExecute() {
+	public static function provideExecute() {
 		return [
 			[
 				[ 'prop' => [ 'thumbnail' ], 'thumbsize' => 100, 'limit' => 10,

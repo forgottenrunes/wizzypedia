@@ -25,9 +25,14 @@
  * @defgroup Search Search
  */
 
+use MediaWiki\Config\Config;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Search\TitleMatcher;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 
 /**
  * Contain a class for special pages
@@ -257,24 +262,23 @@ abstract class SearchEngine {
 
 	/**
 	 * Get service class to finding near matches.
-	 * @param Config $config Configuration to use for the matcher.
-	 * @return SearchNearMatcher
+	 *
+	 * @return TitleMatcher
+	 * @deprecated since 1.40, use MediaWikiServices::getInstance()->getTitleMatcher()
 	 */
 	public function getNearMatcher( Config $config ) {
-		return new SearchNearMatcher( $config,
-			MediaWikiServices::getInstance()->getContentLanguage(),
-			$this->getHookContainer()
-		);
+		return MediaWikiServices::getInstance()->getTitleMatcher();
 	}
 
 	/**
 	 * Get near matcher for default SearchEngine.
-	 * @return SearchNearMatcher
+	 *
+	 * @return TitleMatcher
+	 * @deprecated since 1.40, MediaWikiServices::getInstance()->getTitleMatcher()
 	 */
 	protected static function defaultNearMatcher() {
-		$services = MediaWikiServices::getInstance();
-		$config = $services->getMainConfig();
-		return $services->newSearchEngine()->getNearMatcher( $config );
+		wfDeprecated( __METHOD__, '1.40' );
+		return MediaWikiServices::getInstance()->getTitleMatcher();
 	}
 
 	/**
@@ -393,8 +397,6 @@ abstract class SearchEngine {
 	 * @return false|array false if no namespace was extracted, an array
 	 * with the parsed query at index 0 and an array of namespaces at index
 	 * 1 (or null for all namespaces).
-	 * @throws FatalError
-	 * @throws MWException
 	 */
 	public static function parseNamespacePrefixes(
 		$query,
@@ -418,7 +420,7 @@ abstract class SearchEngine {
 			}
 
 			foreach ( $allkeywords as $kw ) {
-				if ( strncmp( $query, $kw, strlen( $kw ) ) == 0 ) {
+				if ( str_starts_with( $query, $kw ) ) {
 					$parsed = substr( $query, strlen( $kw ) );
 					$allQuery = true;
 					break;
@@ -428,14 +430,16 @@ abstract class SearchEngine {
 
 		if ( !$allQuery && strpos( $query, ':' ) !== false ) {
 			$prefix = str_replace( ' ', '_', substr( $query, 0, strpos( $query, ':' ) ) );
-			$index = MediaWikiServices::getInstance()->getContentLanguage()->getNsIndex( $prefix );
+			$services = MediaWikiServices::getInstance();
+			$index = $services->getContentLanguage()->getNsIndex( $prefix );
 			if ( $index !== false ) {
 				$extractedNamespace = [ $index ];
 				$parsed = substr( $query, strlen( $prefix ) + 1 );
 			} elseif ( $withPrefixSearchExtractNamespaceHook ) {
 				$hookNamespaces = [ NS_MAIN ];
 				$hookQuery = $query;
-				Hooks::runner()->onPrefixSearchExtractNamespace( $hookNamespaces, $hookQuery );
+				( new HookRunner( $services->getHookContainer() ) )
+					->onPrefixSearchExtractNamespace( $hookNamespaces, $hookQuery );
 				if ( $hookQuery !== $query ) {
 					$parsed = $hookQuery;
 					$extractedNamespace = $hookNamespaces;
@@ -791,8 +795,7 @@ abstract class SearchEngine {
 				$handler = MediaWikiServices::getInstance()
 					->getContentHandlerFactory()
 					->getContentHandler( $model );
-			}
-			catch ( MWUnknownContentModelException $e ) {
+			} catch ( MWUnknownContentModelException $e ) {
 				// If we can find no handler, ignore it
 				continue;
 			}

@@ -7,10 +7,10 @@ use MediaWiki\DAO\WikiAwareEntity;
 use MediaWiki\Languages\LanguageConverterFactory;
 use MediaWiki\Page\PageReferenceValue;
 use MediaWiki\Page\WikiPageFactory;
-use NamespaceInfo;
+use MediaWiki\Title\NamespaceInfo;
+use MediaWiki\Title\Title;
 use ParserOutput;
 use PurgeJobUtils;
-use Title;
 
 /**
  * categorylinks
@@ -104,17 +104,19 @@ class CategoryLinksTable extends TitleLinksTable {
 		$this->newLinks = [];
 		$sourceTitle = Title::castFromPageIdentity( $this->getSourcePage() );
 		$sortKeyInputs = [];
-		foreach ( $parserOutput->getCategories() as $name => $sortKeyPrefix ) {
-			// Fix the type of numeric strings
-			$name = (string)$name;
+		foreach ( $parserOutput->getCategoryNames() as $name ) {
+			$sortKey = $parserOutput->getCategorySortKey( $name );
+			'@phan-var string $sortKey'; // sort key will never be null
 
 			// If the sort key is longer then 255 bytes, it is truncated by DB,
 			// and then doesn't match when comparing existing vs current
 			// categories, causing T27254.
-			$sortKeyPrefix = mb_strcut( $sortKeyPrefix, 0, 255 );
+			$sortKeyPrefix = mb_strcut( $sortKey, 0, 255 );
 
-			$targetTitle = Title::makeTitleSafe( NS_CATEGORY, $name );
+			$targetTitle = Title::makeTitle( NS_CATEGORY, $name );
 			$this->languageConverter->findVariantLink( $name, $targetTitle, true );
+			// Ignore the returned text, DB key should be used for links (T328477).
+			$name = $targetTitle->getDBKey();
 
 			// Treat custom sort keys as a prefix, so that if multiple
 			// things are forced to sort as '*' or something, they'll
@@ -152,7 +154,7 @@ class CategoryLinksTable extends TitleLinksTable {
 	 * @return iterable<array>
 	 */
 	protected function getNewLinkIDs() {
-		foreach ( $this->newLinks as $name => [ $prefix, $sortKey ] ) {
+		foreach ( $this->newLinks as $name => [ $prefix, ] ) {
 			yield [ (string)$name, $prefix ];
 		}
 	}
@@ -299,8 +301,7 @@ class CategoryLinksTable extends TitleLinksTable {
 		$lbf = $this->getLBFactory();
 		$size = $this->getBatchSize();
 		// T163801: try to release any row locks to reduce contention
-		$lbf->commitAndWaitForReplication(
-			__METHOD__, $this->getTransactionTicket(), [ 'domain' => $domainId ] );
+		$lbf->commitAndWaitForReplication( __METHOD__, $this->getTransactionTicket() );
 
 		if ( count( $insertedLinks ) + count( $deletedLinks ) < $size ) {
 			$wp->updateCategoryCounts(
@@ -308,21 +309,22 @@ class CategoryLinksTable extends TitleLinksTable {
 				$deletedLinks,
 				$this->getSourcePageId()
 			);
-			$lbf->commitAndWaitForReplication(
-				__METHOD__, $this->getTransactionTicket(), [ 'domain' => $domainId ] );
+			$lbf->commitAndWaitForReplication( __METHOD__, $this->getTransactionTicket() );
 		} else {
 			$addedChunks = array_chunk( $insertedLinks, $size );
 			foreach ( $addedChunks as $chunk ) {
 				$wp->updateCategoryCounts( $chunk, [], $this->getSourcePageId() );
-				$lbf->commitAndWaitForReplication(
-					__METHOD__, $this->getTransactionTicket(), [ 'domain' => $domainId ] );
+				if ( count( $addedChunks ) > 1 ) {
+					$lbf->commitAndWaitForReplication( __METHOD__, $this->getTransactionTicket() );
+				}
 			}
 
 			$deletedChunks = array_chunk( $deletedLinks, $size );
 			foreach ( $deletedChunks as $chunk ) {
 				$wp->updateCategoryCounts( [], $chunk, $this->getSourcePageId() );
-				$lbf->commitAndWaitForReplication(
-					__METHOD__, $this->getTransactionTicket(), [ 'domain' => $domainId ] );
+				if ( count( $deletedChunks ) > 1 ) {
+					$lbf->commitAndWaitForReplication( __METHOD__, $this->getTransactionTicket() );
+				}
 			}
 
 		}

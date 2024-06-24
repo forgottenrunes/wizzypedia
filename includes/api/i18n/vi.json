@@ -7,6 +7,7 @@
 			"Max20091",
 			"Minh Nguyen",
 			"NguoiDungKhongDinhDanh",
+			"Nguyenphutrong2",
 			"Vinhtantran"
 		]
 	},
@@ -47,7 +48,7 @@
 	"apihelp-edit-param-text": "Nội dung trang.",
 	"apihelp-edit-param-summary": "Tóm lược sửa đổi. Cũng là đề mục khi $1section=new và $1sectiontitle không được đặt.",
 	"apihelp-edit-param-minor": "Đánh dấu đây là sửa đổi nhỏ.",
-	"apihelp-edit-param-notminor": "Không đánh dấu đây là sửa đổi nhỏ thậm chí nếu người dùng bật tùy chọn \"{{int:tog-minordefault}}\".",
+	"apihelp-edit-param-notminor": "Không đánh dấu đây là sửa đổi nhỏ thậm chí nếu người dùng bật tùy chọn “{{int:tog-minordefault}}”.",
 	"apihelp-edit-param-bot": "Đánh dấu sửa đổi này là sửa đổi bot.",
 	"apihelp-edit-param-createonly": "Không sửa đổi trang nếu nó đã tồn tại.",
 	"apihelp-edit-param-nocreate": "Gây lỗi nếu trang không tồn tại.",
@@ -93,6 +94,7 @@
 	"apihelp-feedrecentchanges-param-hidepatrolled": "Ẩn thay đổi đã tuần tra.",
 	"apihelp-feedrecentchanges-param-hidemyself": "Ẩn thay đổi do người dùng hiện tại thực hiện.",
 	"apihelp-feedrecentchanges-param-tagfilter": "Lọc theo thẻ.",
+	"apihelp-feedrecentchanges-param-inverttags": "Tất cả các chỉnh sửa ngoại trừ những chỉnh sửa được gắn thẻ với những chỉnh sửa đã chọn.",
 	"apihelp-feedrecentchanges-example-simple": "Xem thay đổi gần đây.",
 	"apihelp-feedrecentchanges-example-30days": "Hiển thị các thay đổi trong 30 ngày gần đây.",
 	"apihelp-feedwatchlist-summary": "Trả về nguồn cấp danh sách theo dõi.",

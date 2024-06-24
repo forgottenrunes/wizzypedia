@@ -20,6 +20,10 @@ class CargoTableDiagram extends IncludableSpecialPage {
 		$out->addModules( 'ext.cargo.diagram' );
 
 		$tableNames = CargoUtils::getTables();
+		if ( count( $tableNames ) == 0 ) {
+			return;
+		}
+
 		$userDefinedTables = [];
 		foreach ( $tableNames as $tableName ) {
 			if ( substr( $tableName, 0, 1 ) !== '_' ) {
@@ -27,8 +31,26 @@ class CargoTableDiagram extends IncludableSpecialPage {
 			}
 		}
 
+		// Create a minimal array of schema data, since we only need
+		// a small fraction of the overall schema information.
 		$tableSchemas = CargoUtils::getTableSchemas( $userDefinedTables );
-		$tableSchemasJSON = json_encode( $tableSchemas );
+		$tableSchemaData = [];
+		foreach ( $tableSchemas as $tableName => $tableSchema ) {
+			$curTableSchemaData = [];
+			foreach ( $tableSchema->mFieldDescriptions as $fieldName => $fieldDesc ) {
+				$typeString = $fieldDesc->mType;
+				if ( $fieldDesc->mIsList ) {
+					// @todo - i18n this?
+					$typeString = "List of $typeString";
+				}
+				$curTableSchemaData[$fieldName] = [
+					'type' => $typeString
+				];
+			}
+			$tableSchemaData[$tableName] = $curTableSchemaData;
+		}
+		$tableSchemasJSON = json_encode( $tableSchemaData );
+
 		$allParentTables = [];
 		foreach ( $userDefinedTables as $tableName ) {
 			$parentTables = CargoUtils::getParentTables( $tableName );

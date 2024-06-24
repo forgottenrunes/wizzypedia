@@ -1,5 +1,12 @@
 <?php
 
+use MediaWiki\Title\Title;
+
+/**
+ * @group ContentHandler
+ * @group Database
+ *        ^--- needed, because we do need the database to test link updates
+ */
 class TextContentHandlerIntegrationTest extends MediaWikiLangTestCase {
 
 	public static function provideGetParserOutput() {
@@ -17,17 +24,19 @@ class TextContentHandlerIntegrationTest extends MediaWikiLangTestCase {
 	 * @covers TextContentHandler::fillParserOutput
 	 */
 	public function testGetParserOutput( $title, $model, $text, $expectedHtml,
-		$expectedFields = null
+		$expectedFields = null, $parserOptions = null
 	) {
 		$title = Title::newFromText( $title );
 		$content = ContentHandler::makeContent( $text, $title, $model );
 		$contentRenderer = $this->getServiceContainer()->getContentRenderer();
-		$po = $contentRenderer->getParserOutput( $content, $title );
+		$po = $contentRenderer->getParserOutput( $content, $title, null, $parserOptions );
 
 		$html = $po->getText();
 		$html = preg_replace( '#<!--.*?-->#sm', '', $html ); // strip comments
 
-		$this->assertEquals( $expectedHtml, trim( $html ) );
+		if ( $expectedHtml !== null ) {
+			$this->assertEquals( $expectedHtml, trim( $html ) );
+		}
 
 		if ( $expectedFields ) {
 			foreach ( $expectedFields as $field => $exp ) {

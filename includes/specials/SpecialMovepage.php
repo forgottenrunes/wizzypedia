@@ -1,7 +1,5 @@
 <?php
 /**
- * Implements Special:Movepage
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -17,25 +15,56 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  * http://www.gnu.org/copyleft/gpl.html
  *
- * @file
- * @ingroup SpecialPage
+ * @files
  */
 
+namespace MediaWiki\Specials;
+
+use DeferredUpdates;
+use DoubleRedirectJob;
+use ErrorPageError;
+use File;
+use LogEventsList;
+use LogPage;
 use MediaWiki\Cache\LinkBatchFactory;
+use MediaWiki\CommentStore\CommentStore;
 use MediaWiki\Content\IContentHandlerFactory;
+use MediaWiki\Html\Html;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Page\MovePageFactory;
 use MediaWiki\Page\WikiPageFactory;
 use MediaWiki\Permissions\PermissionManager;
+use MediaWiki\Permissions\RestrictionStore;
+use MediaWiki\SpecialPage\UnlistedSpecialPage;
+use MediaWiki\Title\NamespaceInfo;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleArrayFromResult;
 use MediaWiki\User\UserOptionsLookup;
 use MediaWiki\Watchlist\WatchlistManager;
-use Wikimedia\Rdbms\ILoadBalancer;
+use MediaWiki\Widget\ComplexTitleInputWidget;
+use OOUI\ButtonInputWidget;
+use OOUI\CheckboxInputWidget;
+use OOUI\DropdownInputWidget;
+use OOUI\FieldLayout;
+use OOUI\FieldsetLayout;
+use OOUI\FormLayout;
+use OOUI\HtmlSnippet;
+use OOUI\PanelLayout;
+use OOUI\TextInputWidget;
+use PermissionsError;
+use RepoGroup;
+use SearchEngineFactory;
+use StringUtils;
+use ThrottledError;
+use Wikimedia\Rdbms\IConnectionProvider;
+use Xml;
 
 /**
- * A special page that allows users to change page titles
+ * Implement Special:Movepage for changing page titles
  *
  * @ingroup SpecialPage
  */
-class MovePageForm extends UnlistedSpecialPage {
+class SpecialMovePage extends UnlistedSpecialPage {
 	/** @var Title */
 	protected $oldTitle = null;
 
@@ -44,8 +73,6 @@ class MovePageForm extends UnlistedSpecialPage {
 
 	/** @var string Text input */
 	protected $reason;
-
-	// Checks
 
 	/** @var bool */
 	protected $moveTalk;
@@ -67,44 +94,24 @@ class MovePageForm extends UnlistedSpecialPage {
 
 	private $watch = false;
 
-	/** @var MovePageFactory */
-	private $movePageFactory;
-
-	/** @var PermissionManager */
-	private $permManager;
-
-	/** @var UserOptionsLookup */
-	private $userOptionsLookup;
-
-	/** @var ILoadBalancer */
-	private $loadBalancer;
-
-	/** @var IContentHandlerFactory */
-	private $contentHandlerFactory;
-
-	/** @var NamespaceInfo */
-	private $nsInfo;
-
-	/** @var LinkBatchFactory */
-	private $linkBatchFactory;
-
-	/** @var RepoGroup */
-	private $repoGroup;
-
-	/** @var WikiPageFactory */
-	private $wikiPageFactory;
-
-	/** @var SearchEngineFactory */
-	private $searchEngineFactory;
-
-	/** @var WatchlistManager */
-	private $watchlistManager;
+	private MovePageFactory $movePageFactory;
+	private PermissionManager $permManager;
+	private UserOptionsLookup $userOptionsLookup;
+	private IConnectionProvider $dbProvider;
+	private IContentHandlerFactory $contentHandlerFactory;
+	private NamespaceInfo $nsInfo;
+	private LinkBatchFactory $linkBatchFactory;
+	private RepoGroup $repoGroup;
+	private WikiPageFactory $wikiPageFactory;
+	private SearchEngineFactory $searchEngineFactory;
+	private WatchlistManager $watchlistManager;
+	private RestrictionStore $restrictionStore;
 
 	/**
 	 * @param MovePageFactory $movePageFactory
 	 * @param PermissionManager $permManager
 	 * @param UserOptionsLookup $userOptionsLookup
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param IContentHandlerFactory $contentHandlerFactory
 	 * @param NamespaceInfo $nsInfo
 	 * @param LinkBatchFactory $linkBatchFactory
@@ -112,25 +119,27 @@ class MovePageForm extends UnlistedSpecialPage {
 	 * @param WikiPageFactory $wikiPageFactory
 	 * @param SearchEngineFactory $searchEngineFactory
 	 * @param WatchlistManager $watchlistManager
+	 * @param RestrictionStore $restrictionStore
 	 */
 	public function __construct(
 		MovePageFactory $movePageFactory,
 		PermissionManager $permManager,
 		UserOptionsLookup $userOptionsLookup,
-		ILoadBalancer $loadBalancer,
+		IConnectionProvider $dbProvider,
 		IContentHandlerFactory $contentHandlerFactory,
 		NamespaceInfo $nsInfo,
 		LinkBatchFactory $linkBatchFactory,
 		RepoGroup $repoGroup,
 		WikiPageFactory $wikiPageFactory,
 		SearchEngineFactory $searchEngineFactory,
-		WatchlistManager $watchlistManager
+		WatchlistManager $watchlistManager,
+		RestrictionStore $restrictionStore
 	) {
 		parent::__construct( 'Movepage' );
 		$this->movePageFactory = $movePageFactory;
 		$this->permManager = $permManager;
 		$this->userOptionsLookup = $userOptionsLookup;
-		$this->loadBalancer = $loadBalancer;
+		$this->dbProvider = $dbProvider;
 		$this->contentHandlerFactory = $contentHandlerFactory;
 		$this->nsInfo = $nsInfo;
 		$this->linkBatchFactory = $linkBatchFactory;
@@ -138,6 +147,7 @@ class MovePageForm extends UnlistedSpecialPage {
 		$this->wikiPageFactory = $wikiPageFactory;
 		$this->searchEngineFactory = $searchEngineFactory;
 		$this->watchlistManager = $watchlistManager;
+		$this->restrictionStore = $restrictionStore;
 	}
 
 	public function doesWrites() {
@@ -146,9 +156,7 @@ class MovePageForm extends UnlistedSpecialPage {
 
 	public function execute( $par ) {
 		$this->useTransactionalTimeLimit();
-
 		$this->checkReadOnly();
-
 		$this->setHeaders();
 		$this->outputHeader();
 
@@ -179,20 +187,20 @@ class MovePageForm extends UnlistedSpecialPage {
 			: Title::makeTitleSafe( $newTitleTextNs, $newTitleTextMain );
 
 		$user = $this->getUser();
+		$isSubmit = $request->getRawVal( 'action' ) === 'submit' && $request->wasPosted();
 
-		# Check rights
-		$permErrors = $this->permManager->getPermissionErrors( 'move', $user, $this->oldTitle );
-		if ( count( $permErrors ) ) {
-			// Auto-block user's IP if the account was "hard" blocked
-			DeferredUpdates::addCallableUpdate( static function () use ( $user ) {
-				$user->spreadAnyEditBlock();
-			} );
-			throw new PermissionsError( 'move', $permErrors );
+		$reasonList = $request->getText( 'wpReasonList', 'other' );
+		$reason = $request->getText( 'wpReason' );
+		if ( $reasonList === 'other' ) {
+			$this->reason = $reason;
+		} elseif ( $reason !== '' ) {
+			$this->reason = $reasonList . $this->msg( 'colon-separator' )->inContentLanguage()->text() . $reason;
+		} else {
+			$this->reason = $reasonList;
 		}
-
-		$def = !$request->wasPosted();
-
-		$this->reason = $request->getText( 'wpReason' );
+		// Default to checked, but don't fill in true during submission (browsers only submit checked values)
+		// TODO: Use HTMLForm to take care of this.
+		$def = !$isSubmit;
 		$this->moveTalk = $request->getBool( 'wpMovetalk', $def );
 		$this->fixRedirects = $request->getBool( 'wpFixRedirects', $def );
 		$this->leaveRedirect = $request->getBool( 'wpLeaveRedirect', $def );
@@ -202,11 +210,26 @@ class MovePageForm extends UnlistedSpecialPage {
 		$this->moveOverShared = $request->getBool( 'wpMoveOverSharedFile' );
 		$this->watch = $request->getCheck( 'wpWatch' ) && $user->isRegistered();
 
-		if ( $request->getRawVal( 'action' ) == 'submit' && $request->wasPosted()
-			&& $user->matchEditToken( $request->getVal( 'wpEditToken' ) )
-		) {
+		// Similar to other SpecialPage/Action classes, when tokens fail (likely due to reset or expiry),
+		// do not show an error but show the form again for easy re-submit.
+		if ( $isSubmit && $user->matchEditToken( $request->getVal( 'wpEditToken' ) ) ) {
+			// Check rights
+			$permErrors = $this->permManager->getPermissionErrors( 'move', $user, $this->oldTitle,
+				PermissionManager::RIGOR_SECURE );
+			// If the account is "hard" blocked, auto-block IP
+			DeferredUpdates::addCallableUpdate( [ $user, 'spreadAnyEditBlock' ] );
+			if ( $permErrors ) {
+				throw new PermissionsError( 'move', $permErrors );
+			}
 			$this->doSubmit();
 		} else {
+			// Avoid primary DB connection on form view (T283265)
+			$permErrors = $this->permManager->getPermissionErrors( 'move', $user, $this->oldTitle,
+				PermissionManager::RIGOR_FULL );
+			if ( $permErrors ) {
+				DeferredUpdates::addCallableUpdate( [ $user, 'spreadAnyEditBlock' ] );
+				throw new PermissionsError( 'move', $permErrors );
+			}
 			$this->showForm( [] );
 		}
 	}
@@ -223,7 +246,7 @@ class MovePageForm extends UnlistedSpecialPage {
 		$this->getSkin()->setRelevantTitle( $this->oldTitle );
 
 		$out = $this->getOutput();
-		$out->setPageTitle( $this->msg( 'move-page', $this->oldTitle->getPrefixedText() ) );
+		$out->setPageTitleMsg( $this->msg( 'move-page' )->plaintextParams( $this->oldTitle->getPrefixedText() ) );
 		$out->addModuleStyles( [
 			'mediawiki.special',
 			'mediawiki.interface.helpers.styles'
@@ -235,7 +258,7 @@ class MovePageForm extends UnlistedSpecialPage {
 			->getContentHandler( $this->oldTitle->getContentModel() )
 			->supportsRedirects();
 
-		if ( $this->getConfig()->get( 'FixDoubleRedirects' ) ) {
+		if ( $this->getConfig()->get( MainConfigNames::FixDoubleRedirects ) ) {
 			$out->addWikiMsg( 'movepagetext' );
 		} else {
 			$out->addWikiMsg( $handlerSupportsRedirects ?
@@ -244,14 +267,18 @@ class MovePageForm extends UnlistedSpecialPage {
 		}
 
 		if ( $this->oldTitle->getNamespace() === NS_USER && !$this->oldTitle->isSubpage() ) {
-			$out->wrapWikiMsg(
-				"<div class=\"warningbox mw-moveuserpage-warning\">\n$1\n</div>",
-				'moveuserpage-warning'
+			$out->addHTML(
+				Html::warningBox(
+					$out->msg( 'moveuserpage-warning' )->parse(),
+					'mw-moveuserpage-warning'
+				)
 			);
 		} elseif ( $this->oldTitle->getNamespace() === NS_CATEGORY ) {
-			$out->wrapWikiMsg(
-				"<div class=\"warningbox mw-movecategorypage-warning\">\n$1\n</div>",
-				'movecategorypage-warning'
+			$out->addHTML(
+				Html::warningBox(
+					$out->msg( 'movecategorypage-warning' )->parse(),
+					'mw-movecategorypage-warning'
+				)
 			);
 		}
 
@@ -259,7 +286,6 @@ class MovePageForm extends UnlistedSpecialPage {
 		$moveOverShared = false;
 
 		$user = $this->getUser();
-
 		$newTitle = $this->newTitle;
 
 		if ( !$newTitle ) {
@@ -282,9 +308,10 @@ class MovePageForm extends UnlistedSpecialPage {
 			if ( $err[0][0] == 'articleexists'
 				&& $this->permManager->quickUserCan( 'delete', $user, $newTitle )
 			) {
-				$out->wrapWikiMsg(
-					"<div class='warningbox'>\n$1\n</div>\n",
-					[ 'delete_and_move_text', $newTitle->getPrefixedText() ]
+				$out->addHTML(
+					Html::warningBox(
+						$out->msg( 'delete_and_move_text', $newTitle->getPrefixedText() )->parse()
+					)
 				);
 				$deleteAndMove = true;
 				$err = [];
@@ -293,18 +320,20 @@ class MovePageForm extends UnlistedSpecialPage {
 				$this->permManager->quickUserCan( 'delete-redirect', $user, $newTitle ) ||
 				$this->permManager->quickUserCan( 'delete', $user, $newTitle ) )
 			) {
-				$out->wrapWikiMsg(
-					"<div class='warningbox'>\n$1\n</div>\n",
-					[ 'delete_redirect_and_move_text', $newTitle->getPrefixedText() ]
+				$out->addHTML(
+					Html::warningBox(
+						$out->msg( 'delete_redirect_and_move_text', $newTitle->getPrefixedText() )->parse()
+					)
 				);
 				$deleteAndMove = true;
 				$err = [];
 			} elseif ( $err[0][0] == 'file-exists-sharedrepo'
 				&& $this->permManager->userHasRight( $user, 'reupload-shared' )
 			) {
-				$out->wrapWikiMsg(
-					"<div class='warningbox'>\n$1\n</div>\n",
-					[ 'move-over-sharedrepo', $newTitle->getPrefixedText() ]
+				$out->addHTML(
+					Html::warningBox(
+						$out->msg( 'move-over-sharedrepo', $newTitle->getPrefixedText() )->parse()
+					)
 				);
 				$moveOverShared = true;
 				$err = [];
@@ -316,11 +345,11 @@ class MovePageForm extends UnlistedSpecialPage {
 		$oldTitleTalkSubpages = $this->oldTitle->getTalkPage()->hasSubpages();
 
 		$canMoveSubpage = ( $oldTitleSubpages || $oldTitleTalkSubpages ) &&
-			!count( $this->permManager->getPermissionErrors(
+			$this->permManager->quickUserCan(
 				'move-subpages',
 				$user,
 				$this->oldTitle
-			) );
+			);
 
 		# We also want to be able to move assoc. subpage talk-pages even if base page
 		# has no associated talk page, so || with $oldTitleTalkSubpages.
@@ -328,13 +357,15 @@ class MovePageForm extends UnlistedSpecialPage {
 			( $oldTalk->exists()
 				|| ( $oldTitleTalkSubpages && $canMoveSubpage ) );
 
-		$dbr = $this->loadBalancer->getConnectionRef( ILoadBalancer::DB_REPLICA );
-		if ( $this->getConfig()->get( 'FixDoubleRedirects' ) ) {
-			$hasRedirects = (bool)$dbr->selectField( 'redirect', '1',
-				[
-					'rd_namespace' => $this->oldTitle->getNamespace(),
-					'rd_title' => $this->oldTitle->getDBkey(),
-				], __METHOD__ );
+		if ( $this->getConfig()->get( MainConfigNames::FixDoubleRedirects ) ) {
+			$queryBuilder = $this->dbProvider->getReplicaDatabase()->newSelectQueryBuilder()
+				->select( '1' )
+				->from( 'redirect' )
+				->where( [ 'rd_namespace' => $this->oldTitle->getNamespace() ] )
+				->andWhere( [ 'rd_title' => $this->oldTitle->getDBkey() ] )
+				->andWhere( [ 'rd_interwiki' => [ '', null ] ] );
+
+			$hasRedirects = (bool)$queryBuilder->caller( __METHOD__ )->fetchField();
 		} else {
 			$hasRedirects = false;
 		}
@@ -375,9 +406,9 @@ class MovePageForm extends UnlistedSpecialPage {
 			$out->addHTML( Html::errorBox( $errMsgHtml ) );
 		}
 
-		if ( $this->oldTitle->isProtected( 'move' ) ) {
+		if ( $this->restrictionStore->isProtected( $this->oldTitle, 'move' ) ) {
 			# Is the title semi-protected?
-			if ( $this->oldTitle->isSemiProtected( 'move' ) ) {
+			if ( $this->restrictionStore->isSemiProtected( $this->oldTitle, 'move' ) ) {
 				$noticeMsg = 'semiprotectedpagemovewarning';
 			} else {
 				# Then it must be protected based on static groups (regular)
@@ -396,7 +427,7 @@ class MovePageForm extends UnlistedSpecialPage {
 		// mediawiki.special.movePage module
 
 		$immovableNamespaces = [];
-		foreach ( array_keys( $this->getLanguage()->getNamespaces() ) as $nsId ) {
+		foreach ( $this->getLanguage()->getNamespaces() as $nsId => $_ ) {
 			if ( !$this->nsInfo->isMovable( $nsId ) ) {
 				$immovableNamespaces[] = $nsId;
 			}
@@ -405,8 +436,8 @@ class MovePageForm extends UnlistedSpecialPage {
 		$out->enableOOUI();
 		$fields = [];
 
-		$fields[] = new OOUI\FieldLayout(
-			new MediaWiki\Widget\ComplexTitleInputWidget( [
+		$fields[] = new FieldLayout(
+			new ComplexTitleInputWidget( [
 				'id' => 'wpNewTitle',
 				'namespace' => [
 					'id' => 'wpNewTitleNs',
@@ -429,16 +460,19 @@ class MovePageForm extends UnlistedSpecialPage {
 			]
 		);
 
-		// HTML maxlength uses "UTF-16 code units", which means that characters outside BMP
-		// (e.g. emojis) count for two each. This limit is overridden in JS to instead count
-		// Unicode codepoints.
-		$fields[] = new OOUI\FieldLayout(
-			new OOUI\TextInputWidget( [
-				'name' => 'wpReason',
-				'id' => 'wpReason',
-				'maxLength' => CommentStore::COMMENT_CHARACTER_LIMIT,
+		$options = Xml::listDropDownOptions(
+			$this->msg( 'movepage-reason-dropdown' )->inContentLanguage()->text(),
+			[ 'other' => $this->msg( 'movereasonotherlist' )->text() ]
+		);
+		$options = Xml::listDropDownOptionsOoui( $options );
+
+		$fields[] = new FieldLayout(
+			new DropdownInputWidget( [
+				'name' => 'wpReasonList',
+				'inputId' => 'wpReasonList',
 				'infusable' => true,
-				'value' => $this->reason,
+				'value' => 'other',
+				'options' => $options,
 			] ),
 			[
 				'label' => $this->msg( 'movereason' )->text(),
@@ -446,9 +480,26 @@ class MovePageForm extends UnlistedSpecialPage {
 			]
 		);
 
+		// HTML maxlength uses "UTF-16 code units", which means that characters outside BMP
+		// (e.g. emojis) count for two each. This limit is overridden in JS to instead count
+		// Unicode codepoints.
+		$fields[] = new FieldLayout(
+			new TextInputWidget( [
+				'name' => 'wpReason',
+				'id' => 'wpReason',
+				'maxLength' => CommentStore::COMMENT_CHARACTER_LIMIT,
+				'infusable' => true,
+				'value' => $this->reason,
+			] ),
+			[
+				'label' => $this->msg( 'moveotherreason' )->text(),
+				'align' => 'top',
+			]
+		);
+
 		if ( $considerTalk ) {
-			$fields[] = new OOUI\FieldLayout(
-				new OOUI\CheckboxInputWidget( [
+			$fields[] = new FieldLayout(
+				new CheckboxInputWidget( [
 					'name' => 'wpMovetalk',
 					'id' => 'wpMovetalk',
 					'value' => '1',
@@ -456,7 +507,7 @@ class MovePageForm extends UnlistedSpecialPage {
 				] ),
 				[
 					'label' => $this->msg( 'movetalk' )->text(),
-					'help' => new OOUI\HtmlSnippet( $this->msg( 'movepagetalktext' )->parseAsBlock() ),
+					'help' => new HtmlSnippet( $this->msg( 'movepagetalktext' )->parseAsBlock() ),
 					'helpInline' => true,
 					'align' => 'inline',
 					'id' => 'wpMovetalk-field',
@@ -472,8 +523,8 @@ class MovePageForm extends UnlistedSpecialPage {
 				$isChecked = false;
 				$isDisabled = true;
 			}
-			$fields[] = new OOUI\FieldLayout(
-				new OOUI\CheckboxInputWidget( [
+			$fields[] = new FieldLayout(
+				new CheckboxInputWidget( [
 					'name' => 'wpLeaveRedirect',
 					'id' => 'wpLeaveRedirect',
 					'value' => '1',
@@ -488,8 +539,8 @@ class MovePageForm extends UnlistedSpecialPage {
 		}
 
 		if ( $hasRedirects ) {
-			$fields[] = new OOUI\FieldLayout(
-				new OOUI\CheckboxInputWidget( [
+			$fields[] = new FieldLayout(
+				new CheckboxInputWidget( [
 					'name' => 'wpFixRedirects',
 					'id' => 'wpFixRedirects',
 					'value' => '1',
@@ -503,16 +554,16 @@ class MovePageForm extends UnlistedSpecialPage {
 		}
 
 		if ( $canMoveSubpage ) {
-			$maximumMovedPages = $this->getConfig()->get( 'MaximumMovedPages' );
-			$fields[] = new OOUI\FieldLayout(
-				new OOUI\CheckboxInputWidget( [
+			$maximumMovedPages = $this->getConfig()->get( MainConfigNames::MaximumMovedPages );
+			$fields[] = new FieldLayout(
+				new CheckboxInputWidget( [
 					'name' => 'wpMovesubpages',
 					'id' => 'wpMovesubpages',
 					'value' => '1',
 					'selected' => $this->moveSubpages,
 				] ),
 				[
-					'label' => new OOUI\HtmlSnippet(
+					'label' => new HtmlSnippet(
 						$this->msg(
 							( $this->oldTitle->hasSubpages()
 								? 'move-subpages'
@@ -528,8 +579,8 @@ class MovePageForm extends UnlistedSpecialPage {
 		if ( $user->isRegistered() ) {
 			$watchChecked = ( $this->watch || $this->userOptionsLookup->getBoolOption( $user, 'watchmoves' )
 				|| $this->watchlistManager->isWatched( $user, $this->oldTitle ) );
-			$fields[] = new OOUI\FieldLayout(
-				new OOUI\CheckboxInputWidget( [
+			$fields[] = new FieldLayout(
+				new CheckboxInputWidget( [
 					'name' => 'wpWatch',
 					'id' => 'watch', # ew
 					'value' => '1',
@@ -548,8 +599,8 @@ class MovePageForm extends UnlistedSpecialPage {
 		}
 
 		if ( $deleteAndMove ) {
-			$fields[] = new OOUI\FieldLayout(
-				new OOUI\CheckboxInputWidget( [
+			$fields[] = new FieldLayout(
+				new CheckboxInputWidget( [
 					'name' => 'wpDeleteAndMove',
 					'id' => 'wpDeleteAndMove',
 					'value' => '1',
@@ -561,8 +612,8 @@ class MovePageForm extends UnlistedSpecialPage {
 			);
 		}
 
-		$fields[] = new OOUI\FieldLayout(
-			new OOUI\ButtonInputWidget( [
+		$fields[] = new FieldLayout(
+			new ButtonInputWidget( [
 				'name' => 'wpMove',
 				'value' => $this->msg( 'movepagebtn' )->text(),
 				'label' => $this->msg( 'movepagebtn' )->text(),
@@ -574,20 +625,20 @@ class MovePageForm extends UnlistedSpecialPage {
 			]
 		);
 
-		$fieldset = new OOUI\FieldsetLayout( [
+		$fieldset = new FieldsetLayout( [
 			'label' => $this->msg( 'move-page-legend' )->text(),
 			'id' => 'mw-movepage-table',
 			'items' => $fields,
 		] );
 
-		$form = new OOUI\FormLayout( [
+		$form = new FormLayout( [
 			'method' => 'post',
 			'action' => $this->getPageTitle()->getLocalURL( 'action=submit' ),
 			'id' => 'movepage',
 		] );
 		$form->appendContent(
 			$fieldset,
-			new OOUI\HtmlSnippet(
+			new HtmlSnippet(
 				$hiddenFields .
 				Html::hidden( 'wpOldTitle', $this->oldTitle->getPrefixedText() ) .
 				Html::hidden( 'wpEditToken', $user->getEditToken() )
@@ -595,7 +646,7 @@ class MovePageForm extends UnlistedSpecialPage {
 		);
 
 		$out->addHTML(
-			new OOUI\PanelLayout( [
+			new PanelLayout( [
 				'classes' => [ 'movepage-wrapper' ],
 				'expanded' => false,
 				'padded' => true,
@@ -603,6 +654,15 @@ class MovePageForm extends UnlistedSpecialPage {
 				'content' => $form,
 			] )
 		);
+		if ( $this->getAuthority()->isAllowed( 'editinterface' ) ) {
+			$link = $this->getLinkRenderer()->makeKnownLink(
+				$this->msg( 'movepage-reason-dropdown' )->inContentLanguage()->getTitle(),
+				$this->msg( 'movepage-edit-reasonlist' )->text(),
+				[],
+				[ 'action' => 'edit' ]
+			);
+			$out->addHTML( Html::rawElement( 'p', [ 'class' => 'mw-movepage-editreasons' ], $link ) );
+		}
 
 		$this->showLogFragment( $this->oldTitle );
 		$this->showSubpages( $this->oldTitle );
@@ -725,12 +785,13 @@ class MovePageForm extends UnlistedSpecialPage {
 			return;
 		}
 
-		if ( $this->getConfig()->get( 'FixDoubleRedirects' ) && $this->fixRedirects ) {
+		if ( $this->getConfig()->get( MainConfigNames::FixDoubleRedirects ) &&
+		$this->fixRedirects ) {
 			DoubleRedirectJob::fixRedirects( 'move', $ot );
 		}
 
 		$out = $this->getOutput();
-		$out->setPageTitle( $this->msg( 'pagemovedsub' ) );
+		$out->setPageTitleMsg( $this->msg( 'pagemovedsub' ) );
 
 		$linkRenderer = $this->getLinkRenderer();
 		$oldLink = $linkRenderer->makeLink(
@@ -774,7 +835,7 @@ class MovePageForm extends UnlistedSpecialPage {
 		 */
 
 		// @todo FIXME: Use MovePage::moveSubpages() here
-		$dbr = $this->loadBalancer->getConnectionRef( ILoadBalancer::DB_REPLICA );
+		$dbr = $this->dbProvider->getReplicaDatabase();
 		if ( $this->moveSubpages && (
 			$this->nsInfo->hasSubpages( $nt->getNamespace() ) || (
 				$this->moveTalk
@@ -806,12 +867,12 @@ class MovePageForm extends UnlistedSpecialPage {
 
 		$extraPages = [];
 		if ( $conds !== null ) {
-			$extraPages = TitleArray::newFromResult(
-				$dbr->select( 'page',
-					[ 'page_id', 'page_namespace', 'page_title' ],
-					$conds,
-					__METHOD__
-				)
+			$extraPages = new TitleArrayFromResult(
+				$dbr->newSelectQueryBuilder()
+					->select( [ 'page_id', 'page_namespace', 'page_title' ] )
+					->from( 'page' )
+					->where( $conds )
+					->caller( __METHOD__ )->fetchResultSet()
 			);
 		}
 
@@ -872,7 +933,8 @@ class MovePageForm extends UnlistedSpecialPage {
 						->rawParams( $oldLink, $newLink )->escaped();
 					++$count;
 
-					$maximumMovedPages = $this->getConfig()->get( 'MaximumMovedPages' );
+					$maximumMovedPages =
+						$this->getConfig()->get( MainConfigNames::MaximumMovedPages );
 					if ( $count >= $maximumMovedPages ) {
 						$extraOutput[] = $this->msg( 'movepage-max-pages' )
 							->numParams( $maximumMovedPages )->escaped();
@@ -912,11 +974,11 @@ class MovePageForm extends UnlistedSpecialPage {
 	private function showSubpages( $title ) {
 		$nsHasSubpages = $this->nsInfo->hasSubpages( $title->getNamespace() );
 		$subpages = $title->getSubpages();
-		$count = $subpages instanceof TitleArray ? $subpages->count() : 0;
+		$count = $subpages instanceof TitleArrayFromResult ? $subpages->count() : 0;
 
 		$titleIsTalk = $title->isTalkPage();
 		$subpagesTalk = $title->getTalkPage()->getSubpages();
-		$countTalk = $subpagesTalk instanceof TitleArray ? $subpagesTalk->count() : 0;
+		$countTalk = $subpagesTalk instanceof TitleArrayFromResult ? $subpagesTalk->count() : 0;
 		$totalCount = $count + $countTalk;
 
 		if ( !$nsHasSubpages && $countTalk == 0 ) {
@@ -977,3 +1039,9 @@ class MovePageForm extends UnlistedSpecialPage {
 		return 'pagetools';
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.40
+ */
+class_alias( SpecialMovePage::class, 'MovePageForm' );

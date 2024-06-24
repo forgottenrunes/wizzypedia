@@ -21,11 +21,13 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
+use MediaWiki\Title\Title;
+
 /**
  * Maintenance script that clears rows of pages corrupted by MergeHistory, those
  * pages 'exist' but have no visible revision.
  *
- * These pages are completely inacessible via the UI due to revision/title mismatch
+ * These pages are completely inaccessible via the UI due to revision/title mismatch
  * exceptions in RevisionStore and elsewhere.
  *
  * These are rows in page_table that have 'page_latest' entry with corresponding
@@ -92,12 +94,11 @@ class FixMergeHistoryCorruption extends Maintenance {
 
 			// Check if there are any revisions that have this $row->page_id as their
 			// rev_page and select the largest which should be the newest revision.
-			$revId = $dbr->selectField(
-				'revision',
-				'MAX(rev_id)',
-				[ 'rev_page' => $row->page_id ],
-				__METHOD__
-			);
+			$revId = $dbr->newSelectQueryBuilder()
+				->select( 'MAX(rev_id)' )
+				->from( 'revision' )
+				->where( [ 'rev_page' => $row->page_id ] )
+				->caller( __METHOD__ )->fetchField();
 
 			if ( !$revId ) {
 				if ( $dryRun ) {

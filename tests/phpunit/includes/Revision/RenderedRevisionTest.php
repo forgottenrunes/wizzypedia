@@ -6,6 +6,7 @@ use Content;
 use InvalidArgumentException;
 use LogicException;
 use MediaWiki\Content\Renderer\ContentRenderer;
+use MediaWiki\Page\PageIdentity;
 use MediaWiki\Page\PageIdentityValue;
 use MediaWiki\Page\PageReference;
 use MediaWiki\Revision\MutableRevisionRecord;
@@ -18,17 +19,18 @@ use MediaWiki\Revision\RevisionStoreRecord;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Revision\SuppressedDataException;
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
+use MediaWiki\Title\TitleValue;
 use MediaWiki\User\UserIdentityValue;
 use MediaWikiIntegrationTestCase;
 use ParserOptions;
 use ParserOutput;
 use PHPUnit\Framework\MockObject\MockObject;
-use TitleValue;
 use Wikimedia\TestingAccessWrapper;
 use WikitextContent;
 
 /**
  * @covers \MediaWiki\Revision\RenderedRevision
+ * @group Database
  */
 class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 	use MockAuthorityTrait;
@@ -112,7 +114,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 			$text .= "* time:{{REVISIONTIMESTAMP}}!\n";
 			$text .= "* [[Link It]]\n";
 
-			$content = [ 'main' => new WikitextContent( $text ) ];
+			$content = [ SlotRecord::MAIN => new WikitextContent( $text ) ];
 		}
 
 		/** @var MockObject|RevisionRecord $mock */
@@ -152,7 +154,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 			RevisionStoreRecord::class,
 			PageIdentityValue::localIdentity( 0, NS_MAIN, __METHOD__ )
 		);
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 
 		$this->expectException( InvalidArgumentException::class );
 		$this->expectExceptionMessage(
@@ -173,7 +175,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 			PageIdentityValue::localIdentity( 0, NS_MAIN, 'RenderTestPage' )
 		);
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,
@@ -200,12 +202,12 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 		$text = "(ONE)<includeonly>(TWO)</includeonly><noinclude>#{{:$name}}#</noinclude>";
 
 		$content = [
-			'main' => new WikitextContent( $text )
+			SlotRecord::MAIN => new WikitextContent( $text )
 		];
 
 		$rev = $this->getMockRevision( RevisionStoreRecord::class, $title, null, 0, $content );
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,
@@ -224,7 +226,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 			21
 		);
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,
@@ -254,7 +256,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 			11
 		);
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,
@@ -284,12 +286,13 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 			11
 		);
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,
 			$this->contentRenderer,
-			$this->combinerCallback
+			$this->combinerCallback,
+			RevisionRecord::RAW
 		);
 
 		$this->assertFalse( $rr->isContentDeleted(), 'isContentDeleted' );
@@ -315,7 +318,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 			RevisionRecord::DELETED_TEXT
 		);
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,
@@ -335,7 +338,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 			RevisionRecord::DELETED_TEXT
 		);
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,
@@ -369,7 +372,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 			RevisionRecord::DELETED_TEXT
 		);
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,
@@ -396,7 +399,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 
 	public function testGetRevisionParserOutput_multi() {
 		$content = [
-			'main' => new WikitextContent( '[[Kittens]]' ),
+			SlotRecord::MAIN => new WikitextContent( '[[Kittens]]' ),
 			'aux' => new WikitextContent( '[[Goats]]' ),
 		];
 
@@ -407,7 +410,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 			0,
 			$content );
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,
@@ -453,7 +456,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 
 		$rev->setContent( SlotRecord::MAIN, new WikitextContent( $text ) );
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,
@@ -468,7 +471,10 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 		$this->assertStringContainsString( 'page:RenderTestPage!', $html );
 		$this->assertStringContainsString( 'rev:!', $html );
 		$this->assertStringContainsString( 'user:!', $html );
-		$this->assertStringContainsString( 'time:!', $html );
+		// Per parser docs, if revision object does not contain a timestamp
+		// then parser uses current time. Hence don't expect time to be
+		// empty or a specific time.
+		$this->assertStringContainsString( 'time:2', $html );
 	}
 
 	public function testGetRevisionParserOutput_incompleteWithId() {
@@ -491,7 +497,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 			RevisionRecord::DELETED_TEXT
 		);
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,
@@ -501,9 +507,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 
 		// MutableRevisionRecord with ID should not be used by the parser,
 		// revision should be loaded instead!
-		$revisionStore = $this->getMockBuilder( RevisionStore::class )
-			->disableOriginalConstructor()
-			->getMock();
+		$revisionStore = $this->createMock( RevisionStore::class );
 
 		$revisionStore->expects( $this->once() )
 			->method( 'getKnownCurrentRevision' )
@@ -525,7 +529,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 			PageIdentityValue::localIdentity( 3, NS_MAIN, 'RenderTestPage' )
 		);
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,
@@ -569,7 +573,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 		$rev->setContent( SlotRecord::MAIN, $content );
 		$rev->setContent( 'aux', $content );
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,
@@ -597,7 +601,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 		$rev->setContent( SlotRecord::MAIN, new WikitextContent( $text ) );
 		$rev->setContent( 'aux', new WikitextContent( '[[Goats]]' ) );
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,
@@ -642,7 +646,7 @@ class RenderedRevisionTest extends MediaWikiIntegrationTestCase {
 		$rev->setId( 123 );
 		$rev->setContent( SlotRecord::MAIN, new WikitextContent( 'FooBar' ) );
 
-		$options = ParserOptions::newCanonical( 'canonical' );
+		$options = ParserOptions::newFromAnon();
 		$rr = new RenderedRevision(
 			$rev,
 			$options,

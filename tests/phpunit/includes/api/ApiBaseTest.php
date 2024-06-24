@@ -1,7 +1,17 @@
 <?php
 
+use MediaWiki\Api\Validator\SubmoduleDef;
 use MediaWiki\Block\DatabaseBlock;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\ParamValidator\TypeDef\NamespaceDef;
+use MediaWiki\Permissions\PermissionStatus;
+use MediaWiki\Request\FauxRequest;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\EnumDef;
+use Wikimedia\ParamValidator\TypeDef\IntegerDef;
+use Wikimedia\ParamValidator\TypeDef\StringDef;
 use Wikimedia\TestingAccessWrapper;
 
 /**
@@ -40,12 +50,12 @@ class ApiBaseTest extends ApiTestCase {
 		$this->assertSame( $expected, $result );
 	}
 
-	public function provideStubMethods() {
+	public static function provideStubMethods() {
 		return [
 			[ null, 'getModuleManager' ],
 			[ null, 'getCustomPrinter' ],
 			[ [], 'getHelpUrls' ],
-			// @todo This is actually overriden by MockApi
+			// @todo This is actually overridden by MockApi
 			// [ [], 'getAllowedParams' ],
 			[ true, 'shouldCheckMaxLag' ],
 			[ true, 'isReadMode' ],
@@ -88,8 +98,7 @@ class ApiBaseTest extends ApiTestCase {
 	}
 
 	public function testRequireOnlyOneParameterMissing() {
-		$this->expectException( ApiUsageException::class );
-		$this->expectExceptionMessage( 'One of the parameters "foo" and "bar" is required.' );
+		$this->expectApiErrorCode( 'missingparam' );
 		$mock = new MockApi();
 		$mock->requireOnlyOneParameter(
 			[ "filename" => "foo.txt", "enablechunks" => false ],
@@ -113,8 +122,7 @@ class ApiBaseTest extends ApiTestCase {
 	}
 
 	public function testRequireMaxOneParameterTwo() {
-		$this->expectException( ApiUsageException::class );
-		$this->expectExceptionMessage( 'The parameters "foo" and "baz" can not be used together.' );
+		$this->expectApiErrorCode( 'invalidparammix' );
 		$mock = new MockApi();
 		$mock->requireMaxOneParameter(
 			[ 'foo' => 'bar', 'baz' => 'quz' ],
@@ -122,8 +130,7 @@ class ApiBaseTest extends ApiTestCase {
 	}
 
 	public function testRequireAtLeastOneParameterZero() {
-		$this->expectException( ApiUsageException::class );
-		$this->expectExceptionMessage( 'At least one of the parameters "foo" and "bar" is required.' );
+		$this->expectApiErrorCode( 'missingparam' );
 		$mock = new MockApi();
 		$mock->requireAtLeastOneParameter(
 			[ 'a' => 'b', 'c' => 'd' ],
@@ -147,8 +154,7 @@ class ApiBaseTest extends ApiTestCase {
 	}
 
 	public function testGetTitleOrPageIdBadParams() {
-		$this->expectException( ApiUsageException::class );
-		$this->expectExceptionMessage( 'The parameters "title" and "pageid" can not be used together.' );
+		$this->expectApiErrorCode( 'invalidparammix' );
 		$mock = new MockApi();
 		$mock->getTitleOrPageId( [ 'title' => 'a', 'pageid' => 7 ] );
 	}
@@ -161,15 +167,13 @@ class ApiBaseTest extends ApiTestCase {
 	}
 
 	public function testGetTitleOrPageIdInvalidTitle() {
-		$this->expectException( ApiUsageException::class );
-		$this->expectExceptionMessage( 'Bad title "|".' );
+		$this->expectApiErrorCode( 'invalidtitle' );
 		$mock = new MockApi();
 		$mock->getTitleOrPageId( [ 'title' => '|' ] );
 	}
 
 	public function testGetTitleOrPageIdSpecialTitle() {
-		$this->expectException( ApiUsageException::class );
-		$this->expectExceptionMessage( "Namespace doesn't allow actual pages." );
+		$this->expectApiErrorCode( 'pagecannotexist' );
 		$mock = new MockApi();
 		$mock->getTitleOrPageId( [ 'title' => 'Special:RandomPage' ] );
 	}
@@ -186,15 +190,13 @@ class ApiBaseTest extends ApiTestCase {
 	}
 
 	public function testGetTitleOrPageIdInvalidPageId() {
-		$this->expectException( ApiUsageException::class );
-		$this->expectExceptionMessage( 'There is no page with ID 2147483648.' );
+		$this->expectApiErrorCode( 'nosuchpageid' );
 		$mock = new MockApi();
 		$mock->getTitleOrPageId( [ 'pageid' => 2147483648 ] );
 	}
 
 	public function testGetTitleFromTitleOrPageIdBadParams() {
-		$this->expectException( ApiUsageException::class );
-		$this->expectExceptionMessage( 'The parameters "title" and "pageid" can not be used together.' );
+		$this->expectApiErrorCode( 'invalidparammix' );
 		$mock = new MockApi();
 		$mock->getTitleFromTitleOrPageId( [ 'title' => 'a', 'pageid' => 7 ] );
 	}
@@ -207,8 +209,7 @@ class ApiBaseTest extends ApiTestCase {
 	}
 
 	public function testGetTitleFromTitleOrPageIdInvalidTitle() {
-		$this->expectException( ApiUsageException::class );
-		$this->expectExceptionMessage( 'Bad title "|".' );
+		$this->expectApiErrorCode( 'invalidtitle' );
 		$mock = new MockApi();
 		$mock->getTitleFromTitleOrPageId( [ 'title' => '|' ] );
 	}
@@ -222,8 +223,7 @@ class ApiBaseTest extends ApiTestCase {
 	}
 
 	public function testGetTitleFromTitleOrPageIdInvalidPageId() {
-		$this->expectException( ApiUsageException::class );
-		$this->expectExceptionMessage( 'There is no page with ID 298401643.' );
+		$this->expectApiErrorCode( 'nosuchpageid' );
 		$mock = new MockApi();
 		$mock->getTitleFromTitleOrPageId( [ 'pageid' => 298401643 ] );
 	}
@@ -234,10 +234,10 @@ class ApiBaseTest extends ApiTestCase {
 			->getMock();
 		$mock->method( 'getAllowedParams' )->willReturn( [
 			'foo' => [
-				ApiBase::PARAM_TYPE => [ 'value' ],
+				ParamValidator::PARAM_TYPE => [ 'value' ],
 			],
 			'bar' => [
-				ApiBase::PARAM_TYPE => [ 'value' ],
+				ParamValidator::PARAM_TYPE => [ 'value' ],
 			],
 		] );
 		$wrapper = TestingAccessWrapper::newFromObject( $mock );
@@ -254,7 +254,7 @@ class ApiBaseTest extends ApiTestCase {
 			$wrapper->getParameter( 'foo' );
 			$this->fail( 'Expected exception not thrown' );
 		} catch ( ApiUsageException $ex ) {
-			$this->assertTrue( $this->apiExceptionHasCode( $ex, 'badvalue' ) );
+			$this->assertApiErrorCode( 'badvalue', $ex );
 		}
 
 		// And extractRequestParams() must throw too.
@@ -262,7 +262,7 @@ class ApiBaseTest extends ApiTestCase {
 			$mock->extractRequestParams();
 			$this->fail( 'Expected exception not thrown' );
 		} catch ( ApiUsageException $ex ) {
-			$this->assertTrue( $this->apiExceptionHasCode( $ex, 'badvalue' ) );
+			$this->assertApiErrorCode( 'badvalue', $ex );
 		}
 	}
 
@@ -296,15 +296,16 @@ class ApiBaseTest extends ApiTestCase {
 		$parseLimits = $options['parseLimits'] ?? true;
 
 		if ( !empty( $options['apihighlimits'] ) ) {
-			$context->setUser( self::$users['sysop']->getUser() );
+			$context->setUser( $this->getTestSysop()->getUser() );
 		}
 
 		// If we're testing tags, set up some tags
-		if ( isset( $paramSettings[ApiBase::PARAM_TYPE] ) &&
-			$paramSettings[ApiBase::PARAM_TYPE] === 'tags'
+		if ( isset( $paramSettings[ParamValidator::PARAM_TYPE] ) &&
+			$paramSettings[ParamValidator::PARAM_TYPE] === 'tags'
 		) {
-			ChangeTags::defineTag( 'tag1' );
-			ChangeTags::defineTag( 'tag2' );
+			$changeTagStore = $this->getServiceContainer()->getChangeTagsStore();
+			$changeTagStore->defineTag( 'tag1' );
+			$changeTagStore->defineTag( 'tag2' );
 		}
 
 		if ( $expected instanceof Exception ) {
@@ -325,13 +326,13 @@ class ApiBaseTest extends ApiTestCase {
 		} else {
 			$result = $wrapper->getParameterFromSettings( $paramName,
 				$paramSettings, $parseLimits );
-			if ( isset( $paramSettings[ApiBase::PARAM_TYPE] ) &&
-				$paramSettings[ApiBase::PARAM_TYPE] === 'timestamp' &&
+			if ( isset( $paramSettings[ParamValidator::PARAM_TYPE] ) &&
+				$paramSettings[ParamValidator::PARAM_TYPE] === 'timestamp' &&
 				$expected === 'now'
 			) {
 				// Allow one second of fuzziness.  Make sure the formats are
 				// correct!
-				$this->assertRegExp( '/^\d{14}$/', $result );
+				$this->assertMatchesRegularExpression( '/^\d{14}$/', $result );
 				$this->assertLessThanOrEqual( 1,
 					abs( wfTimestamp( TS_UNIX, $result ) - time() ),
 					"Result $result differs from expected $expected by " .
@@ -347,9 +348,9 @@ class ApiBaseTest extends ApiTestCase {
 			$this->assertSame( $warnings, $actualWarnings );
 		}
 
-		if ( !empty( $paramSettings[ApiBase::PARAM_SENSITIVE] ) ||
-			( isset( $paramSettings[ApiBase::PARAM_TYPE] ) &&
-			$paramSettings[ApiBase::PARAM_TYPE] === 'password' )
+		if ( !empty( $paramSettings[ParamValidator::PARAM_SENSITIVE] ) ||
+			( isset( $paramSettings[ParamValidator::PARAM_TYPE] ) &&
+			$paramSettings[ParamValidator::PARAM_TYPE] === 'password' )
 		) {
 			$mainWrapper = TestingAccessWrapper::newFromObject( $wrapper->getMain() );
 			$this->assertSame( [ 'myParam' ],
@@ -403,7 +404,7 @@ class ApiBaseTest extends ApiTestCase {
 			'String param, empty' => [ '', 'default', '', [] ],
 			'String param, required, empty' => [
 				'',
-				[ ApiBase::PARAM_DFLT => 'default', ApiBase::PARAM_REQUIRED => true ],
+				[ ParamValidator::PARAM_DEFAULT => 'default', ParamValidator::PARAM_REQUIRED => true ],
 				ApiUsageException::newWithMessage( null, [
 					'paramvalidator-missingparam',
 					Message::plaintextParam( 'myParam' ),
@@ -413,33 +414,33 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'Multi-valued parameter' => [
 				'a|b|c',
-				[ ApiBase::PARAM_ISMULTI => true ],
+				[ ParamValidator::PARAM_ISMULTI => true ],
 				[ 'a', 'b', 'c' ],
 				[]
 			],
 			'Multi-valued parameter, alternative separator' => [
 				"\x1fa|b\x1fc|d",
-				[ ApiBase::PARAM_ISMULTI => true ],
+				[ ParamValidator::PARAM_ISMULTI => true ],
 				[ 'a|b', 'c|d' ],
 				[]
 			],
 			'Multi-valued parameter, other C0 controls' => [
 				$c0,
-				[ ApiBase::PARAM_ISMULTI => true ],
+				[ ParamValidator::PARAM_ISMULTI => true ],
 				[ $enc ],
 				$warnings
 			],
 			'Multi-valued parameter, other C0 controls (2)' => [
 				"\x1f" . $c0,
-				[ ApiBase::PARAM_ISMULTI => true ],
+				[ ParamValidator::PARAM_ISMULTI => true ],
 				[ substr( $enc, 0, -3 ), '' ],
 				$warnings
 			],
 			'Multi-valued parameter with limits' => [
 				'a|b|c',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_ISMULTI_LIMIT1 => 3,
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_ISMULTI_LIMIT1 => 3,
 				],
 				[ 'a', 'b', 'c' ],
 				[],
@@ -447,14 +448,15 @@ class ApiBaseTest extends ApiTestCase {
 			'Multi-valued parameter with exceeded limits' => [
 				'a|b|c',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_ISMULTI_LIMIT1 => 2,
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_ISMULTI_LIMIT1 => 2,
 				],
 				ApiUsageException::newWithMessage( null, [
 					'paramvalidator-toomanyvalues',
 					Message::plaintextParam( 'myParam' ),
 					Message::numParam( 2 ),
 				], 'toomanyvalues', [
+					'parameter' => 'myParam',
 					'limit' => 2,
 					'lowlimit' => 2,
 					'highlimit' => 500,
@@ -464,15 +466,16 @@ class ApiBaseTest extends ApiTestCase {
 			'Multi-valued parameter with exceeded limits for non-bot' => [
 				'a|b|c',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_ISMULTI_LIMIT1 => 2,
-					ApiBase::PARAM_ISMULTI_LIMIT2 => 3,
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_ISMULTI_LIMIT1 => 2,
+					ParamValidator::PARAM_ISMULTI_LIMIT2 => 3,
 				],
 				ApiUsageException::newWithMessage( null, [
 					'paramvalidator-toomanyvalues',
 					Message::plaintextParam( 'myParam' ),
 					Message::numParam( 2 ),
 				], 'toomanyvalues', [
+					'parameter' => 'myParam',
 					'limit' => 2,
 					'lowlimit' => 2,
 					'highlimit' => 3,
@@ -482,9 +485,9 @@ class ApiBaseTest extends ApiTestCase {
 			'Multi-valued parameter with non-exceeded limits for bot' => [
 				'a|b|c',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_ISMULTI_LIMIT1 => 2,
-					ApiBase::PARAM_ISMULTI_LIMIT2 => 3,
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_ISMULTI_LIMIT1 => 2,
+					ParamValidator::PARAM_ISMULTI_LIMIT2 => 3,
 				],
 				[ 'a', 'b', 'c' ],
 				[],
@@ -492,40 +495,40 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'Multi-valued parameter with prohibited duplicates' => [
 				'a|b|a|c',
-				[ ApiBase::PARAM_ISMULTI => true ],
+				[ ParamValidator::PARAM_ISMULTI => true ],
 				[ 'a', 'b', 'c' ],
 				[],
 			],
 			'Multi-valued parameter with allowed duplicates' => [
 				'a|a',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_ALLOW_DUPLICATES => true,
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_ALLOW_DUPLICATES => true,
 				],
 				[ 'a', 'a' ],
 				[],
 			],
 			'Empty boolean param' => [
 				'',
-				[ ApiBase::PARAM_TYPE => 'boolean' ],
+				[ ParamValidator::PARAM_TYPE => 'boolean' ],
 				true,
 				[],
 			],
 			'Boolean param 0' => [
 				'0',
-				[ ApiBase::PARAM_TYPE => 'boolean' ],
+				[ ParamValidator::PARAM_TYPE => 'boolean' ],
 				true,
 				[],
 			],
 			'Boolean param false' => [
 				'false',
-				[ ApiBase::PARAM_TYPE => 'boolean' ],
+				[ ParamValidator::PARAM_TYPE => 'boolean' ],
 				true,
 				[],
 			],
 			'Deprecated parameter' => [
 				'foo',
-				[ ApiBase::PARAM_DEPRECATED => true ],
+				[ ParamValidator::PARAM_DEPRECATED => true ],
 				'foo',
 				[ [
 					'paramvalidator-param-deprecated',
@@ -535,13 +538,13 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'Deprecated parameter with default, unspecified' => [
 				null,
-				[ ApiBase::PARAM_DEPRECATED => true, ApiBase::PARAM_DFLT => 'foo' ],
+				[ ParamValidator::PARAM_DEPRECATED => true, ParamValidator::PARAM_DEFAULT => 'foo' ],
 				'foo',
 				[],
 			],
 			'Deprecated parameter with default, specified' => [
 				'foo',
-				[ ApiBase::PARAM_DEPRECATED => true, ApiBase::PARAM_DFLT => 'foo' ],
+				[ ParamValidator::PARAM_DEPRECATED => true, ParamValidator::PARAM_DEFAULT => 'foo' ],
 				'foo',
 				[ [
 					'paramvalidator-param-deprecated',
@@ -551,7 +554,7 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'Deprecated parameter value' => [
 				'a',
-				[ ApiBase::PARAM_TYPE => [ 'a' ], ApiBase::PARAM_DEPRECATED_VALUES => [ 'a' => true ] ],
+				[ ParamValidator::PARAM_TYPE => [ 'a' ], EnumDef::PARAM_DEPRECATED_VALUES => [ 'a' => true ] ],
 				'a',
 				[ [
 					'paramvalidator-deprecated-value',
@@ -562,9 +565,9 @@ class ApiBaseTest extends ApiTestCase {
 			'Deprecated parameter value as default, unspecified' => [
 				null,
 				[
-					ApiBase::PARAM_TYPE => [ 'a' ],
-					ApiBase::PARAM_DEPRECATED_VALUES => [ 'a' => true ],
-					ApiBase::PARAM_DFLT => 'a'
+					ParamValidator::PARAM_TYPE => [ 'a' ],
+					EnumDef::PARAM_DEPRECATED_VALUES => [ 'a' => true ],
+					ParamValidator::PARAM_DEFAULT => 'a'
 				],
 				'a',
 				[],
@@ -572,9 +575,9 @@ class ApiBaseTest extends ApiTestCase {
 			'Deprecated parameter value as default, specified' => [
 				'a',
 				[
-					ApiBase::PARAM_TYPE => [ 'a' ],
-					ApiBase::PARAM_DEPRECATED_VALUES => [ 'a' => true ],
-					ApiBase::PARAM_DFLT => 'a'
+					ParamValidator::PARAM_TYPE => [ 'a' ],
+					EnumDef::PARAM_DEPRECATED_VALUES => [ 'a' => true ],
+					ParamValidator::PARAM_DEFAULT => 'a'
 				],
 				'a',
 				[ [
@@ -586,9 +589,9 @@ class ApiBaseTest extends ApiTestCase {
 			'Multiple deprecated parameter values' => [
 				'a|b|c|d',
 				[
-					ApiBase::PARAM_TYPE => [ 'a', 'b', 'c', 'd' ],
-					ApiBase::PARAM_DEPRECATED_VALUES => [ 'b' => true, 'd' => true ],
-					ApiBase::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_TYPE => [ 'a', 'b', 'c', 'd' ],
+					EnumDef::PARAM_DEPRECATED_VALUES => [ 'b' => true, 'd' => true ],
+					ParamValidator::PARAM_ISMULTI => true,
 				],
 				[ 'a', 'b', 'c', 'd' ],
 				[
@@ -606,15 +609,15 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'Deprecated parameter value with custom warning' => [
 				'a',
-				[ ApiBase::PARAM_TYPE => [ 'a' ], ApiBase::PARAM_DEPRECATED_VALUES => [ 'a' => 'my-msg' ] ],
+				[ ParamValidator::PARAM_TYPE => [ 'a' ], EnumDef::PARAM_DEPRECATED_VALUES => [ 'a' => 'my-msg' ] ],
 				'a',
 				[ [ 'my-msg' ] ],
 			],
 			'"*" when wildcard not allowed' => [
 				'*',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_TYPE => [ 'a', 'b', 'c' ],
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_TYPE => [ 'a', 'b', 'c' ],
 				],
 				[],
 				[ [
@@ -628,9 +631,9 @@ class ApiBaseTest extends ApiTestCase {
 			'Wildcard "*"' => [
 				'*',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_TYPE => [ 'a', 'b', 'c' ],
-					ApiBase::PARAM_ALL => true,
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_TYPE => [ 'a', 'b', 'c' ],
+					ParamValidator::PARAM_ALL => true,
 				],
 				[ 'a', 'b', 'c' ],
 				[],
@@ -638,8 +641,8 @@ class ApiBaseTest extends ApiTestCase {
 			'Wildcard "*" with multiples not allowed' => [
 				'*',
 				[
-					ApiBase::PARAM_TYPE => [ 'a', 'b', 'c' ],
-					ApiBase::PARAM_ALL => true,
+					ParamValidator::PARAM_TYPE => [ 'a', 'b', 'c' ],
+					ParamValidator::PARAM_ALL => true,
 				],
 				ApiUsageException::newWithMessage( null, [
 					'paramvalidator-badvalue-enumnotmulti',
@@ -657,8 +660,8 @@ class ApiBaseTest extends ApiTestCase {
 			'Wildcard "*" with unrestricted type' => [
 				'*',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_ALL => true,
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_ALL => true,
 				],
 				[ '*' ],
 				[],
@@ -666,9 +669,9 @@ class ApiBaseTest extends ApiTestCase {
 			'Wildcard "x"' => [
 				'x',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_TYPE => [ 'a', 'b', 'c' ],
-					ApiBase::PARAM_ALL => 'x',
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_TYPE => [ 'a', 'b', 'c' ],
+					ParamValidator::PARAM_ALL => 'x',
 				],
 				[ 'a', 'b', 'c' ],
 				[],
@@ -676,8 +679,8 @@ class ApiBaseTest extends ApiTestCase {
 			'Namespace with wildcard' => [
 				'*',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_TYPE => 'namespace',
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_TYPE => 'namespace',
 				],
 				$namespaces,
 				[],
@@ -686,9 +689,9 @@ class ApiBaseTest extends ApiTestCase {
 			'Namespace with wildcard suppressed' => [
 				'*',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_TYPE => 'namespace',
-					ApiBase::PARAM_ALL => false,
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_TYPE => 'namespace',
+					ParamValidator::PARAM_ALL => false,
 				],
 				$namespaces,
 				[],
@@ -696,9 +699,9 @@ class ApiBaseTest extends ApiTestCase {
 			'Namespace with wildcard "x"' => [
 				'x',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_TYPE => 'namespace',
-					ApiBase::PARAM_ALL => 'x',
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_TYPE => 'namespace',
+					ParamValidator::PARAM_ALL => 'x',
 				],
 				[],
 				[ [
@@ -711,20 +714,20 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'Password' => [
 				'dDy+G?e?txnr.1:(@Ru',
-				[ ApiBase::PARAM_TYPE => 'password' ],
+				[ ParamValidator::PARAM_TYPE => 'password' ],
 				'dDy+G?e?txnr.1:(@Ru',
 				[],
 			],
 			'Sensitive field' => [
 				'I am fond of pineapples',
-				[ ApiBase::PARAM_SENSITIVE => true ],
+				[ ParamValidator::PARAM_SENSITIVE => true ],
 				'I am fond of pineapples',
 				[],
 			],
 			// @todo Test actual upload
 			'Namespace -1' => [
 				'-1',
-				[ ApiBase::PARAM_TYPE => 'namespace' ],
+				[ ParamValidator::PARAM_TYPE => 'namespace' ],
 				ApiUsageException::newWithMessage( null, [
 					'paramvalidator-badvalue-enumnotmulti',
 					Message::plaintextParam( 'myParam' ),
@@ -737,8 +740,8 @@ class ApiBaseTest extends ApiTestCase {
 			'Extra namespace -1' => [
 				'-1',
 				[
-					ApiBase::PARAM_TYPE => 'namespace',
-					ApiBase::PARAM_EXTRA_NAMESPACES => [ -1 ],
+					ParamValidator::PARAM_TYPE => 'namespace',
+					NamespaceDef::PARAM_EXTRA_NAMESPACES => [ -1 ],
 				],
 				-1,
 				[],
@@ -748,8 +751,8 @@ class ApiBaseTest extends ApiTestCase {
 			'Nonexistent module' => [
 				'not-a-module-name',
 				[
-					ApiBase::PARAM_TYPE => 'submodule',
-					ApiBase::PARAM_SUBMODULE_MAP =>
+					ParamValidator::PARAM_TYPE => 'submodule',
+					SubmoduleDef::PARAM_SUBMODULE_MAP =>
 						[ 'foo' => 'foo', 'bar' => 'foo+bar' ],
 				],
 				ApiUsageException::newWithMessage( null, [
@@ -777,8 +780,8 @@ class ApiBaseTest extends ApiTestCase {
 			'Integer with unenforced min' => [
 				'-2',
 				[
-					ApiBase::PARAM_TYPE => 'integer',
-					ApiBase::PARAM_MIN => -1,
+					ParamValidator::PARAM_TYPE => 'integer',
+					IntegerDef::PARAM_MIN => -1,
 				],
 				-1,
 				[ [
@@ -792,8 +795,8 @@ class ApiBaseTest extends ApiTestCase {
 			'Integer with enforced min' => [
 				'-2',
 				[
-					ApiBase::PARAM_TYPE => 'integer',
-					ApiBase::PARAM_MIN => -1,
+					ParamValidator::PARAM_TYPE => 'integer',
+					IntegerDef::PARAM_MIN => -1,
 					ApiBase::PARAM_RANGE_ENFORCE => true,
 				],
 				ApiUsageException::newWithMessage( null, [
@@ -808,8 +811,8 @@ class ApiBaseTest extends ApiTestCase {
 			'Integer with unenforced max' => [
 				'8',
 				[
-					ApiBase::PARAM_TYPE => 'integer',
-					ApiBase::PARAM_MAX => 7,
+					ParamValidator::PARAM_TYPE => 'integer',
+					IntegerDef::PARAM_MAX => 7,
 				],
 				7,
 				[ [
@@ -823,8 +826,8 @@ class ApiBaseTest extends ApiTestCase {
 			'Integer with enforced max' => [
 				'8',
 				[
-					ApiBase::PARAM_TYPE => 'integer',
-					ApiBase::PARAM_MAX => 7,
+					ParamValidator::PARAM_TYPE => 'integer',
+					IntegerDef::PARAM_MAX => 7,
 					ApiBase::PARAM_RANGE_ENFORCE => true,
 				],
 				ApiUsageException::newWithMessage( null, [
@@ -839,8 +842,8 @@ class ApiBaseTest extends ApiTestCase {
 			'Array of integers' => [
 				'3|12|966|-1',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_TYPE => 'integer',
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_TYPE => 'integer',
 				],
 				[ 3, 12, 966, -1 ],
 				[],
@@ -848,10 +851,10 @@ class ApiBaseTest extends ApiTestCase {
 			'Array of integers with unenforced min/max' => [
 				'3|12|966|-1',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_TYPE => 'integer',
-					ApiBase::PARAM_MIN => 0,
-					ApiBase::PARAM_MAX => 100,
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_TYPE => 'integer',
+					IntegerDef::PARAM_MIN => 0,
+					IntegerDef::PARAM_MAX => 100,
 				],
 				[ 3, 12, 100, 0 ],
 				[
@@ -874,10 +877,10 @@ class ApiBaseTest extends ApiTestCase {
 			'Array of integers with enforced min/max' => [
 				'3|12|966|-1',
 				[
-					ApiBase::PARAM_ISMULTI => true,
-					ApiBase::PARAM_TYPE => 'integer',
-					ApiBase::PARAM_MIN => 0,
-					ApiBase::PARAM_MAX => 100,
+					ParamValidator::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_TYPE => 'integer',
+					IntegerDef::PARAM_MIN => 0,
+					IntegerDef::PARAM_MAX => 100,
 					ApiBase::PARAM_RANGE_ENFORCE => true,
 				],
 				ApiUsageException::newWithMessage( null, [
@@ -891,21 +894,21 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'Limit with parseLimits false (numeric)' => [
 				'100',
-				[ ApiBase::PARAM_TYPE => 'limit' ],
+				[ ParamValidator::PARAM_TYPE => 'limit' ],
 				100,
 				[],
 				[ 'parseLimits' => false ],
 			],
 			'Limit with parseLimits false (max)' => [
 				'max',
-				[ ApiBase::PARAM_TYPE => 'limit' ],
+				[ ParamValidator::PARAM_TYPE => 'limit' ],
 				'max',
 				[],
 				[ 'parseLimits' => false ],
 			],
 			'Limit with parseLimits false (invalid)' => [
 				'kitten',
-				[ ApiBase::PARAM_TYPE => 'limit' ],
+				[ ParamValidator::PARAM_TYPE => 'limit' ],
 				ApiUsageException::newWithMessage( null, [
 					'paramvalidator-badinteger',
 					Message::plaintextParam( 'myParam' ),
@@ -917,7 +920,7 @@ class ApiBaseTest extends ApiTestCase {
 			'Limit with no max, supplied "max"' => [
 				'max',
 				[
-					ApiBase::PARAM_TYPE => 'limit',
+					ParamValidator::PARAM_TYPE => 'limit',
 				],
 				PHP_INT_MAX,
 				[],
@@ -925,9 +928,9 @@ class ApiBaseTest extends ApiTestCase {
 			'Valid limit' => [
 				'100',
 				[
-					ApiBase::PARAM_TYPE => 'limit',
-					ApiBase::PARAM_MAX => 100,
-					ApiBase::PARAM_MAX2 => 100,
+					ParamValidator::PARAM_TYPE => 'limit',
+					IntegerDef::PARAM_MAX => 100,
+					IntegerDef::PARAM_MAX2 => 100,
 				],
 				100,
 				[],
@@ -935,9 +938,9 @@ class ApiBaseTest extends ApiTestCase {
 			'Limit max' => [
 				'max',
 				[
-					ApiBase::PARAM_TYPE => 'limit',
-					ApiBase::PARAM_MAX => 100,
-					ApiBase::PARAM_MAX2 => 101,
+					ParamValidator::PARAM_TYPE => 'limit',
+					IntegerDef::PARAM_MAX => 100,
+					IntegerDef::PARAM_MAX2 => 101,
 				],
 				100,
 				[],
@@ -945,9 +948,9 @@ class ApiBaseTest extends ApiTestCase {
 			'Limit max for apihighlimits' => [
 				'max',
 				[
-					ApiBase::PARAM_TYPE => 'limit',
-					ApiBase::PARAM_MAX => 100,
-					ApiBase::PARAM_MAX2 => 101,
+					ParamValidator::PARAM_TYPE => 'limit',
+					IntegerDef::PARAM_MAX => 100,
+					IntegerDef::PARAM_MAX2 => 101,
 				],
 				101,
 				[],
@@ -956,9 +959,9 @@ class ApiBaseTest extends ApiTestCase {
 			'Limit too large' => [
 				'101',
 				[
-					ApiBase::PARAM_TYPE => 'limit',
-					ApiBase::PARAM_MAX => 100,
-					ApiBase::PARAM_MAX2 => 101,
+					ParamValidator::PARAM_TYPE => 'limit',
+					IntegerDef::PARAM_MAX => 100,
+					IntegerDef::PARAM_MAX2 => 101,
 				],
 				100,
 				[ [
@@ -972,9 +975,9 @@ class ApiBaseTest extends ApiTestCase {
 			'Limit okay for apihighlimits' => [
 				'101',
 				[
-					ApiBase::PARAM_TYPE => 'limit',
-					ApiBase::PARAM_MAX => 100,
-					ApiBase::PARAM_MAX2 => 101,
+					ParamValidator::PARAM_TYPE => 'limit',
+					IntegerDef::PARAM_MAX => 100,
+					IntegerDef::PARAM_MAX2 => 101,
 				],
 				101,
 				[],
@@ -983,9 +986,9 @@ class ApiBaseTest extends ApiTestCase {
 			'Limit too large for apihighlimits (non-internal mode)' => [
 				'102',
 				[
-					ApiBase::PARAM_TYPE => 'limit',
-					ApiBase::PARAM_MAX => 100,
-					ApiBase::PARAM_MAX2 => 101,
+					ParamValidator::PARAM_TYPE => 'limit',
+					IntegerDef::PARAM_MAX => 100,
+					IntegerDef::PARAM_MAX2 => 101,
 				],
 				101,
 				[ [
@@ -1000,10 +1003,10 @@ class ApiBaseTest extends ApiTestCase {
 			'Limit too small' => [
 				'-2',
 				[
-					ApiBase::PARAM_TYPE => 'limit',
-					ApiBase::PARAM_MIN => -1,
-					ApiBase::PARAM_MAX => 100,
-					ApiBase::PARAM_MAX2 => 100,
+					ParamValidator::PARAM_TYPE => 'limit',
+					IntegerDef::PARAM_MIN => -1,
+					IntegerDef::PARAM_MAX => 100,
+					IntegerDef::PARAM_MAX2 => 100,
 				],
 				-1,
 				[ [
@@ -1016,13 +1019,13 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'Timestamp' => [
 				wfTimestamp( TS_UNIX, '20211221122112' ),
-				[ ApiBase::PARAM_TYPE => 'timestamp' ],
+				[ ParamValidator::PARAM_TYPE => 'timestamp' ],
 				'20211221122112',
 				[],
 			],
 			'Timestamp 0' => [
 				'0',
-				[ ApiBase::PARAM_TYPE => 'timestamp' ],
+				[ ParamValidator::PARAM_TYPE => 'timestamp' ],
 				// Magic keyword
 				'now',
 				[ [
@@ -1033,7 +1036,7 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'Timestamp empty' => [
 				'',
-				[ ApiBase::PARAM_TYPE => 'timestamp' ],
+				[ ParamValidator::PARAM_TYPE => 'timestamp' ],
 				'now',
 				[ [
 					'paramvalidator-unclearnowtimestamp',
@@ -1044,19 +1047,19 @@ class ApiBaseTest extends ApiTestCase {
 			// wfTimestamp() interprets this as Unix time
 			'Timestamp 00' => [
 				'00',
-				[ ApiBase::PARAM_TYPE => 'timestamp' ],
+				[ ParamValidator::PARAM_TYPE => 'timestamp' ],
 				'19700101000000',
 				[],
 			],
 			'Timestamp now' => [
 				'now',
-				[ ApiBase::PARAM_TYPE => 'timestamp' ],
+				[ ParamValidator::PARAM_TYPE => 'timestamp' ],
 				'now',
 				[],
 			],
 			'Invalid timestamp' => [
 				'a potato',
-				[ ApiBase::PARAM_TYPE => 'timestamp' ],
+				[ ParamValidator::PARAM_TYPE => 'timestamp' ],
 				ApiUsageException::newWithMessage( null, [
 					'paramvalidator-badtimestamp',
 					Message::plaintextParam( 'myParam' ),
@@ -1067,8 +1070,8 @@ class ApiBaseTest extends ApiTestCase {
 			'Timestamp array' => [
 				'100|101',
 				[
-					ApiBase::PARAM_TYPE => 'timestamp',
-					ApiBase::PARAM_ISMULTI => 1,
+					ParamValidator::PARAM_TYPE => 'timestamp',
+					ParamValidator::PARAM_ISMULTI => 1,
 				],
 				[ wfTimestamp( TS_MW, 100 ), wfTimestamp( TS_MW, 101 ) ],
 				[],
@@ -1076,27 +1079,27 @@ class ApiBaseTest extends ApiTestCase {
 			'Expiry array' => [
 				'99990123123456|8888-01-23 12:34:56|indefinite',
 				[
-					ApiBase::PARAM_TYPE => 'expiry',
-					ApiBase::PARAM_ISMULTI => 1,
+					ParamValidator::PARAM_TYPE => 'expiry',
+					ParamValidator::PARAM_ISMULTI => 1,
 				],
 				[ '9999-01-23T12:34:56Z', '8888-01-23T12:34:56Z', 'infinity' ],
 				[],
 			],
 			'User' => [
 				'foo_bar',
-				[ ApiBase::PARAM_TYPE => 'user' ],
+				[ ParamValidator::PARAM_TYPE => 'user' ],
 				'Foo bar',
 				[],
 			],
 			'User prefixed with "User:"' => [
 				'User:foo_bar',
-				[ ApiBase::PARAM_TYPE => 'user' ],
+				[ ParamValidator::PARAM_TYPE => 'user' ],
 				'Foo bar',
 				[],
 			],
 			'Invalid username "|"' => [
 				'|',
-				[ ApiBase::PARAM_TYPE => 'user' ],
+				[ ParamValidator::PARAM_TYPE => 'user' ],
 				ApiUsageException::newWithMessage( null, [
 					'paramvalidator-baduser',
 					Message::plaintextParam( 'myParam' ),
@@ -1106,7 +1109,7 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'Invalid username "300.300.300.300"' => [
 				'300.300.300.300',
-				[ ApiBase::PARAM_TYPE => 'user' ],
+				[ ParamValidator::PARAM_TYPE => 'user' ],
 				ApiUsageException::newWithMessage( null, [
 					'paramvalidator-baduser',
 					Message::plaintextParam( 'myParam' ),
@@ -1116,25 +1119,25 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'IP range as username' => [
 				'10.0.0.0/8',
-				[ ApiBase::PARAM_TYPE => 'user' ],
+				[ ParamValidator::PARAM_TYPE => 'user' ],
 				'10.0.0.0/8',
 				[],
 			],
 			'IPv6 as username' => [
 				'::1',
-				[ ApiBase::PARAM_TYPE => 'user' ],
+				[ ParamValidator::PARAM_TYPE => 'user' ],
 				'0:0:0:0:0:0:0:1',
 				[],
 			],
 			'Obsolete cloaked usemod IP address as username' => [
 				'1.2.3.xxx',
-				[ ApiBase::PARAM_TYPE => 'user' ],
+				[ ParamValidator::PARAM_TYPE => 'user' ],
 				'1.2.3.xxx',
 				[],
 			],
 			'Invalid username containing IP address' => [
 				'This is [not] valid 1.2.3.xxx, ha!',
-				[ ApiBase::PARAM_TYPE => 'user' ],
+				[ ParamValidator::PARAM_TYPE => 'user' ],
 				ApiUsageException::newWithMessage( null, [
 					'paramvalidator-baduser',
 					Message::plaintextParam( 'myParam' ),
@@ -1144,30 +1147,30 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'External username' => [
 				'M>Foo bar',
-				[ ApiBase::PARAM_TYPE => 'user' ],
+				[ ParamValidator::PARAM_TYPE => 'user' ],
 				'M>Foo bar',
 				[],
 			],
 			'Array of usernames' => [
 				'foo|bar',
 				[
-					ApiBase::PARAM_TYPE => 'user',
-					ApiBase::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_TYPE => 'user',
+					ParamValidator::PARAM_ISMULTI => true,
 				],
 				[ 'Foo', 'Bar' ],
 				[],
 			],
 			'tag' => [
 				'tag1',
-				[ ApiBase::PARAM_TYPE => 'tags' ],
+				[ ParamValidator::PARAM_TYPE => 'tags' ],
 				[ 'tag1' ],
 				[],
 			],
 			'Array of one tag' => [
 				'tag1',
 				[
-					ApiBase::PARAM_TYPE => 'tags',
-					ApiBase::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_TYPE => 'tags',
+					ParamValidator::PARAM_ISMULTI => true,
 				],
 				[ 'tag1' ],
 				[],
@@ -1175,15 +1178,15 @@ class ApiBaseTest extends ApiTestCase {
 			'Array of tags' => [
 				'tag1|tag2',
 				[
-					ApiBase::PARAM_TYPE => 'tags',
-					ApiBase::PARAM_ISMULTI => true,
+					ParamValidator::PARAM_TYPE => 'tags',
+					ParamValidator::PARAM_ISMULTI => true,
 				],
 				[ 'tag1', 'tag2' ],
 				[],
 			],
 			'Invalid tag' => [
 				'invalid tag',
-				[ ApiBase::PARAM_TYPE => 'tags' ],
+				[ ParamValidator::PARAM_TYPE => 'tags' ],
 				ApiUsageException::newWithMessage(
 					null,
 					[ 'tags-apply-not-allowed-one', 'invalid tag', 1 ],
@@ -1194,15 +1197,15 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'Unrecognized type' => [
 				'foo',
-				[ ApiBase::PARAM_TYPE => 'nonexistenttype' ],
+				[ ParamValidator::PARAM_TYPE => 'nonexistenttype' ],
 				new DomainException( "Param myParam's type is unknown - nonexistenttype" ),
 				[],
 			],
 			'Too many bytes' => [
 				'1',
 				[
-					ApiBase::PARAM_MAX_BYTES => 0,
-					ApiBase::PARAM_MAX_CHARS => 0,
+					StringDef::PARAM_MAX_BYTES => 0,
+					StringDef::PARAM_MAX_CHARS => 0,
 				],
 				ApiUsageException::newWithMessage( null, [
 					'paramvalidator-maxbytes',
@@ -1216,8 +1219,8 @@ class ApiBaseTest extends ApiTestCase {
 			'Too many chars' => [
 				'§§',
 				[
-					ApiBase::PARAM_MAX_BYTES => 4,
-					ApiBase::PARAM_MAX_CHARS => 1,
+					StringDef::PARAM_MAX_BYTES => 4,
+					StringDef::PARAM_MAX_CHARS => 1,
 				],
 				ApiUsageException::newWithMessage( null, [
 					'paramvalidator-maxchars',
@@ -1230,7 +1233,7 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'Omitted required param' => [
 				null,
-				[ ApiBase::PARAM_REQUIRED => true ],
+				[ ParamValidator::PARAM_REQUIRED => true ],
 				ApiUsageException::newWithMessage( null, [
 					'paramvalidator-missingparam',
 					Message::plaintextParam( 'myParam' )
@@ -1239,25 +1242,25 @@ class ApiBaseTest extends ApiTestCase {
 			],
 			'Empty multi-value' => [
 				'',
-				[ ApiBase::PARAM_ISMULTI => true ],
+				[ ParamValidator::PARAM_ISMULTI => true ],
 				[],
 				[],
 			],
 			'Multi-value \x1f' => [
 				"\x1f",
-				[ ApiBase::PARAM_ISMULTI => true ],
+				[ ParamValidator::PARAM_ISMULTI => true ],
 				[],
 				[],
 			],
 			'Allowed non-multi-value with "|"' => [
 				'a|b',
-				[ ApiBase::PARAM_TYPE => [ 'a|b' ] ],
+				[ ParamValidator::PARAM_TYPE => [ 'a|b' ] ],
 				'a|b',
 				[],
 			],
 			'Prohibited multi-value' => [
 				'a|b',
-				[ ApiBase::PARAM_TYPE => [ 'a', 'b' ] ],
+				[ ParamValidator::PARAM_TYPE => [ 'a', 'b' ] ],
 				ApiUsageException::newWithMessage( null, [
 					'paramvalidator-badvalue-enumnotmulti',
 					Message::plaintextParam( 'myParam' ),
@@ -1291,7 +1294,7 @@ class ApiBaseTest extends ApiTestCase {
 				[ [ 'apiwarn-badutf8', 'myParam' ] ] : [];
 			$returnArray["\"$desc\" as integer"] = [
 				$test[0],
-				[ ApiBase::PARAM_TYPE => 'integer' ],
+				[ ParamValidator::PARAM_TYPE => 'integer' ],
 				$test[1] ?? ApiUsageException::newWithMessage( null, [
 					'paramvalidator-badinteger',
 					Message::plaintextParam( 'myParam' ),
@@ -1302,6 +1305,92 @@ class ApiBaseTest extends ApiTestCase {
 		}
 
 		return $returnArray;
+	}
+
+	/**
+	 * @dataProvider provideGetFinalParamDescription
+	 */
+	public function testGetFinalParamDescription( $paramSettings, $expectedMessages ) {
+		$mock = $this->getMockBuilder( MockApi::class )
+			->onlyMethods( [ 'getAllowedParams', 'getModulePath' ] )
+			->getMock();
+		$mock->method( 'getAllowedParams' )->willReturn( [
+			'param' => $paramSettings,
+		] );
+		$mock->method( 'getModulePath' )->willReturn( 'test' );
+		if ( $expectedMessages instanceof Exception ) {
+			$this->expectExceptionObject( $expectedMessages );
+		}
+		$paramDescription = $mock->getFinalParamDescription();
+		$this->assertArrayHasKey( 'param', $paramDescription );
+		$messages = $paramDescription['param'];
+		$messageKeys = array_map( static fn ( MessageSpecifier $m ) => $m->getKey(), $messages );
+		$this->assertSame( $expectedMessages, $messageKeys );
+	}
+
+	public static function provideGetFinalParamDescription() {
+		return [
+			'default message' => [
+				'settings' => [],
+				'messages' => [ 'apihelp-test-param-param' ],
+			],
+			'custom message' => [
+				'settings' => [ ApiBase::PARAM_HELP_MSG => 'foo' ],
+				'messages' => [ 'foo' ],
+			],
+			'default per-value message' => [
+				'settings' => [
+					ParamValidator::PARAM_TYPE => [ 'a', 'b' ],
+					ApiBase::PARAM_HELP_MSG_PER_VALUE => [],
+				],
+				'messages' => [
+					'apihelp-test-param-param',
+					'apihelp-test-paramvalue-param-a',
+					'apihelp-test-paramvalue-param-b',
+				],
+			],
+			'custom per-value message' => [
+				'settings' => [
+					ParamValidator::PARAM_TYPE => [ 'a', 'b' ],
+					ApiBase::PARAM_HELP_MSG_PER_VALUE => [
+						'a' => 'foo',
+						'b' => 'bar',
+					],
+				],
+				'messages' => [
+					'apihelp-test-param-param',
+					'foo',
+					'bar',
+				],
+			],
+			'custom per-value message for strings' => [
+				'settings' => [
+					ParamValidator::PARAM_TYPE => 'string',
+					ParamValidator::PARAM_ISMULTI => true,
+					ApiBase::PARAM_HELP_MSG_PER_VALUE => [
+						'a' => 'foo',
+						'b' => 'bar',
+					],
+				],
+				'messages' => [
+					'apihelp-test-param-param',
+					'foo',
+					'bar',
+				],
+			],
+			'must be multi-valued for per-value message' => [
+				'settings' => [
+					ParamValidator::PARAM_TYPE => 'string',
+					ApiBase::PARAM_HELP_MSG_PER_VALUE => [],
+				],
+				'messages' => new MWException(
+					'Internal error in ApiBase::getFinalParamDescription: '
+					. 'ApiBase::PARAM_HELP_MSG_PER_VALUE may only be used when '
+					. "ParamValidator::PARAM_TYPE is an array or it is 'string' "
+					. 'and ParamValidator::PARAM_ISMULTI is true'
+				),
+			],
+		];
 	}
 
 	public function testErrorArrayToStatus() {
@@ -1350,9 +1439,11 @@ class ApiBaseTest extends ApiTestCase {
 		$blockinfo = [ 'blockinfo' => $userInfoTrait->getBlockDetails( $block ) ];
 
 		$expect = Status::newGood();
-		$expect->fatal( ApiMessage::create( 'apierror-blocked', 'blocked', $blockinfo ) );
-		$expect->fatal( ApiMessage::create( 'apierror-autoblocked', 'autoblocked', $blockinfo ) );
-		$expect->fatal( ApiMessage::create( 'apierror-systemblocked', 'blocked', $blockinfo ) );
+		$expect->fatal( ApiMessage::create( 'blockedtext', 'blocked', $blockinfo ) );
+		// This would normally use the 'autoblocked' code, but the codes are computed from $blockinfo
+		// now rather than the message, and we're not faking it well enough
+		$expect->fatal( ApiMessage::create( 'autoblockedtext', 'blocked', $blockinfo ) );
+		$expect->fatal( ApiMessage::create( 'systemblockedtext', 'blocked', $blockinfo ) );
 		$expect->fatal( 'mainpage' );
 		$expect->fatal( $msg );
 		$expect->fatal( $msg, 'foobar' );
@@ -1410,9 +1501,11 @@ class ApiBaseTest extends ApiTestCase {
 		$blockinfo = [ 'blockinfo' => $userInfoTrait->getBlockDetails( $block ) ];
 
 		$expect = Status::newGood();
-		$expect->fatal( ApiMessage::create( 'apierror-blocked', 'blocked', $blockinfo ) );
-		$expect->fatal( ApiMessage::create( 'apierror-autoblocked', 'autoblocked', $blockinfo ) );
-		$expect->fatal( ApiMessage::create( 'apierror-systemblocked', 'blocked', $blockinfo ) );
+		$expect->fatal( ApiMessage::create( 'blockedtext', 'blocked', $blockinfo ) );
+		// This would normally use the 'autoblocked' code, but the codes are computed from $blockinfo
+		// now rather than the message, and we're not faking it well enough
+		$expect->fatal( ApiMessage::create( 'autoblockedtext', 'blocked', $blockinfo ) );
+		$expect->fatal( ApiMessage::create( 'systemblockedtext', 'blocked', $blockinfo ) );
 		$expect->fatal( 'mainpage' );
 		$expect->fatal( $msg );
 		$expect->fatal( $msg, 'foobar' );
@@ -1429,39 +1522,54 @@ class ApiBaseTest extends ApiTestCase {
 		$this->assertEquals( $expect, $test );
 	}
 
-	public function testDieStatus() {
-		$mock = new MockApi();
-
+	public static function provideDieStatus() {
 		$status = StatusValue::newGood();
 		$status->error( 'foo' );
 		$status->warning( 'bar' );
-		try {
-			$mock->dieStatus( $status );
-			$this->fail( 'Expected exception not thrown' );
-		} catch ( ApiUsageException $ex ) {
-			$this->assertTrue( ApiTestCase::apiExceptionHasCode( $ex, 'foo' ), 'Exception has "foo"' );
-			$this->assertFalse( ApiTestCase::apiExceptionHasCode( $ex, 'bar' ), 'Exception has "bar"' );
-		}
+		yield [ $status, [ 'foo' => true, 'bar' => false ] ];
 
 		$status = StatusValue::newGood();
 		$status->warning( 'foo' );
 		$status->warning( 'bar' );
-		try {
-			$mock->dieStatus( $status );
-			$this->fail( 'Expected exception not thrown' );
-		} catch ( ApiUsageException $ex ) {
-			$this->assertTrue( ApiTestCase::apiExceptionHasCode( $ex, 'foo' ), 'Exception has "foo"' );
-			$this->assertTrue( ApiTestCase::apiExceptionHasCode( $ex, 'bar' ), 'Exception has "bar"' );
-		}
+		yield [ $status, [ 'foo' => true, 'bar' => true ] ];
 
 		$status = StatusValue::newGood();
 		$status->setOK( false );
+		yield [ $status, [ 'unknownerror-nocode' => true ] ];
+
+		$status = PermissionStatus::newEmpty();
+		$status->setRateLimitExceeded();
+		yield [ $status, [ 'ratelimited' => true ] ];
+
+		$status = StatusValue::newFatal( 'actionthrottledtext' );
+		yield [ $status, [ 'ratelimited' => true ] ];
+
+		$status = StatusValue::newFatal( 'actionthrottled' );
+		yield [ $status, [ 'ratelimited' => true ] ];
+
+		$status = StatusValue::newFatal( 'blockedtext' );
+		yield [ $status, [ 'blocked' => true ] ];
+
+		$status = StatusValue::newFatal( 'autoblockedtext' );
+		yield [ $status, [ 'autoblocked' => true ] ];
+	}
+
+	/**
+	 * @dataProvider provideDieStatus
+	 *
+	 * @param StatusValue $status
+	 * @param array $expected
+	 */
+	public function testDieStatus( $status, $expected ) {
+		$mock = new MockApi();
+
 		try {
 			$mock->dieStatus( $status );
 			$this->fail( 'Expected exception not thrown' );
 		} catch ( ApiUsageException $ex ) {
-			$this->assertTrue( ApiTestCase::apiExceptionHasCode( $ex, 'unknownerror-nocode' ),
-				'Exception has "unknownerror-nocode"' );
+			foreach ( $expected as $key => $has ) {
+				$this->assertSame( $has, ApiTestCase::apiExceptionHasCode( $ex, $key ), "Exception has '$key'" );
+			}
 		}
 	}
 
@@ -1496,20 +1604,20 @@ class ApiBaseTest extends ApiTestCase {
 			'notexists' => null,
 			'exists' => null,
 			'multi' => [
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'empty' => [
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'template-{m}' => [
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_ISMULTI => true,
 				ApiBase::PARAM_TEMPLATE_VARS => [ 'm' => 'multi' ],
 			],
 			'recursivetemplate-{m}-{t}' => [
 				ApiBase::PARAM_TEMPLATE_VARS => [ 't' => 'template-{m}', 'm' => 'multi' ],
 			],
 			'emptytemplate-{m}' => [
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_ISMULTI => true,
 				ApiBase::PARAM_TEMPLATE_VARS => [ 'm' => 'empty' ],
 			],
 			'badtemplate-{e}' => [

@@ -21,6 +21,10 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\SpecialPage;
+
+use MediaWiki\Title\Title;
+
 /**
  * Superclass for any RedirectSpecialPage which redirects the user
  * to a particular article (as opposed to user contributions, logs, etc.).
@@ -136,3 +140,9 @@ abstract class RedirectSpecialArticle extends RedirectSpecialPage {
 	}
 
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( RedirectSpecialArticle::class, 'RedirectSpecialArticle' );

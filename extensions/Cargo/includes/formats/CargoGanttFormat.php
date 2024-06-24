@@ -6,6 +6,7 @@ class CargoGanttFormat extends CargoDeferredFormat {
 		return [
 			'height' => [ 'type' => 'int', 'label' => wfMessage( 'cargo-viewdata-heightparam' )->parse() ],
 			'width' => [ 'type' => 'int', 'label' => wfMessage( 'cargo-viewdata-widthparam' )->parse() ],
+			'columns' => [ 'type' => 'string', 'label' => wfMessage( 'cargo-gantt-columns' )->parse() ],
 		];
 	}
 
@@ -16,7 +17,7 @@ class CargoGanttFormat extends CargoDeferredFormat {
 	 * @return string HTML
 	 */
 	public function queryAndDisplay( $sqlQueries, $displayParams, $querySpecificParams = null ) {
-		$this->mOutput->addModules( 'ext.cargo.gantt' );
+		$this->mOutput->addModules( [ 'ext.cargo.gantt' ] );
 		$ce = SpecialPage::getTitleFor( 'CargoExport' );
 		$queryParams = $this->sqlQueriesToQueryParams( $sqlQueries );
 		$queryParams['format'] = 'gantt';
@@ -43,9 +44,19 @@ class CargoGanttFormat extends CargoDeferredFormat {
 		$attrs = [
 			'id' => 'ganttid',
 			'class' => 'cargoGantt',
-			'dataurl' => $ce->getFullURL( $queryParams ),
 			'style' => "height: $height; width: $width; border: 1px solid #aaa;"
 		];
+
+		if ( array_key_exists( 'columns', $displayParams ) ) {
+			$attrs['data-columns'] = $displayParams['columns'];
+		}
+
+		if ( array_key_exists( 'inline', $displayParams ) ) {
+			// Make this a non-"deferred" display.
+			$attrs['datafull'] = CargoExport::getGanttJSONData( $sqlQueries );
+		} else {
+			$attrs['dataurl'] = $ce->getFullURL( $queryParams );
+		}
 
 		$text = Html::rawElement( 'div', $attrs, '' );
 

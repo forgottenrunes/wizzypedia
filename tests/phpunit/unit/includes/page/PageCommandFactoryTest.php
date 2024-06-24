@@ -3,8 +3,11 @@
 namespace MediaWiki\Tests\Unit\Page;
 
 use ContentModelChange;
-use HashConfig;
+use MediaWiki\Config\HashConfig;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Page\DeletePage;
+use MediaWiki\Page\MergeHistory;
+use MediaWiki\Page\MovePage;
 use MediaWiki\Page\PageCommandFactory;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Page\PageIdentityValue;
@@ -13,11 +16,9 @@ use MediaWiki\Page\RollbackPage;
 use MediaWiki\Page\UndeletePage;
 use MediaWiki\Permissions\Authority;
 use MediaWiki\Tests\Unit\MockServiceDependenciesTrait;
+use MediaWiki\Title\Title;
 use MediaWiki\User\UserIdentity;
 use MediaWikiUnitTestCase;
-use MergeHistory;
-use MovePage;
-use Title;
 use WikiPage;
 
 /**
@@ -31,17 +32,16 @@ class PageCommandFactoryTest extends MediaWikiUnitTestCase {
 		// Create a PageCommandFactory with all of the services needed
 		$config = new HashConfig( [
 			// RollbackPage
-			'UseRCPatrol' => true,
-			'DisableAnonTalk' => false,
+			MainConfigNames::UseRCPatrol => true,
+			MainConfigNames::DisableAnonTalk => false,
 
 			// MovePage
-			'CategoryCollation' => 'uppercase',
-			'MaximumMovedPages' => 100,
+			MainConfigNames::CategoryCollation => 'uppercase',
+			MainConfigNames::MaximumMovedPages => 100,
 
 			// DeletePage
-			'DeleteRevisionsBatchSize' => 10,
-			'ActorTableSchemaMigrationStage' => SCHEMA_COMPAT_NEW,
-			'DeleteRevisionsLimit' => 10,
+			MainConfigNames::DeleteRevisionsBatchSize => 10,
+			MainConfigNames::DeleteRevisionsLimit => 10,
 		] );
 
 		// Helper method from MockServiceDependenciesTrait

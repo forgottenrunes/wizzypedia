@@ -21,6 +21,17 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use DeferredUpdates;
+use FormatJson;
+use HttpStatus;
+use JobRunner;
+use MediaWiki\MainConfigNames;
+use MediaWiki\SpecialPage\UnlistedSpecialPage;
+use TransactionRoundDefiningUpdate;
+use Wikimedia\Rdbms\ReadOnlyMode;
+
 /**
  * Special page designed for running background tasks (internal use only)
  *
@@ -28,11 +39,8 @@
  */
 class SpecialRunJobs extends UnlistedSpecialPage {
 
-	/** @var JobRunner */
-	private $jobRunner;
-
-	/** @var ReadOnlyMode */
-	private $readOnlyMode;
+	private JobRunner $jobRunner;
+	private ReadOnlyMode $readOnlyMode;
 
 	/**
 	 * @param JobRunner $jobRunner
@@ -81,7 +89,8 @@ class SpecialRunJobs extends UnlistedSpecialPage {
 		// Validate request signature
 		$squery = $params;
 		unset( $squery['signature'] );
-		$correctSignature = self::getQuerySignature( $squery, $this->getConfig()->get( 'SecretKey' ) );
+		$correctSignature = self::getQuerySignature( $squery,
+			$this->getConfig()->get( MainConfigNames::SecretKey ) );
 		$providedSignature = $params['signature'];
 		$verified = is_string( $providedSignature )
 			&& hash_equals( $correctSignature, $providedSignature );
@@ -139,3 +148,9 @@ class SpecialRunJobs extends UnlistedSpecialPage {
 		return hash_hmac( 'sha1', wfArrayToCgi( $query ), $secretKey );
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialRunJobs::class, 'SpecialRunJobs' );

@@ -1,11 +1,8 @@
 <?php
 /** Haitian (Kreyòl ayisyen)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
- *
+ * @ingroup Languages
  */
 
 $fallback = 'fr';
@@ -104,6 +101,7 @@ $specialPageAliases = [
 	'Randomredirect'            => [ 'RedireksyonOaza' ],
 	'Recentchanges'             => [ 'ChanjmanResan' ],
 	'Recentchangeslinked'       => [ 'LyenChanjmanResan', 'ChanjmanAk' ],
+	'Renameuser'                => [ 'RenonmenItilizatè' ],
 	'Revisiondelete'            => [ 'RevizyonSiprime' ],
 	'Search'                    => [ 'Chache', 'Fouye' ],
 	'Shortpages'                => [ 'PajKout' ],

@@ -20,13 +20,13 @@ class ZipDirectoryReaderTest extends MediaWikiIntegrationTestCase {
 	public function readZipAssertError( $file, $error, $assertMessage ) {
 		$this->entries = [];
 		$status = ZipDirectoryReader::read( "{$this->zipDir}/$file", [ $this, 'zipCallback' ] );
-		$this->assertTrue( $status->hasMessage( $error ), $assertMessage );
+		$this->assertStatusError( $error, $status, $assertMessage );
 	}
 
 	public function readZipAssertSuccess( $file, $assertMessage ) {
 		$this->entries = [];
 		$status = ZipDirectoryReader::read( "{$this->zipDir}/$file", [ $this, 'zipCallback' ] );
-		$this->assertTrue( $status->isOK(), $assertMessage );
+		$this->assertStatusOK( $status, $assertMessage );
 	}
 
 	public function testEmpty() {
@@ -45,11 +45,11 @@ class ZipDirectoryReaderTest extends MediaWikiIntegrationTestCase {
 
 	public function testSimple() {
 		$this->readZipAssertSuccess( 'class.zip', 'Simple ZIP' );
-		$this->assertEquals( $this->entries, [ [
+		$this->assertEquals( [ [
 			'name' => 'Class.class',
 			'mtime' => '20010115000000',
 			'size' => 1,
-		] ] );
+		] ], $this->entries );
 	}
 
 	public function testBadCentralEntrySignature() {

@@ -18,8 +18,8 @@
  * @file
  */
 
-use Wikimedia\WrappedString;
-use Wikimedia\WrappedStringList;
+use MediaWiki\Html\Html;
+use MediaWiki\Parser\Sanitizer;
 
 /**
  * Extended QuickTemplate with additional MediaWiki-specific helper methods.
@@ -31,56 +31,6 @@ use Wikimedia\WrappedStringList;
  * @stable to extend
  */
 abstract class BaseTemplate extends QuickTemplate {
-
-	/**
-	 * @internal for usage by BaseTemplate or SkinTemplate.
-	 * @param Config $config
-	 * @param Skin $skin
-	 * @return string
-	 */
-	public static function getCopyrightIconHTML( Config $config, Skin $skin ): string {
-		$out = '';
-		$footerIcons = $config->get( 'FooterIcons' );
-		$copyright = $footerIcons['copyright']['copyright'] ?? null;
-		// T291325: $wgFooterIcons['copyright']['copyright'] can return an array.
-		if ( $copyright !== null ) {
-			$out = $skin->makeFooterIcon( $copyright );
-		} elseif ( $config->get( 'RightsIcon' ) ) {
-			$icon = htmlspecialchars( $config->get( 'RightsIcon' ), ENT_COMPAT );
-			$url = $config->get( 'RightsUrl' );
-			if ( $url ) {
-				$out .= '<a href="' . htmlspecialchars( $url, ENT_COMPAT ) . '">';
-			}
-			$text = htmlspecialchars( $config->get( 'RightsText' ), ENT_COMPAT );
-			$out .= "<img src=\"$icon\" alt=\"$text\" width=\"88\" height=\"31\" />";
-			if ( $url ) {
-				$out .= '</a>';
-			}
-		}
-		return $out;
-	}
-
-	/**
-	 * @internal for usage by BaseTemplate or SkinTemplate.
-	 * @param Config $config
-	 * @return string of HTML
-	 */
-	public static function getPoweredByHTML( Config $config ): string {
-		$resourceBasePath = $config->get( 'ResourceBasePath' );
-		$url1 = htmlspecialchars(
-			"$resourceBasePath/resources/assets/poweredby_mediawiki_88x31.png"
-		);
-		$url1_5 = htmlspecialchars(
-			"$resourceBasePath/resources/assets/poweredby_mediawiki_132x47.png"
-		);
-		$url2 = htmlspecialchars(
-			"$resourceBasePath/resources/assets/poweredby_mediawiki_176x62.png"
-		);
-		$text = '<a href="https://www.mediawiki.org/"><img src="' . $url1
-			. '" srcset="' . $url1_5 . ' 1.5x, ' . $url2 . ' 2x" '
-			. 'height="31" width="88" alt="Powered by MediaWiki" loading="lazy" /></a>';
-		return $text;
-	}
 
 	/**
 	 * Get a Message object with its context set
@@ -98,34 +48,6 @@ abstract class BaseTemplate extends QuickTemplate {
 	}
 
 	/**
-	 * Create an array of common toolbox items from the data in the quicktemplate
-	 * stored by SkinTemplate and items added by hook to the 'toolbox' section.
-	 * The resulting array is built according to a format intended to be passed
-	 * through makeListItem to generate the html.
-	 *
-	 * @deprecated since 1.35. To add items to the toolbox, use SidebarBeforeOutput
-	 * hook. To get the toolbox only use $this->data['sidebar']['TOOLBOX'], if you are
-	 * extending this class.
-	 * @return array
-	 */
-	public function getToolbox() {
-		wfDeprecated( __METHOD__, '1.35' );
-
-		$toolbox = $this->getSkin()->makeToolbox(
-			$this->data['nav_urls'],
-			$this->data['feeds']
-		);
-
-		// Merge content that might be added to the toolbox section by hook
-		if ( isset( $this->data['sidebar']['TOOLBOX'] ) ) {
-			$toolbox = array_merge( $toolbox, $this->data['sidebar']['TOOLBOX'] ?? [] );
-		}
-
-		return $toolbox;
-	}
-
-	/**
-	 * @deprecated since 1.35 use Skin::getPersonalToolsForMakeListItem
 	 * @return array
 	 */
 	public function getPersonalTools() {
@@ -141,6 +63,7 @@ abstract class BaseTemplate extends QuickTemplate {
 		// Force the rendering of the following portals
 		$sidebar = $this->data['sidebar'];
 		if ( !isset( $sidebar['SEARCH'] ) ) {
+			// @phan-suppress-next-line PhanTypeMismatchDimAssignment False positive
 			$sidebar['SEARCH'] = true;
 		}
 		if ( !isset( $sidebar['TOOLBOX'] ) ) {
@@ -224,44 +147,11 @@ abstract class BaseTemplate extends QuickTemplate {
 	}
 
 	/**
-	 * @deprecated since 1.35 (emits deprecation warnings since 1.37), use Skin::getAfterPortlet directly
-	 * @param string $name
-	 */
-	protected function renderAfterPortlet( $name ) {
-		wfDeprecated( __METHOD__, '1.35' );
-		echo $this->getAfterPortlet( $name );
-	}
-
-	/**
-	 * Allows extensions to hook into known portlets and add stuff to them
+	 * Wrapper for Skin method.
 	 *
-	 * @deprecated since 1.35 (emits deprecation warnings since 1.37), use Skin::getAfterPortlet directly
-	 *
-	 * @param string $name
-	 *
-	 * @return string html
-	 * @since 1.29
-	 */
-	protected function getAfterPortlet( $name ) {
-		wfDeprecated( __METHOD__, '1.35' );
-		$html = '';
-		$content = '';
-		$this->getHookRunner()->onBaseTemplateAfterPortlet( $this, $name, $content );
-		$content .= $this->getSkin()->getAfterPortlet( $name );
-
-		if ( $content !== '' ) {
-			$html = Html::rawElement(
-				'div',
-				[ 'class' => [ 'after-portlet', 'after-portlet-' . $name ] ],
-				$content
-			);
-		}
-
-		return $html;
-	}
-
-	/**
-	 * @deprecated since 1.35 use Skin::makeLink
+	 * @param string $key of link
+	 * @param array $item to render
+	 * @param array $options for link
 	 * @return string
 	 */
 	protected function makeLink( $key, $item, $options = [] ) {
@@ -269,7 +159,11 @@ abstract class BaseTemplate extends QuickTemplate {
 	}
 
 	/**
-	 * @deprecated since 1.35 use Skin::makeListItem
+	 * Wrapper for Skin method.
+	 *
+	 * @param string $key of list item
+	 * @param array $item to render
+	 * @param array $options for list item
 	 * @return string
 	 */
 	public function makeListItem( $key, $item, $options = [] ) {
@@ -277,14 +171,21 @@ abstract class BaseTemplate extends QuickTemplate {
 	}
 
 	/**
-	 * @deprecated since 1.35 use Skin::makeSearchInput
+	 * Wrapper for Skin method.
+	 *
+	 * @param array $attrs
+	 * @return string
 	 */
 	protected function makeSearchInput( $attrs = [] ) {
 		return $this->getSkin()->makeSearchInput( $attrs );
 	}
 
 	/**
-	 * @deprecated since 1.35 use Skin::makeSearchButton
+	 * Wrapper for Skin method.
+	 *
+	 * @param string $mode
+	 * @param array $attrs
+	 * @return string
 	 */
 	protected function makeSearchButton( $mode, $attrs = [] ) {
 		return $this->getSkin()->makeSearchButton( $mode, $attrs );
@@ -297,7 +198,7 @@ abstract class BaseTemplate extends QuickTemplate {
 	 * of footer icons instead of a key/value array of footerlinks arrays broken
 	 * up into categories.
 	 * @param string|null $option
-	 * @return array|mixed
+	 * @return array
 	 */
 	protected function getFooterLinks( $option = null ) {
 		$footerlinks = $this->get( 'footerlinks' );
@@ -345,16 +246,7 @@ abstract class BaseTemplate extends QuickTemplate {
 
 		if ( $option == 'icononly' ) {
 			// Unset any icons which don't have an image
-			foreach ( $footericons as $footerIconsKey => &$footerIconsBlock ) {
-				foreach ( $footerIconsBlock as $footerIconKey => $footerIcon ) {
-					if ( !is_string( $footerIcon ) && !isset( $footerIcon['src'] ) ) {
-						unset( $footerIconsBlock[$footerIconKey] );
-					}
-				}
-				if ( $footerIconsBlock === [] ) {
-					unset( $footericons[$footerIconsKey] );
-				}
-			}
+			$this->unsetIconsWithoutImages( $footericons );
 		} elseif ( $option == 'nocopyright' ) {
 			unset( $footericons['copyright'] );
 		}
@@ -363,16 +255,43 @@ abstract class BaseTemplate extends QuickTemplate {
 	}
 
 	/**
+	 * Unsets any elements in an array of icon definitions which do
+	 * not have src attributes or are not strings.
+	 *
+	 * @param array &$icons
+	 */
+	private function unsetIconsWithoutImages( array &$icons ) {
+		// Unset any icons which don't have an image
+		foreach ( $icons as $iconsKey => &$iconsBlock ) {
+			foreach ( $iconsBlock as $iconKey => $icon ) {
+				if ( !is_string( $icon ) && !isset( $icon['src'] ) ) {
+					unset( $iconsBlock[$iconKey] );
+				}
+			}
+			if ( $iconsBlock === [] ) {
+				unset( $icons[$iconsKey] );
+			}
+		}
+	}
+
+	/**
 	 * Renderer for getFooterIcons and getFooterLinks
 	 *
 	 * @param string $iconStyle $option for getFooterIcons: "icononly", "nocopyright"
+	 *   the "nocopyright" option is deprecated in 1.35 because of its association with getFooterIcons
 	 * @param string $linkStyle $option for getFooterLinks: "flat"
 	 *
 	 * @return string html
 	 * @since 1.29
 	 */
 	protected function getFooter( $iconStyle = 'icononly', $linkStyle = 'flat' ) {
-		$validFooterIcons = $this->getFooterIcons( $iconStyle );
+		$validFooterIcons = $this->get( 'footericons' );
+		if ( $iconStyle === 'icononly' ) {
+			$this->unsetIconsWithoutImages( $validFooterIcons );
+		} else {
+			// take a deprecated unsupported path
+			$validFooterIcons = $this->getFooterIcons( $iconStyle );
+		}
 		$validFooterLinks = $this->getFooterLinks( $linkStyle );
 
 		$html = '';
@@ -458,28 +377,5 @@ abstract class BaseTemplate extends QuickTemplate {
 		}
 		$out .= "</div>\n";
 		return $out;
-	}
-
-	/**
-	 * Output getTrail
-	 */
-	protected function printTrail() {
-		echo $this->getTrail();
-	}
-
-	/**
-	 * Get the basic end-page trail including bottomscripts, reporttime, and
-	 * debug stuff. This should be called right before outputting the closing
-	 * body and html tags.
-	 *
-	 * @return string|WrappedStringList HTML
-	 * @since 1.29
-	 */
-	public function getTrail() {
-		return WrappedString::join( "\n", [
-			MWDebug::getDebugHTML( $this->getSkin()->getContext() ),
-			$this->get( 'bottomscripts' ),
-			$this->get( 'reporttime' )
-		] );
 	}
 }

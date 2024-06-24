@@ -1,14 +1,14 @@
 {
 	"name": "Cargo",
 	"namemsg": "cargo-extensionname",
-	"version": "3.2",
+	"version": "3.4.3",
 	"author": "Yaron Koren",
 	"url": "https://www.mediawiki.org/wiki/Extension:Cargo",
 	"descriptionmsg": "cargo-desc",
 	"license-name": "GPL-2.0-or-later",
 	"type": "parserhook",
 	"requires": {
-		"MediaWiki": ">= 1.32"
+		"MediaWiki": ">= 1.35"
 	},
 	"callback": "CargoHooks::registerExtension",
 	"ExtensionFunctions": [
@@ -27,6 +27,16 @@
 			"recreatecargodata": true,
 			"deletecargodata": true
 		}
+	},
+	"GrantPermissions": {
+		"cargo": {
+			"recreatecargodata": true,
+			"deletecargodata": true,
+			"runcargoqueries": true
+		}
+	},
+	"GrantPermissionGroups": {
+		"cargo": "cargo"
 	},
 	"SpecialPages": {
 		"CargoTables": "CargoTables",
@@ -49,7 +59,9 @@
 		"cargorecreatespecialtable": "CargoRecreateSpecialTableAPI",
 		"cargoautocomplete": "CargoAutocompleteAPI",
 		"cargoqueryautocomplete": "CargoQueryAutocompleteAPI",
-		"cargoformatparams": "CargoFormatParamsAPI"
+		"cargoformatparams": "CargoFormatParamsAPI",
+		"cargotables": "CargoTablesAPI",
+		"cargofields": "CargoFieldsAPI"
 	},
 	"LogTypes": [
 		"cargo"
@@ -110,6 +122,8 @@
 		"CargoPageValuesAction": "includes/CargoPageValuesAction.php",
 		"CargoPageValues": "includes/specials/CargoPageValues.php",
 		"CargoQueryAPI": "includes/api/CargoQueryAPI.php",
+		"CargoTablesAPI": "includes/api/CargoTablesAPI.php",
+		"CargoFieldsAPI": "includes/api/CargoFieldsAPI.php",
 		"CargoRecreateTablesAPI": "includes/api/CargoRecreateTablesAPI.php",
 		"CargoRecreateDataAPI": "includes/api/CargoRecreateDataAPI.php",
 		"CargoRecreateSpecialTableAPI": "includes/api/CargoRecreateSpecialTableAPI.php",
@@ -152,6 +166,8 @@
 		"CargoTagCloudFormat": "includes/formats/CargoTagCloudFormat.php",
 		"CargoExhibitFormat": "includes/formats/CargoExhibitFormat.php",
 		"CargoBibtexFormat": "includes/formats/CargoBibtexFormat.php",
+		"CargoFeedFormat": "includes/formats/CargoFeedFormat.php",
+		"CargoLinksUpdateHandler": "includes/hooks/CargoLinksUpdateHandler.php",
 		"CargoSearchMySQL": "includes/search/CargoSearchMySQL.php",
 		"CargoPageSchemas": "includes/CargoPageSchemas.php",
 		"CargoAppliedFilter": "drilldown/CargoAppliedFilter.php",
@@ -161,6 +177,9 @@
 		"CargoDrilldownHierarchy": "drilldown/CargoDrilldownHierarchy.php",
 		"CargoSpecialDrilldown": "drilldown/CargoSpecialDrilldown.php",
 		"CargoDrilldownPage": "drilldown/CargoDrilldownPage.php"
+	},
+	"TestAutoloadClasses": {
+		"CargoIntegrationTestUtils": "tests/phpunit/integration/CargoIntegrationTestUtils.php"
 	},
 	"ResourceModules": {
 		"ext.cargo.main": {
@@ -175,6 +194,7 @@
 			"scripts": "libs/CargoPageValues.js",
 			"styles": "resources/CargoPageValues.css",
 			"dependencies": [
+				"ext.cargo.main",
 				"oojs-ui-widgets"
 			],
 			"messages": [
@@ -183,7 +203,10 @@
 			]
 		},
 		"ext.cargo.cargotables": {
-			"styles": "resources/CargoTables.css"
+			"styles": "resources/CargoTables.css",
+			"messages": [
+				"cargo-cargotables-columncountinfo"
+			]
 		},
 		"ext.cargo.purge": {
 			"scripts": "libs/ext.cargo.purge.js",
@@ -339,6 +362,29 @@
 				"oojs-ui-widgets"
 			]
 		},
+		"ext.cargo.cargoquery": {
+			"scripts": "libs/ext.cargo.query.js",
+			"messages": [
+				"cargo-viewdata-tablesrequired",
+				"cargo-viewdata-joinonrequired",
+				"cargo-viewdata-tablestooltip",
+				"cargo-viewdata-fieldstooltip",
+				"cargo-viewdata-wheretooltip",
+				"cargo-viewdata-joinontooltip",
+				"cargo-viewdata-groupbytooltip",
+				"cargo-viewdata-havingtooltip",
+				"cargo-viewdata-orderbytooltip",
+				"cargo-viewdata-limittooltip",
+				"cargo-viewdata-offsettooltip",
+				"cargo-viewdata-formattooltip"
+			],
+			"dependencies": [
+				"ext.cargo.main",
+				"jquery.ui",
+				"mediawiki.util",
+				"mediawiki.htmlform.ooui"
+			]
+		},
 		"ext.cargo.nvd3": {
 			"scripts": [
 				"libs/d3.js",
@@ -381,7 +427,8 @@
 			],
 			"messages": [
 				"cargo-drilldown-search",
-				"cargo-drilldown-othervalues"
+				"cargo-drilldown-othervalues",
+				"cargo-drilldown-nomatches"
 			],
 			"dependencies": [
 				"ext.cargo.main",
@@ -400,10 +447,11 @@
 	"Hooks": {
 		"ParserFirstCallInit": "CargoHooks::registerParserFunctions",
 		"MakeGlobalVariablesScript": "CargoHooks::setGlobalJSVariables",
+		"LinksUpdate": "links-update",
+		"PageSaveComplete": "CargoHooks::onPageSaveComplete",
 		"ApprovedRevsRevisionApproved": "CargoHooks::onARRevisionApproved",
 		"ApprovedRevsRevisionUnapproved": "CargoHooks::onARRevisionUnapproved",
-		"TitleMoveComplete": "CargoHooks::onTitleMoveComplete",
-		"MultiContentSave": "CargoHooks::onMultiContentSave",
+		"PageMoveComplete": "CargoHooks::onPageMoveComplete",
 		"UploadComplete": "CargoHooks::onUploadComplete",
 		"CategoryAfterPageAdded": "CargoHooks::addCategoryToPageData",
 		"CategoryAfterPageRemoved": "CargoHooks::removeCategoryFromPageData",
@@ -411,17 +459,22 @@
 			"CargoHooks::describeDBSchema",
 			"CargoHooks::cargoSchemaUpdates"
 		],
-		"SkinTemplateNavigation": [
+		"SkinTemplateNavigation::Universal": [
 			"CargoRecreateDataAction::displayTab",
 			"CargoHooks::addPurgeCacheTab"
 		],
+		"SidebarBeforeOutput": "CargoPageValuesAction::addLink",
 		"PageForms::TemplateFieldStart": "CargoHooks::addTemplateFieldStart",
 		"PageForms::TemplateFieldEnd": "CargoHooks::addTemplateFieldEnd",
 		"AdminLinks": "CargoHooks::addToAdminLinks",
 		"PageSchemasRegisterHandlers": "CargoPageSchemas::registerClass",
-		"ResourceLoaderRegisterModules": "CargoHooks::registerModules",
 		"ResourceLoaderGetConfigVars": "CargoHooks::onResourceLoaderGetConfigVars",
 		"ScribuntoExternalLibraries": "CargoHooks::addLuaLibrary"
+	},
+	"HookHandlers": {
+		"links-update": {
+			"class": "CargoLinksUpdateHandler"
+		}
 	},
 	"config": {
 		"CargoDecimalMark": ".",
@@ -448,7 +501,9 @@
 		"CargoDrilldownNumRangesForNumbers": 5,
 		"CargoMaxVisibleHierarchyDrilldownValues": 30,
 		"CargoTablesPrioritizeReplacements": false,
-		"CargoLegacyStoreNullAsEmptyString": false,
+		"CargoLegacyNullLuaFieldsAsEmptyString": false,
+		"CargoStoreUseTemplateArgsFallback": true,
+		"CargoIgnoreBacklinks": false,
 		"CargoPageDataColumns": [],
 		"CargoFileDataColumns": [],
 		"CargoHideNamespaceName": [

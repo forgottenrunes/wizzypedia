@@ -16,7 +16,6 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Database
  */
 namespace Wikimedia\Rdbms;
 
@@ -36,6 +35,8 @@ use InvalidArgumentException;
  *
  * The above criteria should determine how components should map to RDBMS specific keywords
  * rather than "database"/"schema" always mapping to "DATABASE"/"SCHEMA" as used by the RDBMS.
+ *
+ * @ingroup Database
  */
 class DatabaseDomain {
 	/** @var string|null */
@@ -91,9 +92,9 @@ class DatabaseDomain {
 		if ( count( $parts ) == 1 ) {
 			$database = $parts[0];
 		} elseif ( count( $parts ) == 2 ) {
-			list( $database, $prefix ) = $parts;
+			[ $database, $prefix ] = $parts;
 		} elseif ( count( $parts ) == 3 ) {
-			list( $database, $schema, $prefix ) = $parts;
+			[ $database, $schema, $prefix ] = $parts;
 		} else {
 			throw new InvalidArgumentException( "Domain '$domain' has too few or too many parts." );
 		}
@@ -198,9 +199,7 @@ class DatabaseDomain {
 	 * @return string
 	 */
 	public function getId(): string {
-		if ( $this->equivalentString === null ) {
-			$this->equivalentString = $this->convertToString();
-		}
+		$this->equivalentString ??= $this->convertToString();
 
 		return $this->equivalentString;
 	}

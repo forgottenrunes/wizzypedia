@@ -21,6 +21,7 @@
  * @ingroup Media
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Shell\Shell;
 
@@ -42,15 +43,14 @@ class DjVuHandler extends ImageHandler {
 	 * @return bool
 	 */
 	public function isEnabled() {
-		$djvuRenderer = MediaWikiServices::getInstance()->getMainConfig()->get( 'DjvuRenderer' );
-		$djvuDump = MediaWikiServices::getInstance()->getMainConfig()->get( 'DjvuDump' );
+		$djvuRenderer = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::DjvuRenderer );
+		$djvuDump = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::DjvuDump );
 		if ( !$djvuRenderer || !$djvuDump ) {
 			wfDebug( "DjVu is disabled, please set \$wgDjvuRenderer and \$wgDjvuDump" );
 
 			return false;
-		} else {
-			return true;
 		}
+		return true;
 	}
 
 	/**
@@ -123,9 +123,8 @@ class DjVuHandler extends ImageHandler {
 		$m = false;
 		if ( preg_match( '/^page(\d+)-(\d+)px$/', $str, $m ) ) {
 			return [ 'width' => $m[2], 'page' => $m[1] ];
-		} else {
-			return false;
 		}
+		return false;
 	}
 
 	/**
@@ -148,8 +147,9 @@ class DjVuHandler extends ImageHandler {
 	 * @return MediaTransformError|ThumbnailImage|TransformParameterError
 	 */
 	public function doTransform( $image, $dstPath, $dstUrl, $params, $flags = 0 ) {
-		$djvuRenderer = MediaWikiServices::getInstance()->getMainConfig()->get( 'DjvuRenderer' );
-		$djvuPostProcessor = MediaWikiServices::getInstance()->getMainConfig()->get( 'DjvuPostProcessor' );
+		$djvuRenderer = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::DjvuRenderer );
+		$djvuPostProcessor = MediaWikiServices::getInstance()->getMainConfig()
+			->get( MainConfigNames::DjvuPostProcessor );
 		if ( !$this->normaliseParams( $image, $params ) ) {
 			return new TransformParameterError( $params );
 		}
@@ -216,22 +216,21 @@ class DjVuHandler extends ImageHandler {
 		}
 		$cmd .= ' > ' . Shell::escape( $dstPath ) . ') 2>&1';
 		wfDebug( __METHOD__ . ": $cmd" );
-		$retval = '';
+		$retval = 0;
 		$err = wfShellExec( $cmd, $retval );
 
 		$removed = $this->removeBadFile( $dstPath, $retval );
-		if ( $retval != 0 || $removed ) {
+		if ( $retval !== 0 || $removed ) {
 			$this->logErrorForExternalProcess( $retval, $err, $cmd );
 			return new MediaTransformError( 'thumbnail_error', $width, $height, $err );
-		} else {
-			$params = [
-				'width' => $width,
-				'height' => $height,
-				'page' => $page
-			];
-
-			return new ThumbnailImage( $image, $dstUrl, $dstPath, $params );
 		}
+		$params = [
+			'width' => $width,
+			'height' => $height,
+			'page' => $page
+		];
+
+		return new ThumbnailImage( $image, $dstUrl, $dstPath, $params );
 	}
 
 	/**
@@ -257,7 +256,6 @@ class DjVuHandler extends ImageHandler {
 	 * @param File $file The DjVu file in question
 	 * @param bool $gettext
 	 * @return string|false|array metadata
-	 * @throws MWException
 	 */
 	private function getMetadataInternal( File $file, $gettext ) {
 		$itemNames = [ 'error', '_error', 'data' ];
@@ -268,11 +266,11 @@ class DjVuHandler extends ImageHandler {
 
 		if ( isset( $unser['error'] ) ) {
 			return false;
-		} elseif ( isset( $unser['_error'] ) ) {
-			return false;
-		} else {
-			return $unser;
 		}
+		if ( isset( $unser['_error'] ) ) {
+			return false;
+		}
+		return $unser;
 	}
 
 	/**
@@ -294,16 +292,15 @@ class DjVuHandler extends ImageHandler {
 			return false;
 		}
 
-		if ( $gettext ) {
-			return $metadata;
-		} else {
+		if ( !$gettext ) {
 			unset( $metadata['text'] );
-			return $metadata;
 		}
+		return $metadata;
 	}
 
 	public function getThumbType( $ext, $mime, $params = null ) {
-		$djvuOutputExtension = MediaWikiServices::getInstance()->getMainConfig()->get( 'DjvuOutputExtension' );
+		$djvuOutputExtension = MediaWikiServices::getInstance()->getMainConfig()
+			->get( MainConfigNames::DjvuOutputExtension );
 		static $mime;
 		if ( !isset( $mime ) ) {
 			$magic = MediaWikiServices::getInstance()->getMimeAnalyzer();

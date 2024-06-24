@@ -1,5 +1,13 @@
 <?php
 
+namespace MediaWiki\Extension\Scribunto\Tests\Engines\LuaCommon;
+
+use MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaEngine;
+use MediaWiki\Extension\Scribunto\Engines\LuaCommon\LuaError;
+use MediaWikiCoversValidator;
+use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\TestSuite;
+
 /**
  * This is the subclass for Lua library tests. It will automatically run all
  * tests against LuaSandbox and LuaStandalone.
@@ -9,17 +17,17 @@
  * - getTestModules(): Add a mapping from $moduleName to the file containing
  *   the code.
  */
-abstract class Scribunto_LuaEngineUnitTestBase extends \PHPUnit\Framework\TestCase {
+abstract class LuaEngineUnitTestBase extends TestCase {
 	use MediaWikiCoversValidator;
-	use Scribunto_LuaEngineTestHelper;
+	use LuaEngineTestHelper;
 
 	/** @var string|null */
 	private static $staticEngineName = null;
 	/** @var string|null */
 	private $engineName = null;
-	/** @var Scribunto_LuaEngine|null */
+	/** @var LuaEngine|null */
 	private $engine = null;
-	/** @var Scribunto_LuaDataProvider|null */
+	/** @var LuaDataProvider|null */
 	private $luaDataProvider = null;
 
 	/**
@@ -38,7 +46,7 @@ abstract class Scribunto_LuaEngineUnitTestBase extends \PHPUnit\Framework\TestCa
 	 * Class to use for the data provider
 	 * @var string
 	 */
-	protected static $dataProviderClass = Scribunto_LuaDataProvider::class;
+	protected static $dataProviderClass = LuaDataProvider::class;
 
 	/**
 	 * Tests to skip. Associative array mapping test name to skip reason.
@@ -65,7 +73,7 @@ abstract class Scribunto_LuaEngineUnitTestBase extends \PHPUnit\Framework\TestCa
 	/**
 	 * Create a PHPUnit test suite to run the test against all engines
 	 * @param string $className Test class name
-	 * @return \PHPUnit\Framework\TestSuite
+	 * @return TestSuite
 	 */
 	public static function suite( $className ) {
 		return self::makeSuite( $className );
@@ -123,7 +131,7 @@ abstract class Scribunto_LuaEngineUnitTestBase extends \PHPUnit\Framework\TestCa
 		} else {
 			try {
 				$actual = $this->provideLuaData()->run( $key );
-			} catch ( Scribunto_LuaError $ex ) {
+			} catch ( LuaError $ex ) {
 				if ( substr( $ex->getLuaMessage(), 0, 6 ) === 'SKIP: ' ) {
 					$this->markTestSkipped( substr( $ex->getLuaMessage(), 6 ) );
 				} else {

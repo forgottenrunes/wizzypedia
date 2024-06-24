@@ -26,7 +26,9 @@
 // What to call it.  FilterStructure?  That would also let me make
 // setUnidirectionalConflict protected.
 
-use Wikimedia\Rdbms\IDatabase;
+use MediaWiki\Html\FormOptions;
+use MediaWiki\SpecialPage\ChangesListSpecialPage;
+use Wikimedia\Rdbms\IReadableDatabase;
 
 /**
  * Represents a filter group (used on ChangesListSpecialPage and descendants)
@@ -155,7 +157,7 @@ abstract class ChangesListFilterGroup {
 	 */
 	public function __construct( array $groupDefinition ) {
 		if ( strpos( $groupDefinition['name'], self::RESERVED_NAME_CHAR ) !== false ) {
-			throw new MWException( 'Group names may not contain \'' .
+			throw new InvalidArgumentException( 'Group names may not contain \'' .
 				self::RESERVED_NAME_CHAR .
 				'\'.  Use the naming convention: \'camelCase\''
 			);
@@ -226,11 +228,7 @@ abstract class ChangesListFilterGroup {
 	 * @param string $backwardKey i18n key for conflict message in reverse
 	 *  direction (when in UI context of $other object)
 	 */
-	public function conflictsWith( $other, $globalKey, $forwardKey, $backwardKey ) {
-		if ( $globalKey === null || $forwardKey === null || $backwardKey === null ) {
-			throw new MWException( 'All messages must be specified' );
-		}
-
+	public function conflictsWith( $other, string $globalKey, string $forwardKey, string $backwardKey ) {
 		$this->setUnidirectionalConflict(
 			$other,
 			$globalKey,
@@ -272,7 +270,9 @@ abstract class ChangesListFilterGroup {
 				'contextDescription' => $contextDescription,
 			];
 		} else {
-			throw new MWException( 'You can only pass in a ChangesListFilterGroup or a ChangesListFilter' );
+			throw new InvalidArgumentException(
+				'You can only pass in a ChangesListFilterGroup or a ChangesListFilter'
+			);
 		}
 	}
 
@@ -358,7 +358,7 @@ abstract class ChangesListFilterGroup {
 			return $b->getPriority() <=> $a->getPriority();
 		} );
 
-		foreach ( $this->filters as $filterName => $filter ) {
+		foreach ( $this->filters as $filter ) {
 			if ( $filter->displaysOnStructuredUi() ) {
 				$filterData = $filter->getJsData();
 				$output['messageKeys'] = array_merge(
@@ -401,12 +401,7 @@ abstract class ChangesListFilterGroup {
 	 * @return ChangesListFilterGroup[]
 	 */
 	public function getConflictingGroups() {
-		return array_map(
-			static function ( $conflictDesc ) {
-				return $conflictDesc[ 'groupObject' ];
-			},
-			$this->conflictingGroups
-		);
+		return array_column( $this->conflictingGroups, 'groupObject' );
 	}
 
 	/**
@@ -415,12 +410,7 @@ abstract class ChangesListFilterGroup {
 	 * @return ChangesListFilter[]
 	 */
 	public function getConflictingFilters() {
-		return array_map(
-			static function ( $conflictDesc ) {
-				return $conflictDesc[ 'filterObject' ];
-			},
-			$this->conflictingFilters
-		);
+		return array_column( $this->conflictingFilters, 'filterObject' );
 	}
 
 	/**
@@ -444,7 +434,7 @@ abstract class ChangesListFilterGroup {
 	 * The modification is only done if the filter group is in effect.  This means that
 	 * one or more valid and allowed filters were selected.
 	 *
-	 * @param IDatabase $dbr Database, for addQuotes, makeList, and similar
+	 * @param IReadableDatabase $dbr Database, for addQuotes, makeList, and similar
 	 * @param ChangesListSpecialPage $specialPage Current special page
 	 * @param array &$tables Array of tables; see IDatabase::select $table
 	 * @param array &$fields Array of fields; see IDatabase::select $vars
@@ -454,7 +444,7 @@ abstract class ChangesListFilterGroup {
 	 * @param FormOptions $opts Wrapper for the current request options and their defaults
 	 * @param bool $isStructuredFiltersEnabled True if the Structured UI is currently enabled
 	 */
-	abstract public function modifyQuery( IDatabase $dbr, ChangesListSpecialPage $specialPage,
+	abstract public function modifyQuery( IReadableDatabase $dbr, ChangesListSpecialPage $specialPage,
 		&$tables, &$fields, &$conds, &$query_options, &$join_conds,
 		FormOptions $opts, $isStructuredFiltersEnabled );
 

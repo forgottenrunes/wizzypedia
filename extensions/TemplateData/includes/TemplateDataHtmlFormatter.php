@@ -3,21 +3,20 @@
 namespace MediaWiki\Extension\TemplateData;
 
 use Html;
+use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
 use MessageLocalizer;
 use stdClass;
 
+/**
+ * @license GPL-2.0-or-later
+ */
 class TemplateDataHtmlFormatter {
 
-	/** @var MessageLocalizer */
-	private $localizer;
+	private MessageLocalizer $localizer;
+	private string $languageCode;
 
-	/** @var string */
-	private $languageCode;
-
-	/**
-	 * @param MessageLocalizer $localizer
-	 * @param string $languageCode
-	 */
 	public function __construct( MessageLocalizer $localizer, string $languageCode = 'en' ) {
 		$this->localizer = $localizer;
 		$this->languageCode = $languageCode;
@@ -25,24 +24,36 @@ class TemplateDataHtmlFormatter {
 
 	/**
 	 * @param TemplateDataBlob $templateData
+	 * @param Title $frameTitle
+	 * @param bool $showEditLink
 	 *
 	 * @return string HTML
 	 */
-	public function getHtml( TemplateDataBlob $templateData ): string {
+	public function getHtml( TemplateDataBlob $templateData, Title $frameTitle, bool $showEditLink = true ): string {
 		$data = $templateData->getDataInLanguage( $this->languageCode );
 
-		if ( is_string( $data->format ) && isset( TemplateDataValidator::PREDEFINED_FORMATS[$data->format] ) ) {
-			// The following icon names are used here:
-			// * template-format-block
-			// * template-format-inline
-			// @phan-suppress-next-line PhanTypeSuspiciousStringExpression
-			$icon = 'template-format-' . $data->format;
-			$formatMsg = $data->format;
-		} else {
-			$icon = 'settings';
-			$formatMsg = $data->format ? 'custom' : null;
+		$icon = null;
+		$formatMsg = null;
+		if ( isset( $data->format ) && is_string( $data->format ) ) {
+			$format = $data->format;
+			'@phan-var string $format';
+			if ( isset( TemplateDataValidator::PREDEFINED_FORMATS[$format] ) ) {
+				// The following icon names are used here:
+				// * template-format-block
+				// * template-format-inline
+				$icon = 'template-format-' . $format;
+				// Messages that can be used here:
+				// * templatedata-doc-format-block
+				// * templatedata-doc-format-inline
+				$formatMsg = $this->localizer->msg( 'templatedata-doc-format-' . $format );
+			}
+			if ( !$formatMsg || $formatMsg->isDisabled() ) {
+				$icon = 'settings';
+				$formatMsg = $this->localizer->msg( 'templatedata-doc-format-custom' );
+			}
 		}
-		$sorting = count( (array)$data->params ) > 1 ? " sortable" : "";
+
+		$sorting = count( (array)$data->params ) > 1 ? ' sortable' : '';
 		$html = '<header>'
 			. Html::element( 'p',
 				[
@@ -57,20 +68,24 @@ class TemplateDataHtmlFormatter {
 			. '</header>'
 			. '<table class="wikitable mw-templatedata-doc-params' . $sorting . '">'
 			. Html::rawElement( 'caption', [],
-				Html::element( 'p', [],
-					$this->localizer->msg( 'templatedata-doc-params' )->text()
+				Html::rawElement( 'p',
+					[ 'class' => 'mw-templatedata-caption' ],
+					$this->localizer->msg( 'templatedata-doc-params' )->escaped() .
+					// Edit interface is only loaded in the template namespace (see Hooks::onEditPage)
+					( $showEditLink && $frameTitle->inNamespace( NS_TEMPLATE ) ?
+						Html::element( 'mw:edittemplatedata', [
+							'page' => $frameTitle->getPrefixedText()
+						] ) :
+						''
+					)
 				)
-				. ( $formatMsg !== null ?
+				. ( $formatMsg ?
 					Html::rawElement( 'p', [],
 						new \OOUI\IconWidget( [ 'icon' => $icon ] )
 						. Html::element(
 							'span',
 							[ 'class' => 'mw-templatedata-format' ],
-							// Messages that can be used here:
-							// * templatedata-doc-format-block
-							// * templatedata-doc-format-custom
-							// * templatedata-doc-format-inline
-							$this->localizer->msg( 'templatedata-doc-format-' . $formatMsg )->text()
+							$formatMsg->text()
 						)
 					) :
 					''
@@ -115,6 +130,54 @@ class TemplateDataHtmlFormatter {
 	}
 
 	/**
+	 * Replace <mw:edittemplatedata> markers with links
+	 *
+	 * @param string &$text
+	 */
+	public function replaceEditLink( string &$text ): void {
+		$localizer = $this->localizer;
+		$text = preg_replace_callback(
+			// Based on EDITSECTION_REGEX in ParserOutput
+			'#<mw:edittemplatedata page="(.*?)"></mw:edittemplatedata>#s',
+			static function ( array $m ) use ( $localizer ): string {
+				$editsectionPage = Title::newFromText( htmlspecialchars_decode( $m[1] ) );
+
+				if ( !is_object( $editsectionPage ) ) {
+					LoggerFactory::getInstance( 'Parser' )
+						->error(
+							'TemplateDataHtmlFormatter::replaceEditLink(): bad title in edittemplatedata placeholder',
+							[
+								'placeholder' => $m[0],
+								'editsectionPage' => $m[1],
+							]
+						);
+					return '';
+				}
+
+				$result = Html::openElement( 'span', [ 'class' => 'mw-editsection-like' ] );
+				$result .= Html::rawElement( 'span', [ 'class' => 'mw-editsection-bracket' ], '[' );
+
+				$linkRenderer = MediaWikiServices::getInstance()->getLinkRenderer();
+				$result .= $linkRenderer->makeKnownLink(
+					$editsectionPage,
+					$localizer->msg( 'templatedata-editbutton' )->text(),
+					[],
+					[
+						'action' => 'edit',
+						'templatedata' => 'edit',
+					]
+				);
+
+				$result .= Html::rawElement( 'span', [ 'class' => 'mw-editsection-bracket' ], ']' );
+				$result .= Html::closeElement( 'span' );
+
+				return $result;
+			},
+			$text
+		);
+	}
+
+	/**
 	 * @param int|string $paramName
 	 * @param stdClass $param
 	 *
@@ -132,9 +195,7 @@ class TemplateDataHtmlFormatter {
 
 		$suggestedValues = [];
 		foreach ( $param->suggestedvalues as $suggestedValue ) {
-			$suggestedValues[] = Html::element( 'code', [ 'class' => 'mw-templatedata-doc-param-alias' ],
-				$suggestedValue
-			);
+			$suggestedValues[] = Html::element( 'code', [], $suggestedValue );
 		}
 
 		if ( $param->deprecated ) {
@@ -152,15 +213,14 @@ class TemplateDataHtmlFormatter {
 			. Html::element( 'th', [], $param->label ?? $paramName )
 			// Parameters and aliases
 			. Html::rawElement( 'td', [ 'class' => 'mw-templatedata-doc-param-name' ],
-				implode( $this->localizer->msg( 'word-separator' )->escaped(), $allParamNames )
+				implode( ' ', $allParamNames )
 			)
 			// Description
-			. Html::rawElement( 'td', [
-					'class' => [
-						'mw-templatedata-doc-muted' => ( $param->description === null )
-					]
-				],
-				Html::element( 'p', [],
+			. Html::rawElement( 'td', [],
+				Html::element( 'p',
+					[
+						'class' => $param->description ? null : 'mw-templatedata-doc-muted',
+					],
 					$param->description ??
 						$this->localizer->msg( 'templatedata-doc-param-desc-empty' )->text()
 				)
@@ -170,7 +230,7 @@ class TemplateDataHtmlFormatter {
 						$this->localizer->msg( 'templatedata-doc-param-suggestedvalues' )->text()
 					)
 					. Html::rawElement( 'dd', [],
-						implode( $this->localizer->msg( 'word-separator' )->escaped(), $suggestedValues )
+						implode( ' ', $suggestedValues )
 					) ) : '' ) .
 					// Default
 					( $param->default !== null ? ( Html::element( 'dt', [],

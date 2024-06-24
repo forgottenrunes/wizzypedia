@@ -26,7 +26,7 @@ class Headings {
 	 * @return bool
 	 */
 	public static function genAnchors( Node $node, Env $env ): bool {
-		if ( !preg_match( '/^h[1-6]$/D', DOMCompat::nodeName( $node ) ) ) {
+		if ( !DOMUtils::isHeading( $node ) ) {
 			return true;
 		}
 		'@phan-var Element $node';  /** @var Element $node */
@@ -44,7 +44,7 @@ class Headings {
 			return true;
 		}
 
-		$anchorText = Sanitizer::normalizeSectionIdWhiteSpace( self::textContentOf( $node ) );
+		$anchorText = Sanitizer::normalizeSectionNameWhiteSpace( self::textContentOf( $node ) );
 		$anchorText = self::normalizeSectionName( $anchorText, $env );
 
 		// Create an anchor with a sanitized id

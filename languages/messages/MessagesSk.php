@@ -1,10 +1,8 @@
 <?php
 /** Slovak (slovenčina)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Chiak
  * @author Danny B.
@@ -88,7 +86,7 @@ $specialPageAliases = [
 	'MIMEsearch'                => [ 'HľadanieMIME' ],
 	'Mostcategories'            => [ 'NajviacKategórií' ],
 	'Mostimages'                => [ 'NajodkazovanejšieSúbory' ],
-	'MostInterwikis'            => [ 'NajviacInterwiki' ],
+	'Mostinterwikis'            => [ 'NajviacInterwiki' ],
 	'Mostlinked'                => [ 'NajodkazovanejšieStránky' ],
 	'Mostlinkedcategories'      => [ 'NajodkazovanejšieKategórie' ],
 	'Mostlinkedtemplates'       => [ 'NajodkazovanejšieŠablóny' ],
@@ -115,6 +113,7 @@ $specialPageAliases = [
 	'Recentchangeslinked'       => [ 'SúvisiacePoslednéÚpravy' ],
 	'Redirect'                  => [ 'Presmerovanie' ],
 	'RemoveCredentials'         => [ 'OdstráneniePrihlasovacíchÚdajov' ],
+	'Renameuser'                => [ 'PremenovaťPoužívateľa' ],
 	'ResetTokens'               => [ 'ObnovaKľúčov' ],
 	'Revisiondelete'            => [ 'ZmazaťRevíziu' ],
 	'Search'                    => [ 'Hľadanie' ],

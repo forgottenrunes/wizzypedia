@@ -11,7 +11,8 @@
 			"SPQRobin",
 			"Saruman",
 			"Siebrand",
-			"Sjoerddebruin"
+			"Sjoerddebruin",
+			"McDutchie"
 		]
 	},
 	"scribunto-desc": "Framework voor het inbedden van scripttalen in pagina's",
@@ -46,6 +47,7 @@
 	"scribunto-lua-error-location": "Luafout $1: $2",
 	"scribunto-lua-error": "Lua-fout: $2.",
 	"scribunto-lua-notarrayreturn": "Scriptfout: de module heeft de waarde $2 teruggegeven. Dit moet een exporttabel zijn.",
+	"scribunto-lua-warning": "Scriptwaarschuwing: $1",
 	"scribunto-luastandalone-proc-error": "Luafout: het was niet mogelijk een proces te creëren.",
 	"scribunto-luastandalone-proc-error-msg": "Luafout: kan proces niet aanmaken: $2",
 	"scribunto-luastandalone-proc-error-proc-open": "Luafout: kan proces niet maken: proc_open is niet beschikbaar. Controleer de PHP-instelling \"disable_functions\".",
@@ -56,7 +58,7 @@
 	"scribunto-luastandalone-signal": "Luafout: interne fout: de verwerkingsmodule is gestopt met het signaal \"$2\".",
 	"scribunto-luastandalone-exited": "Luafout: interne fout: de verwerkingsmodule is gestopt met de status $2.",
 	"scribunto-module-with-errors-category": "Scribuntomodules met fouten",
-	"scribunto-module-with-errors-category-desc": "Deze module bevat een fout.",
+	"scribunto-module-with-errors-category-desc": "Er zit een fout in de module.",
 	"scribunto-limitreport-timeusage": "Tijdgebruik door Lua",
 	"scribunto-limitreport-timeusage-value": "$1/$2 seconden",
 	"scribunto-limitreport-virtmemusage": "Virtuele grootte van Lua",

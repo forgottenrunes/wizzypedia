@@ -1,9 +1,13 @@
 <?php
 
 use MediaWiki\Auth\AuthenticationRequestTestCase;
+use MediaWiki\Extension\ConfirmEdit\Auth\CaptchaAuthenticationRequest;
+use MediaWiki\Extension\ConfirmEdit\SimpleCaptcha\SimpleCaptcha;
+use MediaWiki\Extension\ConfirmEdit\Store\CaptchaHashStore;
+use MediaWiki\Extension\ConfirmEdit\Store\CaptchaStore;
 
 /**
- * @covers CaptchaAuthenticationRequest
+ * @covers \MediaWiki\Extension\ConfirmEdit\Auth\CaptchaAuthenticationRequest
  */
 class CaptchaAuthenticationRequestTest extends AuthenticationRequestTestCase {
 	public function setUp(): void {
@@ -27,7 +31,7 @@ class CaptchaAuthenticationRequestTest extends AuthenticationRequestTestCase {
 		];
 	}
 
-	public function provideLoadFromSubmission() {
+	public static function provideLoadFromSubmission() {
 		return [
 			'no id' => [
 				[ '123', [ 'question' => '1+2', 'answer' => '3' ] ],

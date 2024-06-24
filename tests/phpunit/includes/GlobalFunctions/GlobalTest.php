@@ -1,6 +1,7 @@
 <?php
 
 use MediaWiki\Logger\LegacyLogger;
+use MediaWiki\MainConfigNames;
 
 /**
  * @group Database
@@ -10,13 +11,8 @@ class GlobalTest extends MediaWikiIntegrationTestCase {
 	protected function setUp(): void {
 		parent::setUp();
 
-		$readOnlyFile = $this->getNewTempFile();
-		unlink( $readOnlyFile );
-
-		$this->setMwGlobals( [
-			'wgReadOnly' => null,
-			'wgReadOnlyFile' => $readOnlyFile,
-			'wgUrlProtocols' => [
+		$this->overrideConfigValues( [
+			MainConfigNames::UrlProtocols => [
 				'http://',
 				'https://',
 				'mailto:',
@@ -98,44 +94,6 @@ class GlobalTest extends MediaWikiIntegrationTestCase {
 				. "%E0%B0%B5%E0%B0%BE%E0%B0%A1%E0%B1%81%E0%B0%95%E0%B0%B0%E0%B0%BF_"
 				. "%E0%B0%AE%E0%B0%BE%E0%B0%B0%E0%B1%8D%E0%B0%97%E0%B0%A6%E0%B0%B0"
 				. "%E0%B1%8D%E0%B0%B6%E0%B0%A8%E0%B0%BF" ) );
-	}
-
-	/**
-	 * Intended to cover the relevant bits of ServiceWiring.php, as well as GlobalFunctions.php
-	 * @covers ::wfReadOnly
-	 */
-	public function testReadOnlyEmpty() {
-		$this->assertFalse( wfReadOnly() );
-		$this->assertFalse( wfReadOnly() );
-	}
-
-	/**
-	 * Intended to cover the relevant bits of ServiceWiring.php, as well as GlobalFunctions.php
-	 * @covers ::wfReadOnly
-	 */
-	public function testReadOnlySet() {
-		global $wgReadOnlyFile;
-
-		$f = fopen( $wgReadOnlyFile, "wt" );
-		fwrite( $f, 'Message' );
-		fclose( $f );
-
-		$this->assertTrue( wfReadOnly() );
-		$this->assertTrue( wfReadOnly() ); # Check cached
-	}
-
-	/**
-	 * This behaviour could probably be deprecated. Several extensions rely on it as of 1.29.
-	 * @covers ::wfReadOnlyReason
-	 */
-	public function testReadOnlyGlobalChange() {
-		$this->assertFalse( wfReadOnlyReason() );
-
-		$this->setMwGlobals( [
-			'wgReadOnly' => 'reason'
-		] );
-
-		$this->assertSame( 'reason', wfReadOnlyReason() );
 	}
 
 	public static function provideArrayToCGI() {
@@ -243,9 +201,7 @@ class GlobalTest extends MediaWikiIntegrationTestCase {
 	public function testDebugFunctionTest() {
 		$debugLogFile = $this->getNewTempFile();
 
-		$this->setMwGlobals( [
-			'wgDebugLogFile' => $debugLogFile,
-		] );
+		$this->overrideConfigValue( MainConfigNames::DebugLogFile, $debugLogFile );
 		$this->setLogger( 'wfDebug', new LegacyLogger( 'wfDebug' ) );
 
 		unlink( $debugLogFile );
@@ -311,7 +267,7 @@ class GlobalTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( $expected, wfPercent( $input, $accuracy, $round ) );
 	}
 
-	public function provideWfPercentTest() {
+	public static function provideWfPercentTest() {
 		return [
 			[ 6 / 7, '0.86%', 2, false ],
 			[ 3 / 3, '1%' ],
@@ -414,7 +370,7 @@ class GlobalTest extends MediaWikiIntegrationTestCase {
 		$this->markTestSkippedIfNoDiff3();
 
 		$mergedText = null;
-		$attemptMergeResult = null;
+		$mergeAttemptResult = null;
 		$isMerged = wfMerge( $old, $mine, $yours, $mergedText, $mergeAttemptResult );
 
 		$msg = 'Merge should be a ';
@@ -495,65 +451,13 @@ class GlobalTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/**
-	 * @dataProvider provideWfMatchesDomainList
+	 * Same tests as the UrlUtils method to ensure they don't fall out of sync
+	 * @dataProvider UrlUtilsProviders::provideMatchesDomainList
 	 * @covers ::wfMatchesDomainList
 	 */
-	public function testWfMatchesDomainList( $url, $domains, $expected, $description ) {
+	public function testWfMatchesDomainList( $url, $domains, $expected ) {
 		$actual = wfMatchesDomainList( $url, $domains );
-		$this->assertEquals( $expected, $actual, $description );
-	}
-
-	public static function provideWfMatchesDomainList() {
-		$a = [];
-		$protocols = [ 'HTTP' => 'http:', 'HTTPS' => 'https:', 'protocol-relative' => '' ];
-		foreach ( $protocols as $pDesc => $p ) {
-			$a = array_merge( $a, [
-				[
-					"$p//www.example.com",
-					[],
-					false,
-					"No matches for empty domains array, $pDesc URL"
-				],
-				[
-					"$p//www.example.com",
-					[ 'www.example.com' ],
-					true,
-					"Exact match in domains array, $pDesc URL"
-				],
-				[
-					"$p//www.example.com",
-					[ 'example.com' ],
-					true,
-					"Match without subdomain in domains array, $pDesc URL"
-				],
-				[
-					"$p//www.example2.com",
-					[ 'www.example.com', 'www.example2.com', 'www.example3.com' ],
-					true,
-					"Exact match with other domains in array, $pDesc URL"
-				],
-				[
-					"$p//www.example2.com",
-					[ 'example.com', 'example2.com', 'example3,com' ],
-					true,
-					"Match without subdomain with other domains in array, $pDesc URL"
-				],
-				[
-					"$p//www.example4.com",
-					[ 'example.com', 'example2.com', 'example3,com' ],
-					false,
-					"Domain not in array, $pDesc URL"
-				],
-				[
-					"$p//nds-nl.wikipedia.org",
-					[ 'nl.wikipedia.org' ],
-					false,
-					"Non-matching substring of domain, $pDesc URL"
-				],
-			] );
-		}
-
-		return $a;
+		$this->assertEquals( $expected, $actual );
 	}
 
 	/**
@@ -578,30 +482,6 @@ class GlobalTest extends MediaWikiIntegrationTestCase {
 		}
 		$actual = wfShellWikiCmd( $script, $parameters, $options );
 		$this->assertEquals( $expected, $actual, $description );
-	}
-
-	/**
-	 * @covers ::wfWikiID
-	 */
-	public function testWfWikiID() {
-		$this->hideDeprecated( 'wfWikiID' );
-		$this->setMwGlobals( [
-			'wgDBname' => 'example',
-			'wgDBprefix' => '',
-		] );
-		$this->assertEquals(
-			wfWikiID(),
-			'example'
-		);
-
-		$this->setMwGlobals( [
-			'wgDBname' => 'example',
-			'wgDBprefix' => 'mw_',
-		] );
-		$this->assertEquals(
-			wfWikiID(),
-			'example-mw_'
-		);
 	}
 
 	public static function provideWfShellWikiCmdList() {

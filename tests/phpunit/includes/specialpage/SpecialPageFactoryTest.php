@@ -1,6 +1,14 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\MainConfigSchema;
+use MediaWiki\Output\OutputPage;
 use MediaWiki\Page\PageReferenceValue;
+use MediaWiki\Request\FauxRequest;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\SpecialPage\SpecialPageFactory;
+use MediaWiki\Specials\SpecialAllPages;
+use MediaWiki\Title\Title;
 use Wikimedia\ScopedCallback;
 use Wikimedia\TestingAccessWrapper;
 
@@ -32,12 +40,12 @@ class SpecialPageFactoryTest extends MediaWikiIntegrationTestCase {
 
 	public function testHookNotCalledTwice() {
 		$count = 0;
-		$this->mergeMwGlobalArrayValue( 'wgHooks', [
-			'SpecialPage_initList' => [
-				static function () use ( &$count ) {
-					$count++;
-				}
-		] ] );
+		$this->setTemporaryHook(
+			'SpecialPage_initList',
+			static function () use ( &$count ) {
+				$count++;
+			}
+		);
 		$spf = $this->getServiceContainer()->getSpecialPageFactory();
 		$spf->getNames();
 		$spf->getNames();
@@ -78,7 +86,10 @@ class SpecialPageFactoryTest extends MediaWikiIntegrationTestCase {
 	 * @dataProvider specialPageProvider
 	 */
 	public function testGetPage( $spec, $shouldReuseInstance ) {
-		$this->mergeMwGlobalArrayValue( 'wgSpecialPages', [ 'testdummy' => $spec ] );
+		$this->overrideConfigValue(
+			MainConfigNames::SpecialPages,
+			[ 'testdummy' => $spec ] + MainConfigSchema::getDefaultValue( MainConfigNames::SpecialPages )
+		);
 
 		$factory = $this->getFactory();
 		$page = $factory->getPage( 'testdummy' );
@@ -92,7 +103,11 @@ class SpecialPageFactoryTest extends MediaWikiIntegrationTestCase {
 	 * @covers \MediaWiki\SpecialPage\SpecialPageFactory::getNames
 	 */
 	public function testGetNames() {
-		$this->mergeMwGlobalArrayValue( 'wgSpecialPages', [ 'testdummy' => SpecialAllPages::class ] );
+		$this->overrideConfigValue(
+			MainConfigNames::SpecialPages,
+			[ 'testdummy' => SpecialAllPages::class ] +
+			MainConfigSchema::getDefaultValue( MainConfigNames::SpecialPages )
+		);
 
 		$names = $this->getFactory()->getNames();
 		$this->assertIsArray( $names );
@@ -103,9 +118,9 @@ class SpecialPageFactoryTest extends MediaWikiIntegrationTestCase {
 	 * @covers \MediaWiki\SpecialPage\SpecialPageFactory::resolveAlias
 	 */
 	public function testResolveAlias() {
-		$this->setContentLang( 'de' );
+		$this->overrideConfigValue( MainConfigNames::LanguageCode, 'de' );
 
-		list( $name, $param ) = $this->getFactory()->resolveAlias( 'Spezialseiten/Foo' );
+		[ $name, $param ] = $this->getFactory()->resolveAlias( 'Spezialseiten/Foo' );
 		$this->assertEquals( 'Specialpages', $name );
 		$this->assertEquals( 'Foo', $param );
 	}
@@ -114,7 +129,7 @@ class SpecialPageFactoryTest extends MediaWikiIntegrationTestCase {
 	 * @covers \MediaWiki\SpecialPage\SpecialPageFactory::getLocalNameFor
 	 */
 	public function testGetLocalNameFor() {
-		$this->setContentLang( 'de' );
+		$this->overrideConfigValue( MainConfigNames::LanguageCode, 'de' );
 
 		$name = $this->getFactory()->getLocalNameFor( 'Specialpages', 'Foo' );
 		$this->assertEquals( 'Spezialseiten/Foo', $name );
@@ -124,14 +139,14 @@ class SpecialPageFactoryTest extends MediaWikiIntegrationTestCase {
 	 * @covers \MediaWiki\SpecialPage\SpecialPageFactory::getTitleForAlias
 	 */
 	public function testGetTitleForAlias() {
-		$this->setContentLang( 'de' );
+		$this->overrideConfigValue( MainConfigNames::LanguageCode, 'de' );
 
 		$title = $this->getFactory()->getTitleForAlias( 'Specialpages/Foo' );
 		$this->assertEquals( 'Spezialseiten/Foo', $title->getText() );
 		$this->assertEquals( NS_SPECIAL, $title->getNamespace() );
 	}
 
-	public function provideExecutePath() {
+	public static function provideExecutePath() {
 		yield [ 'BlankPage', 'intentionallyblankpage' ];
 
 		$path = new PageReferenceValue( NS_SPECIAL, 'BlankPage', PageReferenceValue::LOCAL );
@@ -143,7 +158,7 @@ class SpecialPageFactoryTest extends MediaWikiIntegrationTestCase {
 	 * @covers \MediaWiki\SpecialPage\SpecialPageFactory::executePAth
 	 */
 	public function testExecutePath( $path, $expected ) {
-		$this->setContentLang( 'qqx' );
+		$this->overrideConfigValue( MainConfigNames::LanguageCode, 'qqx' );
 
 		$context = new RequestContext();
 		$context->setRequest( new FauxRequest() );
@@ -164,14 +179,15 @@ class SpecialPageFactoryTest extends MediaWikiIntegrationTestCase {
 		$lang = clone $this->getServiceContainer()->getContentLanguage();
 		$wrappedLang = TestingAccessWrapper::newFromObject( $lang );
 		$wrappedLang->mExtendedSpecialPageAliases = $aliasesList;
-		$this->setMwGlobals( 'wgSpecialPages',
-			array_combine( array_keys( $aliasesList ), array_keys( $aliasesList ) )
-		);
+		$this->overrideConfigValues( [
+			MainConfigNames::DevelopmentWarnings => true,
+			MainConfigNames::SpecialPages =>
+				array_combine( array_keys( $aliasesList ), array_keys( $aliasesList ) )
+		] );
 		$this->setContentLang( $lang );
 
 		// Catch the warnings we expect to be raised
 		$warnings = [];
-		$this->setMwGlobals( 'wgDevelopmentWarnings', true );
 		set_error_handler( static function ( $errno, $errstr ) use ( &$warnings ) {
 			if ( preg_match( '/First alias \'[^\']*\' for .*/', $errstr ) ||
 				preg_match( '/Did not find a usable alias for special page .*/', $errstr )
@@ -183,7 +199,7 @@ class SpecialPageFactoryTest extends MediaWikiIntegrationTestCase {
 		} );
 		$reset = new ScopedCallback( 'restore_error_handler' );
 
-		list( $name, /*...*/ ) = $this->getFactory()->resolveAlias( $alias );
+		[ $name, /*...*/ ] = $this->getFactory()->resolveAlias( $alias );
 		$this->assertEquals( $expectedName, $name, "$test: Alias to name" );
 		$result = $this->getFactory()->getLocalNameFor( $name );
 		$this->assertEquals( $expectedAlias, $result, "$test: Alias to name to alias" );
@@ -204,12 +220,12 @@ class SpecialPageFactoryTest extends MediaWikiIntegrationTestCase {
 	) {
 		// Make sure order doesn't matter by reversing the list
 		$aliasesList = array_reverse( $aliasesList );
-		return $this->testConflictResolution(
+		$this->testConflictResolution(
 			$test, $aliasesList, $alias, $expectedName, $expectedAlias, $expectWarnings
 		);
 	}
 
-	public function provideTestConflictResolution() {
+	public static function provideTestConflictResolution() {
 		return [
 			[
 				'Canonical name wins',
@@ -287,16 +303,15 @@ class SpecialPageFactoryTest extends MediaWikiIntegrationTestCase {
 
 	public function testGetAliasListRecursion() {
 		$called = false;
-		$this->mergeMwGlobalArrayValue( 'wgHooks', [
-			'SpecialPage_initList' => [
-				function () use ( &$called ) {
-					$this->getServiceContainer()
-						->getSpecialPageFactory()
-						->getLocalNameFor( 'Specialpages' );
-					$called = true;
-				}
-			],
-		] );
+		$this->setTemporaryHook(
+			'SpecialPage_initList',
+			function () use ( &$called ) {
+				$this->getServiceContainer()
+					->getSpecialPageFactory()
+					->getLocalNameFor( 'Specialpages' );
+				$called = true;
+			}
+		);
 		$this->getFactory()->getLocalNameFor( 'Specialpages' );
 		$this->assertTrue( $called, 'Recursive call succeeded' );
 	}
@@ -307,7 +322,7 @@ class SpecialPageFactoryTest extends MediaWikiIntegrationTestCase {
 	public function testSpecialPageCreationThatRequiresService() {
 		$type = null;
 
-		$this->setMwGlobals( 'wgSpecialPages',
+		$this->overrideConfigValue( MainConfigNames::SpecialPages,
 			[ 'TestPage' => [
 				'factory' => static function ( $spf ) use ( &$type ) {
 					$type = get_class( $spf );
@@ -324,6 +339,44 @@ class SpecialPageFactoryTest extends MediaWikiIntegrationTestCase {
 
 		$this->getFactory()->getPage( 'TestPage' );
 
-		$this->assertEquals( \MediaWiki\SpecialPage\SpecialPageFactory::class, $type );
+		$this->assertEquals( SpecialPageFactory::class, $type );
+	}
+
+	/**
+	 * @covers \MediaWiki\SpecialPage\SpecialPageFactory::capturePath
+	 */
+	public function testSpecialPageCapturePathExceptions() {
+		$expectedException = new RuntimeException( 'Uh-oh!' );
+		$this->overrideConfigValue( MainConfigNames::SpecialPages, [
+			'ExceptionPage' => [
+				'factory' => static function () use ( $expectedException ) {
+					return new class( $expectedException ) extends SpecialPage {
+						private Exception $expectedException;
+
+						public function __construct( $expectedException ) {
+							parent::__construct();
+							$this->expectedException = $expectedException;
+						}
+
+						public function execute( $par ) {
+							throw $this->expectedException;
+						}
+
+						public function isIncludable() {
+							return true;
+						}
+					};
+				},
+			]
+		] );
+
+		$factory = $this->getFactory();
+		$factory->getPage( 'ExceptionPage' );
+
+		$this->expectExceptionObject( $expectedException );
+		$factory->capturePath(
+			Title::makeTitle( NS_SPECIAL, 'ExceptionPage' ),
+			RequestContext::getMain()
+		);
 	}
 }

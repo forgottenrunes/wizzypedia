@@ -25,7 +25,6 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
-use MediaWiki\MediaWikiServices;
 use Wikimedia\Rdbms\IDatabase;
 
 /**
@@ -59,14 +58,13 @@ class RunBatchedQuery extends Maintenance {
 		if ( $dbName === null ) {
 			$dbw = $this->getDB( DB_PRIMARY );
 		} else {
-			$lbf = MediaWiki\MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
+			$lbf = $this->getServiceContainer()->getDBLoadBalancerFactory();
 			$lb = $lbf->getMainLB( $dbName );
 			$dbw = $lb->getConnectionRef( DB_PRIMARY, [], $dbName );
 		}
 
 		$selectConds = $where;
 		$prevEnd = false;
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 
 		$n = 1;
 		do {
@@ -105,7 +103,7 @@ class RunBatchedQuery extends Maintenance {
 
 			$affected = $dbw->affectedRows();
 			$this->output( "$affected rows affected\n" );
-			$lbFactory->waitForReplication();
+			$this->waitForReplication();
 		} while ( $res->numRows() );
 	}
 

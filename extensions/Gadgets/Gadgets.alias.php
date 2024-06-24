@@ -211,6 +211,13 @@ $specialPageAliases['ja'] = [
 /** Korean (한국어) */
 $specialPageAliases['ko'] = [
 	'Gadgets' => [ '소도구', '가젯' ],
+	'GadgetUsage' => [ '소도구사용량' ],
+];
+
+/** Kashmiri (کٲشُر) */
+$specialPageAliases['ks-arab'] = [
+	'Gadgets' => [ 'آلہٕ' ],
+	'GadgetUsage' => [ 'آلہٕ_اِستِمال' ],
 ];
 
 /** Ladino (Ladino) */
@@ -241,6 +248,12 @@ $specialPageAliases['mk'] = [
 /** Malayalam (മലയാളം) */
 $specialPageAliases['ml'] = [
 	'Gadgets' => [ 'കൂട' ],
+];
+
+/** Mon (ဘာသာ မန်) */
+$specialPageAliases['mnw'] = [
+	'Gadgets' => [ 'ကိရိယာဂမၠိုင်' ],
+	'GadgetUsage' => [ 'ကိရိယာစရင်အင်' ],
 ];
 
 /** Marathi (मराठी) */
@@ -354,13 +367,13 @@ $specialPageAliases['sl'] = [
 	'Gadgets' => [ 'Vtičniki', 'Vticniki' ],
 ];
 
-/** Serbian (Cyrillic script) (српски (ћирилица)‎) */
+/** Serbian (Cyrillic script) (српски (ћирилица)) */
 $specialPageAliases['sr-ec'] = [
 	'Gadgets' => [ 'Справице', 'Гаџети', 'Геџети' ],
 	'GadgetUsage' => [ 'УпотребаСправица', 'УпотребаГаџета', 'УпотребаГеџета' ],
 ];
 
-/** Serbian (Latin script) (srpski (latinica)‎) */
+/** Serbian (Latin script) (srpski (latinica)) */
 $specialPageAliases['sr-el'] = [
 	'Gadgets' => [ 'Spravice', 'Gadžeti', 'Gedžeti' ],
 	'GadgetUsage' => [ 'UpotrebaSpravica', 'UpotrebaGadžeta', 'UpotrebaGedžeta' ],
@@ -402,6 +415,12 @@ $specialPageAliases['ur'] = [
 	'GadgetUsage' => [ 'آلات_کا_استعمال' ],
 ];
 
+/** Uzbek (oʻzbekcha) */
+$specialPageAliases['uz'] = [
+	'Gadgets' => [ 'Gadjetlar' ],
+	'GadgetUsage' => [ 'Gadjetlardan_foydalanish' ],
+];
+
 /** Venetian (vèneto) */
 $specialPageAliases['vec'] = [
 	'Gadgets' => [ 'Strumenti' ],
@@ -412,17 +431,12 @@ $specialPageAliases['vi'] = [
 	'Gadgets' => [ 'Tiện_ích', 'Công_cụ_đa_năng' ],
 ];
 
-/** Chinese (中文) */
-$specialPageAliases['zh'] = [
-	'Gadgets' => [ '小工具' ],
-];
-
-/** Simplified Chinese (中文（简体）‎) */
+/** Simplified Chinese (中文（简体）) */
 $specialPageAliases['zh-hans'] = [
 	'Gadgets' => [ '小工具' ],
 ];
 
-/** Traditional Chinese (中文（繁體）‎) */
+/** Traditional Chinese (中文（繁體）) */
 $specialPageAliases['zh-hant'] = [
 	'Gadgets' => [ '小工具' ],
 ];

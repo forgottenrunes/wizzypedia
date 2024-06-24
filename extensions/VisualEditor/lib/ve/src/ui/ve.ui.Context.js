@@ -96,9 +96,11 @@ ve.ui.Context.prototype.isVisible = function () {
  * Result is cached, and cleared when the model or selection changes.
  *
  * @abstract
- * @return {Object[]} List of objects containing `type`, `name` and `model` properties,
- *   representing each compatible type (either `item` or `tool`), symbolic name of the item or tool
- *   and the model the item or tool is compatible with
+ * @return {Object[]} List of objects containing `type`, `name`, and `model` or `data` properties,
+ *   `type` is either `item`, `tool` or `persistent`
+ *   `name` is the symbolic name of the item or tool
+ *   `model` is the model the item or tool is compatible with (for `item` or `tool`)
+ *   `data` is additional data, for `persistent` context items
  */
 ve.ui.Context.prototype.getRelatedSources = null;
 
@@ -109,6 +111,26 @@ ve.ui.Context.prototype.getRelatedSources = null;
  */
 ve.ui.Context.prototype.getSurface = function () {
 	return this.surface;
+};
+
+/**
+ * Hide the context while it has valid items in the menu
+ *
+ * This could be triggered by clicking the close button on
+ * mobile or by pressing escape.
+ */
+ve.ui.Context.prototype.hide = function () {
+	var surfaceModel = this.surface.getModel();
+	this.toggleMenu( false );
+	this.toggle( false );
+	// Desktop: Ensure the next cursor movement re-evaluates the context,
+	// e.g. if moving within a link, the context is re-shown.
+	surfaceModel.once( 'select', function () {
+		surfaceModel.emitContextChange();
+	} );
+	// Mobile: Clear last-known contexedAnnotations so that clicking the annotation
+	// again just brings up this context item. (T232172)
+	this.getSurface().getView().contexedAnnotations = [];
 };
 
 /**
@@ -156,8 +178,16 @@ ve.ui.Context.prototype.setupMenuItems = function () {
 			items.push( new ve.ui.ToolContextItem(
 				this, sources[ i ].model, ve.ui.toolFactory.lookup( sources[ i ].name )
 			) );
+		} else if ( source.type === 'persistent' ) {
+			items.push( ve.ui.contextItemFactory.create(
+				sources[ i ].name, this, sources[ i ].data
+			) );
 		}
 	}
+
+	items.sort( function ( a, b ) {
+		return a.constructor.static.sortOrder - b.constructor.static.sortOrder;
+	} );
 
 	this.addItems( items );
 	for ( i = 0, len = items.length; i < len; i++ ) {
@@ -231,4 +261,16 @@ ve.ui.Context.prototype.destroy = function () {
 
 	this.$element.remove();
 	return this;
+};
+
+/**
+ * Get an object describing the amount of padding the context adds to the surface.
+ *
+ * For example the mobile context, which is fixed to the bottom of the viewport,
+ * will add bottom padding, whereas the floating desktop context will add none.
+ *
+ * @return {null|Object} Padding object, or null
+ */
+ve.ui.Context.prototype.getSurfacePadding = function () {
+	return null;
 };

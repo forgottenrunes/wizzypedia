@@ -20,11 +20,8 @@
 
 namespace MediaWiki\Minerva\Menu\Main;
 
-use FatalError;
-use Hooks;
 use MediaWiki\Minerva\Menu\Definitions;
 use MediaWiki\Minerva\Menu\Group;
-use MWException;
 
 /**
  * A menu builder that provides additional menu entries that match
@@ -63,6 +60,13 @@ final class AdvancedMainMenuBuilder implements IMainMenuBuilder {
 	}
 
 	/**
+	 * @return Group
+	 */
+	public function getSettingsGroup(): Group {
+		return new Group( 'pt-preferences' );
+	}
+
+	/**
 	 * @inheritDoc
 	 */
 	public function getPersonalToolsGroup( array $personalTools ): Group {
@@ -85,8 +89,6 @@ final class AdvancedMainMenuBuilder implements IMainMenuBuilder {
 
 	/**
 	 * @inheritDoc
-	 * @throws FatalError
-	 * @throws MWException
 	 */
 	public function getSiteLinks(): Group {
 		return BuilderUtil::getSiteLinks( $this->definitions );
@@ -95,8 +97,6 @@ final class AdvancedMainMenuBuilder implements IMainMenuBuilder {
 	/**
 	 * Prepares a list of links that have the purpose of discovery in the main navigation menu
 	 * @return Group
-	 * @throws FatalError
-	 * @throws MWException
 	 */
 	public function getInteractionToolsGroup(): Group {
 		$group = new Group( 'p-interaction' );
@@ -105,8 +105,6 @@ final class AdvancedMainMenuBuilder implements IMainMenuBuilder {
 		$this->definitions->insertSpecialPages( $group );
 		$this->definitions->insertCommunityPortal( $group );
 
-		// Allow other extensions to add or override tools
-		Hooks::run( 'MobileMenu', [ 'sitetools', &$group ], '1.38' );
 		return $group;
 	}
 }

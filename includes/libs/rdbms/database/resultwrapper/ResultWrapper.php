@@ -95,7 +95,7 @@ abstract class ResultWrapper implements IResultWrapper {
 		return $this->doNumRows();
 	}
 
-	public function count() {
+	public function count(): int {
 		return $this->doNumRows();
 	}
 
@@ -111,7 +111,7 @@ abstract class ResultWrapper implements IResultWrapper {
 		return $this->currentRow;
 	}
 
-	public function seek( $pos ) {
+	public function seek( $pos ): void {
 		$numRows = $this->numRows();
 		// Allow seeking to zero if there are no results
 		$max = $numRows ? $numRows - 1 : 0;
@@ -131,42 +131,32 @@ abstract class ResultWrapper implements IResultWrapper {
 		$this->currentRow = false;
 	}
 
-	#[\ReturnTypeWillChange]
-	public function rewind() {
+	public function rewind(): void {
 		$this->seek( 0 );
 	}
 
+	#[\ReturnTypeWillChange]
 	public function current() {
-		if ( $this->currentRow === null ) {
-			$this->currentRow = $this->fetchObject();
-		}
+		$this->currentRow ??= $this->fetchObject();
 
 		return $this->currentRow;
 	}
 
-	public function key() {
+	public function key(): int {
 		return $this->currentPos;
 	}
 
-	public function next() {
-		return $this->fetchObject();
+	public function next(): void {
+		$this->fetchObject();
 	}
 
-	#[\ReturnTypeWillChange]
-	public function valid() {
+	public function valid(): bool {
 		return $this->currentPos >= 0
 			&& $this->currentPos < $this->numRows();
 	}
 
 	public function getFieldNames() {
-		if ( $this->fieldNames === null ) {
-			$this->fieldNames = $this->doGetFieldNames();
-		}
+		$this->fieldNames ??= $this->doGetFieldNames();
 		return $this->fieldNames;
 	}
 }
-
-/**
- * @deprecated since 1.29
- */
-class_alias( ResultWrapper::class, 'ResultWrapper' );

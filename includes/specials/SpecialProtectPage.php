@@ -21,17 +21,34 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use MediaWiki\SpecialPage\SpecialRedirectWithAction;
+use SearchEngineFactory;
+
 /**
  * @author Zabe
  *
  * @since 1.38
  */
 class SpecialProtectPage extends SpecialRedirectWithAction {
-	public function __construct() {
-		parent::__construct( 'ProtectPage', 'protect', 'protectpage' );
+
+	/**
+	 * @param SearchEngineFactory $searchEngineFactory
+	 */
+	public function __construct(
+		SearchEngineFactory $searchEngineFactory
+	) {
+		parent::__construct( 'ProtectPage', 'protect', 'protectpage', $searchEngineFactory );
 	}
 
 	// Messages, for grep:
 	// specialprotectpage-page
 	// specialprotectpage-submit
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialProtectPage::class, 'SpecialProtectPage' );

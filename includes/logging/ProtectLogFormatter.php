@@ -23,6 +23,7 @@
  */
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
 
 /**
  * This class formats protect log entries.
@@ -111,7 +112,7 @@ class ProtectLogFormatter extends LogFormatter {
 			);
 		}
 
-		if ( empty( $links ) ) {
+		if ( !$links ) {
 			return '';
 		} else {
 			return $this->msg( 'parentheses' )->rawParams(

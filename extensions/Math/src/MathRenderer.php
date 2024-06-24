@@ -12,11 +12,10 @@
 namespace MediaWiki\Extension\Math;
 
 use DeferredUpdates;
-use MediaWiki\Extension\Math\InputCheck\RestbaseChecker;
+use MediaWiki\Extension\Math\InputCheck\BaseChecker;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\MediaWikiServices;
 use Message;
-use MWException;
 use Parser;
 use Psr\Log\LoggerInterface;
 use RequestContext;
@@ -71,7 +70,7 @@ abstract class MathRenderer {
 	/** @var string binary packed inputhash */
 	protected $inputHash = '';
 	/** @var string rendering mode */
-	protected $mode = MathConfig::MODE_PNG;
+	protected $mode = MathConfig::MODE_MATHML;
 	/** @var string input type */
 	protected $inputType = 'tex';
 	/** @var MathRestbaseInterface used for checking */
@@ -123,25 +122,6 @@ abstract class MathRenderer {
 	}
 
 	/**
-	 * Static method for rendering math tag
-	 *
-	 * @param string $tex LaTeX markup
-	 * @param array $params HTML attributes
-	 * @param string $mode constant indicating rendering mode
-	 * @return string HTML for math tag
-	 */
-	public static function renderMath( $tex, $params = [], $mode = MathConfig::MODE_PNG ) {
-		$renderer = MediaWikiServices::getInstance()
-			->get( 'Math.RendererFactory' )
-			->getRenderer( $tex, $params, $mode );
-		if ( $renderer->render() ) {
-			return $renderer->getHtmlOutput();
-		} else {
-			return $renderer->getLastError();
-		}
-	}
-
-	/**
 	 * @param string $md5
 	 * @return self the MathRenderer generated from md5
 	 */
@@ -162,7 +142,7 @@ abstract class MathRenderer {
 	 * @param string $mode indicating rendering mode
 	 * @return self appropriate renderer for mode
 	 */
-	public static function getRenderer( $tex, $params = [], $mode = MathConfig::MODE_PNG ) {
+	public static function getRenderer( $tex, $params = [], $mode = MathConfig::MODE_MATHML ) {
 		return MediaWikiServices::getInstance()
 			->get( 'Math.RendererFactory' )
 			->getRenderer( $tex, $params, $mode );
@@ -226,7 +206,7 @@ abstract class MathRenderer {
 	public function getInputHash() {
 		// TODO: What happens if $tex is empty?
 		if ( !$this->inputHash ) {
-			$dbr = wfGetDB( DB_REPLICA );
+			$dbr = MediaWikiServices::getInstance()->getDBLoadBalancerFactory()->getReplicaDatabase();
 			return $dbr->encodeBlob( pack( "H32", $this->getMd5() ) ); # Binary packed, not hex
 		}
 		return $this->inputHash;
@@ -249,7 +229,7 @@ abstract class MathRenderer {
 	 * @return bool true if read successfully, false otherwise
 	 */
 	public function readFromDatabase() {
-		$dbr = wfGetDB( DB_REPLICA );
+		$dbr = MediaWikiServices::getInstance()->getDBLoadBalancerFactory()->getReplicaDatabase();
 		$rpage = $dbr->selectRow( $this->getMathTableName(),
 			$this->dbInArray(),
 			[ 'math_inputhash' => $this->getInputHash() ],
@@ -257,7 +237,7 @@ abstract class MathRenderer {
 		if ( $rpage !== false ) {
 			$this->initializeFromDatabaseRow( $rpage );
 			$this->storedInDatabase = true;
-				return true;
+			return true;
 		} else {
 			# Missing from the database and/or the render cache
 			$this->storedInDatabase = false;
@@ -404,6 +384,11 @@ abstract class MathRenderer {
 		}
 	}
 
+	protected function getChecker(): BaseChecker {
+		return Math::getCheckerFactory()
+			->newDefaultChecker( $this->tex, $this->getInputType(), $this->rbi );
+	}
+
 	/**
 	 * Returns sanitized attributes
 	 *
@@ -458,7 +443,7 @@ abstract class MathRenderer {
 	 * @return bool
 	 */
 	public function setMode( $newMode ) {
-		if ( MediaWikiServices::getInstance()->get( 'Math.Config' )->isValidRenderingMode( $newMode ) ) {
+		if ( Math::getMathConfig()->isValidRenderingMode( $newMode ) ) {
 			$this->mode = $newMode;
 			return true;
 		} else {
@@ -537,7 +522,11 @@ abstract class MathRenderer {
 		}
 		$refererHeader = RequestContext::getMain()->getRequest()->getHeader( 'REFERER' );
 		if ( $refererHeader ) {
-			parse_str( parse_url( $refererHeader, PHP_URL_QUERY ), $refererParam );
+			$url = parse_url( $refererHeader, PHP_URL_QUERY );
+			if ( !is_string( $url ) ) {
+				return false;
+			}
+			parse_str( $url, $refererParam );
 			if ( isset( $refererParam['action'] ) && $refererParam['action'] === 'purge' ) {
 				$this->logger->debug( 'Re-Rendering on user request' );
 				return true;
@@ -565,13 +554,9 @@ abstract class MathRenderer {
 	 */
 	public function setMathStyle( $mathStyle = 'display' ) {
 		if ( $this->mathStyle !== $mathStyle ) {
+			$this->mathStyle = $mathStyle;
 			$this->changed = true;
-		}
-		$this->mathStyle = $mathStyle;
-		if ( $mathStyle == 'inline' ) {
-			$this->inputType = 'inline-tex';
-		} else {
-			$this->inputType = 'tex';
+			$this->inputType = $mathStyle === 'inline' ? 'inline-tex' : 'tex';
 		}
 	}
 
@@ -668,7 +653,7 @@ abstract class MathRenderer {
 	 *
 	 * @return string XML-Document of the rendered SVG
 	 */
-	public function getSvg( /** @noinspection PhpUnusedParameterInspection */ $render = 'render' ) {
+	public function getSvg( $render = 'render' ) {
 		// Spaces will prevent the image from being displayed correctly in the browser
 		if ( !$this->svg && $this->rbi ) {
 			$this->svg = $this->rbi->getSvg();
@@ -701,20 +686,15 @@ abstract class MathRenderer {
 		return $this->inputType;
 	}
 
-	/**
-	 * @return bool
-	 */
-	protected function doCheck() {
-		$checker = new RestbaseChecker( $this->tex, $this->getInputType(), $this->rbi );
-		try {
-			if ( $checker->isValid() ) {
-				$this->setTex( $checker->getValidTex() );
-				$this->texSecure = true;
-				return true;
-			}
+	protected function doCheck(): bool {
+		$checker = $this->getChecker();
+
+		if ( $checker->isValid() ) {
+			$this->setTex( $checker->getValidTex() );
+			$this->texSecure = true;
+			return true;
 		}
-		catch ( MWException $e ) {
-		}
+
 		$checkerError = $checker->getError();
 		$this->lastError = $this->getError( $checkerError->getKey(), ...$checkerError->getParams() );
 		return false;

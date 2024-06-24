@@ -23,7 +23,8 @@
  * @author Rob Church <robchur@gmail.com>
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\User\ActorMigration;
+use MediaWiki\User\UserIdentity;
 
 require_once __DIR__ . '/Maintenance.php';
 
@@ -41,7 +42,7 @@ class RemoveUnusedAccounts extends Maintenance {
 	}
 
 	public function execute() {
-		$services = MediaWikiServices::getInstance();
+		$services = $this->getServiceContainer();
 		$userFactory = $services->getUserFactory();
 		$userGroupManager = $services->getUserGroupManager();
 		$this->output( "Remove unused accounts\n\n" );
@@ -51,14 +52,11 @@ class RemoveUnusedAccounts extends Maintenance {
 		$delUser = [];
 		$delActor = [];
 		$dbr = $this->getDB( DB_REPLICA );
-		$res = $dbr->select(
-			[ 'user', 'actor' ],
-			[ 'user_id', 'user_name', 'user_touched', 'actor_id' ],
-			'',
-			__METHOD__,
-			[],
-			[ 'actor' => [ 'LEFT JOIN', 'user_id = actor_user' ] ]
-		);
+		$res = $dbr->newSelectQueryBuilder()
+			->select( [ 'user_id', 'user_name', 'user_touched', 'actor_id' ] )
+			->from( 'user' )
+			->leftJoin( 'actor', null, 'user_id = actor_user' )
+			->caller( __METHOD__ )->fetchResultSet();
 		if ( $this->hasOption( 'ignore-groups' ) ) {
 			$excludedGroups = explode( ',', $this->getOption( 'ignore-groups' ) );
 		} else {
@@ -75,7 +73,7 @@ class RemoveUnusedAccounts extends Maintenance {
 			$instance = $userFactory->newFromId( $row->user_id );
 			if ( count(
 				array_intersect( $userGroupManager->getUserEffectiveGroups( $instance ), $excludedGroups ) ) == 0
-				&& $this->isInactiveAccount( $row->user_id, $row->actor_id ?? null, true )
+				&& $this->isInactiveAccount( $instance, $row->actor_id ?? null, true )
 				&& wfTimestamp( TS_UNIX, $row->user_touched ) < wfTimestamp( TS_UNIX, time() - $touchedSeconds
 				)
 			) {
@@ -96,9 +94,11 @@ class RemoveUnusedAccounts extends Maintenance {
 			$dbw = $this->getDB( DB_PRIMARY );
 			$dbw->delete( 'user', [ 'user_id' => $delUser ], __METHOD__ );
 			# Keep actor rows referenced from ipblocks
-			$keep = $dbw->selectFieldValues(
-				'ipblocks', 'ipb_by_actor', [ 'ipb_by_actor' => $delActor ], __METHOD__
-			);
+			$keep = $dbw->newSelectQueryBuilder()
+				->select( 'ipb_by_actor' )
+				->from( 'ipblocks' )
+				->where( [ 'ipb_by_actor' => $delActor ] )
+				->caller( __METHOD__ )->fetchFieldValues();
 			$del = array_diff( $delActor, $keep );
 			if ( $del ) {
 				$dbw->delete( 'actor', [ 'actor_id' => $del ], __METHOD__ );
@@ -113,7 +113,10 @@ class RemoveUnusedAccounts extends Maintenance {
 			$dbw->delete( 'recentchanges', [ 'rc_actor' => $delActor ], __METHOD__ );
 			$this->output( "done.\n" );
 			# Update the site_stats.ss_users field
-			$users = $dbw->selectField( 'user', 'COUNT(*)', [], __METHOD__ );
+			$users = $dbw->newSelectQueryBuilder()
+				->select( 'COUNT(*)' )
+				->from( 'user' )
+				->caller( __METHOD__ )->fetchField();
 			$dbw->update(
 				'site_stats',
 				[ 'ss_users' => $users ],
@@ -130,12 +133,12 @@ class RemoveUnusedAccounts extends Maintenance {
 	 * Could the specified user account be deemed inactive?
 	 * (No edits, no deleted edits, no log entries, no current/old uploads)
 	 *
-	 * @param int $id User's ID
+	 * @param UserIdentity $user
 	 * @param int|null $actor User's actor ID
 	 * @param bool $primary Perform checking on the primary DB
 	 * @return bool
 	 */
-	private function isInactiveAccount( $id, $actor, $primary = false ) {
+	private function isInactiveAccount( $user, $actor, $primary = false ) {
 		if ( $actor === null ) {
 			// There's no longer a way for a user to be active in any of
 			// these tables without having an actor ID. The only way to link
@@ -165,7 +168,6 @@ class RemoveUnusedAccounts extends Maintenance {
 		}
 
 		// Delete this special case when the actor migration is complete
-		$user = User::newFromAnyId( $id, null, $actor );
 		$actorQuery = ActorMigration::newMigration()->getWhere( $dbo, 'rev_user', $user );
 		$count += (int)$dbo->selectField(
 			[ 'revision' ] + $actorQuery['tables'],
@@ -176,15 +178,11 @@ class RemoveUnusedAccounts extends Maintenance {
 			$actorQuery['joins']
 		);
 
-		$count += (int)$dbo->selectField(
-			[ 'logging' ],
-			'COUNT(*)',
-			[
-				'log_actor' => $actor,
-				'log_type != ' . $dbo->addQuotes( 'newusers' )
-			],
-			__METHOD__
-		);
+		$count += (int)$dbo->newSelectQueryBuilder()
+			->select( 'COUNT(*)' )
+			->from( 'logging' )
+			->where( [ 'log_actor' => $actor, 'log_type != ' . $dbo->addQuotes( 'newusers' ) ] )
+			->caller( __METHOD__ )->fetchField();
 
 		$this->commitTransaction( $dbo, __METHOD__ );
 

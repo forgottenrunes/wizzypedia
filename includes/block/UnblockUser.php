@@ -26,11 +26,11 @@ use ManualLogEntry;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\Permissions\Authority;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\TitleValue;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserIdentity;
 use RevisionDeleteUser;
-use Status;
-use TitleValue;
 
 /**
  * Backend class for unblocking users
@@ -105,7 +105,7 @@ class UnblockUser {
 		$this->hookRunner = new HookRunner( $hookContainer );
 
 		// Process params
-		list( $this->target, $this->targetType ) = $this->blockUtils->parseBlockTarget( $target );
+		[ $this->target, $this->targetType ] = $this->blockUtils->parseBlockTarget( $target );
 		if (
 			$this->targetType === AbstractBlock::TYPE_AUTO &&
 			is_numeric( $this->target )

@@ -5,6 +5,7 @@
 			{
 				"name": "Base",
 				"classes": [
+					"global",
 					"mw",
 					"mw.Message",
 					"mw.loader",
@@ -27,11 +28,11 @@
 					"mw.storage",
 					"mw.storage.session",
 					"mw.user",
+					"mw.user.clientPrefs",
 					"mw.util",
 					"mw.plugin.*",
 					"mw.cookie",
 					"mw.experiments",
-					"mw.viewport",
 					"mw.visibleTimeout"
 				]
 			},
@@ -87,7 +88,6 @@
 				"name": "Plugins",
 				"classes": [
 					"jQuery.client",
-					"jQuery.colorUtil",
 					"jQuery.plugin.*"
 				]
 			}

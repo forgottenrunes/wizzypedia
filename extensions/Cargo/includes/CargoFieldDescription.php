@@ -43,13 +43,8 @@ class CargoFieldDescription {
 			$fieldDescriptionStr = $matches[2];
 		}
 
-		// Validate parentheses
-		$openCount = substr_count( $fieldDescriptionStr, '(' );
-		$closeCount = substr_count( $fieldDescriptionStr, ')' );
-		if ( !( ( $openCount == 1 && $closeCount == 1 ) || ( $openCount == 0 && $closeCount == 0 ) )
-		|| ( strpos( $fieldDescriptionStr, '(' ) > strpos( $fieldDescriptionStr, ')' ) ) ) {
-			throw new MWException( 'Invalid field description - "' . $fieldDescriptionStr . '"' );
-		}
+		CargoUtils::validateFieldDescriptionString( $fieldDescriptionStr );
+
 		// There may be additional parameters, in/ parentheses.
 		$matches = [];
 		$foundMatch2 = preg_match( '/([^(]*)\s*\((.*)\)/s', $fieldDescriptionStr, $matches );
@@ -110,7 +105,7 @@ class CargoFieldDescription {
 					$delimiter = ',';
 					$allowedValuesStr = str_replace( "\\$delimiter", "\a", $allowedValuesParam );
 					$allowedValuesTempArray = explode( $delimiter, $allowedValuesStr );
-					foreach ( $allowedValuesTempArray as $i => $value ) {
+					foreach ( $allowedValuesTempArray as $value ) {
 						if ( $value == '' ) {
 							continue;
 						}
@@ -133,8 +128,9 @@ class CargoFieldDescription {
 		$fieldDescription->mType = $type;
 
 		// Validation.
-		if ( $fieldDescription->mType == 'Text' && array_key_exists( 'unique', $fieldDescription->mOtherParams ) ) {
-			throw new MWException( "'unique' is not allowed for fields of type 'Text'." );
+		if ( in_array( $type, [ 'Text', 'Wikitext', 'Searchtext' ] ) &&
+			array_key_exists( 'unique', $fieldDescription->mOtherParams ) ) {
+			throw new MWException( "'unique' is not allowed for fields of type '$type'." );
 		}
 		if ( $fieldDescription->mType == 'Boolean' && $fieldDescription->mIsList == true ) {
 			throw new MWException( "Error: 'list' is not allowed for fields of type 'Boolean'." );
@@ -269,8 +265,6 @@ class CargoFieldDescription {
 			return [ 'value' => $fieldValue ];
 		}
 
-		$newValue = $precision = null;
-
 		$fieldType = $this->mType;
 		if ( $this->mAllowedValues != null ) {
 			$allowedValues = $this->mAllowedValues;
@@ -284,14 +278,17 @@ class CargoFieldDescription {
 						$valuesToBeKept[] = $realIndividualVal;
 					}
 				}
+				// FIXME: This is dead code, it's overwritten immediately
 				$newValue = implode( $delimiter, $valuesToBeKept );
 			} else {
 				if ( in_array( $fieldValue, $allowedValues ) ) {
+					// FIXME: This is dead code, it's overwritten immediately
 					$newValue = $fieldValue;
 				}
 			}
 		}
 
+		$precision = null;
 		if ( $this->isDateOrDatetime() ) {
 			if ( $this->mIsList ) {
 				$delimiter = $this->getDelimiter();
@@ -378,6 +375,39 @@ class CargoFieldDescription {
 				$typeDesc, $delimiter )->parse();
 		}
 		return $typeDesc;
+	}
+
+	public function prettyPrintTypeAndAttributes() {
+		$text = $this->prettyPrintType();
+
+		$attributesStrings = [];
+		if ( $this->mIsMandatory ) {
+			$attributesStrings[] = [ wfMessage( 'cargo-cargotables-mandatory' )->text() ];
+		}
+		if ( $this->mIsUnique ) {
+			$attributesStrings[] = [ wfMessage( 'cargo-cargotables-unique' )->text() ];
+		}
+		if ( $this->mAllowedValues !== null ) {
+			$allowedValuesStr = implode( ' &middot; ', $this->mAllowedValues );
+			$attributesStrings[] = [ wfMessage( 'cargo-cargotables-allowedvalues' )->text(),
+				$allowedValuesStr ];
+		}
+		if ( count( $attributesStrings ) == 0 ) {
+			return $text;
+		}
+
+		$attributeDisplayStrings = [];
+		foreach ( $attributesStrings as $attributesStrs ) {
+			$displayString = '<span class="cargoFieldName">' .
+				$attributesStrs[0] . '</span>';
+			if ( count( $attributesStrs ) > 1 ) {
+				$displayString .= ' ' . $attributesStrs[1];
+			}
+			$attributeDisplayStrings[] = $displayString;
+		}
+		$text .= ' (' . implode( '; ', $attributeDisplayStrings ) . ')';
+
+		return $text;
 	}
 
 }

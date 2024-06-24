@@ -17,7 +17,6 @@ use MediaWiki\Revision\SuppressedDataException;
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
 use MediaWiki\User\UserIdentityValue;
 use MockTitleTrait;
-use MWDebug;
 
 /**
  * @covers \MediaWiki\Revision\RevisionRecord
@@ -47,9 +46,7 @@ trait RevisionRecordTests {
 	}
 
 	public function testGetIdTriggerDeprecatedWarning() {
-		MWDebug::clearDeprecationFilters();
-		$this->expectDeprecation();
-		$this->expectDeprecationMessageMatches( '/Deprecated cross-wiki access.*/' );
+		$this->expectDeprecationAndContinue( '/Deprecated cross-wiki access/' );
 		$revision = $this->newRevision( [ 'wikiId' => 'acmewiki', 'rev_id' => 5 ] );
 		$revision->getId();
 	}
@@ -66,9 +63,7 @@ trait RevisionRecordTests {
 	}
 
 	public function testGetPageIdTriggerDeprecatedWarning() {
-		MWDebug::clearDeprecationFilters();
-		$this->expectDeprecation();
-		$this->expectDeprecationMessageMatches( '/Deprecated cross-wiki access.*/' );
+		$this->expectDeprecationAndContinue( '/Deprecated cross-wiki access/' );
 		$revision = $this->newRevision( [ 'wikiId' => 'acmewiki', 'rev_page_id' => 17 ] );
 		$revision->getPageId();
 	}
@@ -85,9 +80,7 @@ trait RevisionRecordTests {
 	}
 
 	public function testGetParentIdTriggerDeprecatedWarning() {
-		MWDebug::clearDeprecationFilters();
-		$this->expectDeprecation();
-		$this->expectDeprecationMessageMatches( '/Deprecated cross-wiki access.*/' );
+		$this->expectDeprecationAndContinue( '/Deprecated cross-wiki access/' );
 		$revision = $this->newRevision( [ 'wikiId' => 'acmewiki', 'rev_parent_id' => 1 ] );
 		$revision->getParentId();
 	}
@@ -97,6 +90,8 @@ trait RevisionRecordTests {
 		$this->filterDeprecated( '/Deprecated cross-wiki access.*/' );
 		$this->assertEquals( 1, $revision->getParentId() );
 	}
+
+	abstract protected function expectedDefaultFieldVisibility( $field ): bool;
 
 	private function provideAudienceCheckData( $field ) {
 		yield 'field accessible for oversighter (ALL)' => [
@@ -146,15 +141,15 @@ trait RevisionRecordTests {
 				? RevisionRecord::DELETED_USER
 				: RevisionRecord::DELETED_COMMENT,
 			[],
-			true,
-			true
+			$this->expectedDefaultFieldVisibility( $field ),
+			$this->expectedDefaultFieldVisibility( $field )
 		];
 
 		yield 'nothing suppressed' => [
 			0,
 			[],
-			true,
-			true
+			$this->expectedDefaultFieldVisibility( $field ),
+			$this->expectedDefaultFieldVisibility( $field )
 		];
 	}
 
@@ -284,12 +279,44 @@ trait RevisionRecordTests {
 		);
 	}
 
+	/**
+	 * @dataProvider provideGetSlot_audience
+	 */
+	public function testGetContentOrThrow_audience( $visibility, $permissions, $userCan,
+		$publicCan
+	) {
+		$performer = $this->mockRegisteredAuthorityWithPermissions( $permissions );
+		$rev = $this->newRevision( [ 'rev_deleted' => $visibility ] );
+
+		$exception = null;
+		try {
+			$rev->getContentOrThrow( SlotRecord::MAIN, RevisionRecord::RAW );
+		} catch ( SuppressedDataException $exception ) {
+		}
+		$this->assertNull( $exception, 'raw can' );
+
+		$exception = null;
+		try {
+			$rev->getContentOrThrow( SlotRecord::MAIN, RevisionRecord::FOR_PUBLIC );
+		} catch ( SuppressedDataException $exception ) {
+		}
+		$this->assertSame( $publicCan, $exception === null, 'public can' );
+
+		$exception = null;
+		try {
+			$rev->getContentOrThrow( SlotRecord::MAIN,
+				RevisionRecord::FOR_THIS_USER, $performer );
+		} catch ( SuppressedDataException $exception ) {
+		}
+		$this->assertSame( $userCan, $exception === null, 'user can' );
+	}
+
 	public function testGetSlot() {
 		$rev = $this->newRevision();
 
 		$slot = $rev->getSlot( SlotRecord::MAIN );
 		$this->assertNotNull( $slot, 'getSlot()' );
-		$this->assertSame( 'main', $slot->getRole(), 'getRole()' );
+		$this->assertSame( SlotRecord::MAIN, $slot->getRole(), 'getRole()' );
 	}
 
 	public function testHasSlot() {

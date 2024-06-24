@@ -1,8 +1,5 @@
 <?php
-
 /**
- * Latin (lingua Latina) specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -19,22 +16,22 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 
 /**
  * Latin (lingua Latina)
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class LanguageLa extends Language {
 	/**
 	 * Convert from the nominative form of a noun to some other case
 	 *
 	 * Just used in a couple places for sitenames; special-case as necessary.
-	 * Rules are far from complete.
+	 * The rules are far from complete.
 	 *
 	 * Cases: genitive, accusative, ablative
 	 *
@@ -44,7 +41,8 @@ class LanguageLa extends Language {
 	 * @return string
 	 */
 	public function convertGrammar( $word, $case ) {
-		$grammarForms = MediaWikiServices::getInstance()->getMainConfig()->get( 'GrammarForms' );
+		$grammarForms =
+			MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::GrammarForms );
 		if ( isset( $grammarForms['la'][$case][$word] ) ) {
 			return $grammarForms['la'][$case][$word];
 		}
@@ -69,6 +67,7 @@ class LanguageLa extends Language {
 					'ei'
 				];
 				return preg_replace( $in, $out, $word );
+
 			case 'accusative':
 				// only a few declensions, and even for those mostly the singular only
 				$in = [
@@ -88,6 +87,7 @@ class LanguageLa extends Language {
 					'em'
 				];
 				return preg_replace( $in, $out, $word );
+
 			case 'ablative':
 				// only a few declensions, and even for those mostly the singular only
 				$in = [
@@ -107,6 +107,7 @@ class LanguageLa extends Language {
 					'e'
 				];
 				return preg_replace( $in, $out, $word );
+
 			default:
 				return $word;
 		}

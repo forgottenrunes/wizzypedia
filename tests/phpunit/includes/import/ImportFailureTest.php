@@ -1,5 +1,7 @@
 <?php
 
+use MediaWiki\Config\HashConfig;
+
 /**
  * Import failure test.
  *
@@ -8,7 +10,7 @@
  */
 class ImportFailureTest extends MediaWikiLangTestCase {
 
-	public function setUp(): void {
+	protected function setUp(): void {
 		parent::setUp();
 
 		$slotRoleRegistry = $this->getServiceContainer()->getSlotRoleRegistry();
@@ -20,7 +22,6 @@ class ImportFailureTest extends MediaWikiLangTestCase {
 
 	/**
 	 * @param ImportSource $source
-	 *
 	 * @return WikiImporter
 	 */
 	private function getImporter( ImportSource $source ) {
@@ -47,7 +48,7 @@ class ImportFailureTest extends MediaWikiLangTestCase {
 	/**
 	 * @param string $testName
 	 *
-	 * @return string[]
+	 * @return string
 	 */
 	private function getFileToImport( string $testName ) {
 		return __DIR__ . "/../../data/import/$testName.xml";
@@ -87,14 +88,14 @@ class ImportFailureTest extends MediaWikiLangTestCase {
 		);
 	}
 
-	public function provideImportFailure() {
-		yield [ 'BadXML', 'warning', '/^XMLReader::read\(\): .*$/' ];
-		yield [ 'MissingMediaWikiTag', MWException::class, '/^Expected <mediawiki> tag, got .*$/' ];
+	public static function provideImportFailure() {
+		yield [ 'BadXML', MWException::class, '/^XML error at line 3: Opening and ending tag mismatch:.*$/' ];
+		yield [ 'MissingMediaWikiTag', MWException::class, "/^Expected '<mediawiki>' tag, got .*$/" ];
 		yield [ 'MissingMainTextField', MWException::class, '/^Missing text field in import.$/' ];
 		yield [ 'MissingSlotTextField', MWException::class, '/^Missing text field in import.$/' ];
 		yield [ 'MissingSlotRole', MWException::class, '/^Missing role for imported slot.$/' ];
-		yield [ 'UndefinedSlotRole', MWException::class, '/^Undefined slot role .*$/' ];
-		yield [ 'UndefinedContentModel', MWException::class, '/not registered on this wiki/' ];
+		yield [ 'UndefinedSlotRole', RuntimeException::class, '/^Undefined slot role .*$/' ];
+		yield [ 'UndefinedContentModel', MWUnknownContentModelException::class, '/not registered on this wiki/' ];
 	}
 
 	/**
@@ -111,13 +112,8 @@ class ImportFailureTest extends MediaWikiLangTestCase {
 
 		$source = new ImportStringSource( $xmlData );
 		$importer = $this->getImporter( $source );
-		if ( $exceptionName === 'warning' ) {
-			$this->expectWarning();
-			$this->expectWarningMessageMatches( $exceptionMessage );
-		} else {
-			$this->expectException( $exceptionName );
-			$this->expectExceptionMessageMatches( $exceptionMessage );
-		}
+		$this->expectException( $exceptionName );
+		$this->expectExceptionMessageMatches( $exceptionMessage );
 		$importer->doImport();
 	}
 }

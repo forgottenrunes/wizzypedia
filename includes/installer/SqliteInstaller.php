@@ -21,8 +21,10 @@
  * @ingroup Installer
  */
 
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Status\Status;
 use Wikimedia\AtEase\AtEase;
-use Wikimedia\Rdbms\Database;
+use Wikimedia\Rdbms\DatabaseFactory;
 use Wikimedia\Rdbms\DatabaseSqlite;
 use Wikimedia\Rdbms\DBConnectionError;
 
@@ -61,7 +63,7 @@ class SqliteInstaller extends DatabaseInstaller {
 	public function checkPrerequisites() {
 		// Bail out if SQLite is too old
 		$db = DatabaseSqlite::newStandaloneInstance( ':memory:' );
-		$result = static::meetsMinimumRequirement( $db->getServerVersion() );
+		$result = static::meetsMinimumRequirement( $db );
 		// Check for FTS3 full-text search module
 		if ( DatabaseSqlite::getFulltextSearchModule() != 'FTS3' ) {
 			$result->warning( 'config-no-fts3' );
@@ -109,12 +111,7 @@ class SqliteInstaller extends DatabaseInstaller {
 	 * @return string
 	 */
 	private static function realpath( $path ) {
-		$result = realpath( $path );
-		if ( !$result ) {
-			return $path;
-		}
-
-		return $result;
+		return realpath( $path ) ?: $path;
 	}
 
 	/**
@@ -194,8 +191,9 @@ class SqliteInstaller extends DatabaseInstaller {
 		$dir = $this->getVar( 'wgSQLiteDataDir' );
 		$dbName = $this->getVar( 'wgDBname' );
 		try {
-			# @todo FIXME: Need more sensible constructor parameters, e.g. single associative array
-			$db = Database::factory( 'sqlite', [ 'dbname' => $dbName, 'dbDirectory' => $dir ] );
+			$db = MediaWikiServices::getInstance()->getDatabaseFactory()->create(
+				'sqlite', [ 'dbname' => $dbName, 'dbDirectory' => $dir ]
+			);
 			$status->value = $db;
 		} catch ( DBConnectionError $e ) {
 			$status->fatal( 'config-sqlite-connection-error', $e->getMessage() );
@@ -257,7 +255,7 @@ class SqliteInstaller extends DatabaseInstaller {
 
 		# Create the l10n cache DB
 		try {
-			$conn = Database::factory(
+			$conn = ( new DatabaseFactory() )->create(
 				'sqlite', [ 'dbname' => "{$db}_l10n_cache", 'dbDirectory' => $dir ] );
 			# @todo: don't duplicate l10n_cache definition, though it's very simple
 			$sql =
@@ -278,7 +276,7 @@ EOT;
 
 		# Create the job queue DB
 		try {
-			$conn = Database::factory(
+			$conn = ( new DatabaseFactory() )->create(
 				'sqlite', [ 'dbname' => "{$db}_jobqueue", 'dbDirectory' => $dir ] );
 			# @todo: don't duplicate job definition, though it's very static
 			$sql =
@@ -320,13 +318,20 @@ EOT;
 	 */
 	protected function makeStubDBFile( $dir, $db ) {
 		$file = DatabaseSqlite::generateFileName( $dir, $db );
+
 		if ( file_exists( $file ) ) {
 			if ( !is_writable( $file ) ) {
 				return Status::newFatal( 'config-sqlite-readonly', $file );
 			}
-		} elseif ( file_put_contents( $file, '' ) === false ) {
+			return Status::newGood();
+		}
+
+		$oldMask = umask( 0177 );
+		if ( file_put_contents( $file, '' ) === false ) {
+			umask( $oldMask );
 			return Status::newFatal( 'config-sqlite-cant-create-db', $file );
 		}
+		umask( $oldMask );
 
 		return Status::newGood();
 	}
@@ -356,12 +361,11 @@ EOT;
 		global $IP;
 
 		$module = DatabaseSqlite::getFulltextSearchModule();
-		$searchIndexSql = (string)$this->db->selectField(
-			$this->db->addIdentifierQuotes( 'sqlite_master' ),
-			'sql',
-			[ 'tbl_name' => $this->db->tableName( 'searchindex', 'raw' ) ],
-			__METHOD__
-		);
+		$searchIndexSql = (string)$this->db->newSelectQueryBuilder()
+			->select( 'sql' )
+			->from( $this->db->addIdentifierQuotes( 'sqlite_master' ) )
+			->where( [ 'tbl_name' => $this->db->tableName( 'searchindex', 'raw' ) ] )
+			->caller( __METHOD__ )->fetchField();
 		$fts3tTable = ( stristr( $searchIndexSql, 'fts' ) !== false );
 
 		if ( $fts3tTable && !$module ) {
@@ -397,6 +401,10 @@ EOT;
 		'flags' => 0
 	]
 ];
+\$wgObjectCaches['db-replicated'] = [
+	'factory' => 'Wikimedia\ObjectFactory\ObjectFactory::getObjectFromSpec',
+	'args' => [ [ 'factory' => 'ObjectCache::getInstance', 'args' => [ CACHE_DB ] ] ]
+];
 \$wgLocalisationCacheConf['storeServer'] = [
 	'type' => 'sqlite',
 	'dbname' => \"{\$wgDBname}_l10n_cache\",
@@ -418,6 +426,7 @@ EOT;
 		'trxMode' => 'IMMEDIATE',
 		'flags' => 0
 	]
-];";
+];
+\$wgResourceLoaderUseObjectCacheForDeps = true;";
 	}
 }

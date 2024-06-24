@@ -79,7 +79,7 @@ class AmazonS3FileBackend extends FileBackendStore {
 	private $containerSecurityCache = null;
 
 	/**
-	 * Cache used in doGetFileStat(). Avoids extra requests to doesObjectExist().
+	 * Cache used in doGetFileStat(). Avoids extra requests to headObject().
 	 * @var BagOStuff
 	 */
 	private $statCache = null;
@@ -140,6 +140,9 @@ class AmazonS3FileBackend extends FileBackendStore {
 
 		if ( isset( $config['endpoint'] ) ) {
 			$params['endpoint'] = $config['endpoint'];
+		}
+		if ( isset( $config['use_path_style_endpoint'] ) ) {
+			$params['use_path_style_endpoint'] = $config['use_path_style_endpoint'];
 		}
 
 		$this->client = new S3Client( $params );
@@ -216,6 +219,14 @@ class AmazonS3FileBackend extends FileBackendStore {
 	 */
 	protected function findContainer( $container ) {
 		if ( empty( $this->containerPaths[$container] ) ) {
+			$this->logger->warning(
+				'S3FileBackend: findContainer(): trying to use unknown container {container}' .
+				' (not in $wgAWSRepoZones), known containers: {paths}',
+				[
+					'container' => $container,
+					'paths' => FormatJson::encode( $this->containerPaths )
+				]
+			);
 			return null; // Not configured
 		}
 

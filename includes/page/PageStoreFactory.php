@@ -6,8 +6,8 @@ use LinkCache;
 use Liuggio\StatsdClient\Factory\StatsdDataFactoryInterface;
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\DAO\WikiAwareEntity;
-use NamespaceInfo;
-use TitleParser;
+use MediaWiki\Title\NamespaceInfo;
+use MediaWiki\Title\TitleParser;
 use Wikimedia\Rdbms\ILBFactory;
 
 /**
@@ -16,7 +16,7 @@ use Wikimedia\Rdbms\ILBFactory;
 class PageStoreFactory {
 
 	/**
-	 * @internal for use by service wiring
+	 * @internal For use by service wiring
 	 */
 	public const CONSTRUCTOR_OPTIONS = PageStore::CONSTRUCTOR_OPTIONS;
 

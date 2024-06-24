@@ -22,6 +22,7 @@
  */
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
 
 /**
  * Content handler for code content such as CSS, JavaScript, JSON, etc.
@@ -64,14 +65,9 @@ abstract class CodeContentHandler extends TextContentHandler {
 		return MediaWikiServices::getInstance()->getLanguageFactory()->getLanguage( 'en' );
 	}
 
-	/**
-	 * @stable to override
-	 *
-	 * @return string
-	 * @throws MWException
-	 */
+	/** @inheritDoc */
 	protected function getContentClass() {
-		throw new MWException( 'Subclass must override' );
+		throw new LogicException( 'Subclass must override' );
 	}
 
 }

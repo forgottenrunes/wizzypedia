@@ -30,8 +30,7 @@ use MediaWiki\Auth\AuthManager;
  */
 class ApiAMCreateAccount extends ApiBase {
 
-	/** @var AuthManager */
-	private $authManager;
+	private AuthManager $authManager;
 
 	/**
 	 * @param ApiMain $main
@@ -55,7 +54,7 @@ class ApiAMCreateAccount extends ApiBase {
 			$this->getModuleName(),
 			$this->getModulePath(),
 			AuthManager::ACTION_CREATE,
-			self::needsToken(),
+			$this->needsToken(),
 		] );
 		return $msgs;
 	}
@@ -80,13 +79,10 @@ class ApiAMCreateAccount extends ApiBase {
 
 		// Make sure it's possible to create accounts
 		if ( !$this->authManager->canCreateAccounts() ) {
-			$this->getResult()->addValue( null, 'createaccount', $helper->formatAuthenticationResponse(
-				AuthenticationResponse::newFail(
-					$this->msg( 'userlogin-cannot-' . AuthManager::ACTION_CREATE )
-				)
-			) );
-			$helper->logAuthenticationResult( 'accountcreation',
-				'userlogin-cannot-' . AuthManager::ACTION_CREATE );
+			$res = AuthenticationResponse::newFail( $this->msg( 'userlogin-cannot-' . AuthManager::ACTION_CREATE ) );
+			$this->getResult()->addValue( null, 'createaccount',
+				$helper->formatAuthenticationResponse( $res ) );
+			$helper->logAuthenticationResult( 'accountcreation', $res );
 			return;
 		}
 

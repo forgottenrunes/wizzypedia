@@ -1,10 +1,8 @@
 <?php
 /** Ukrainian (українська)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author A1
  * @author AS
@@ -58,7 +56,7 @@ $separatorTransformTable = [
 	',' => "\u{00A0}", # nbsp
 	'.' => ','
 ];
-$minimumGroupingDigits = 2; // As per CLDR 31, this value is 1 (T262500)
+$minimumGroupingDigits = 2; // intentional deviation from CLDR (T262500)
 
 $fallback8bitEncoding = 'windows-1251';
 $linkPrefixExtension = true;
@@ -205,6 +203,7 @@ $specialPageAliases = [
 	'Recentchanges'             => [ 'Нові_редагування', 'Свежие_правки' ],
 	'Recentchangeslinked'       => [ 'Пов\'язані_редагування', 'Связанные_правки' ],
 	'Redirect'                  => [ 'Перенаправлення' ],
+	'Renameuser'                => [ 'Перейменувати_користувача', 'Переименовать_участника' ],
 	'Revisiondelete'            => [ 'Вилучити_редагування', 'Удаление_правки' ],
 	'Search'                    => [ 'Пошук', 'Поиск' ],
 	'Shortpages'                => [ 'Короткі_сторінки', 'Короткие_страницы' ],

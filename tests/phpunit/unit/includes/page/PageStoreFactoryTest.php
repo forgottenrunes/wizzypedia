@@ -4,11 +4,12 @@ namespace MediaWiki\Tests\Page;
 use LinkCache;
 use Liuggio\StatsdClient\Factory\StatsdDataFactoryInterface;
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Page\PageStore;
 use MediaWiki\Page\PageStoreFactory;
+use MediaWiki\Title\NamespaceInfo;
+use MediaWiki\Title\TitleParser;
 use MediaWikiUnitTestCase;
-use NamespaceInfo;
-use TitleParser;
 use Wikimedia\Rdbms\LBFactory;
 use Wikimedia\Rdbms\LoadBalancer;
 
@@ -19,8 +20,8 @@ class PageStoreFactoryTest extends MediaWikiUnitTestCase {
 
 	public function testGetPageStore() {
 		$options = new ServiceOptions( PageStoreFactory::CONSTRUCTOR_OPTIONS, [
-			'LanguageCode' => 'fi',
-			'PageLanguageUseDB' => true,
+			MainConfigNames::LanguageCode => 'fi',
+			MainConfigNames::PageLanguageUseDB => true,
 		] );
 
 		$lb = $this->createNoOpMock( LoadBalancer::class );

@@ -42,7 +42,7 @@ class UserEditCountUpdate implements DeferrableUpdate, MergeableUpdate {
 	 */
 	public function __construct( UserIdentity $user, $increment ) {
 		if ( !$user->getId() ) {
-			throw new RuntimeException( "Got user ID of zero" );
+			throw new RuntimeException( "Got anonymous user" );
 		}
 		$this->infoByUser = [
 			$user->getId() => new UserEditCountInfo( $user, $increment ),
@@ -75,12 +75,11 @@ class UserEditCountUpdate implements DeferrableUpdate, MergeableUpdate {
 
 		( new AutoCommitUpdate( $dbw, __METHOD__, function () use ( $lb, $dbw, $fname, $editTracker ) {
 			foreach ( $this->infoByUser as $userId => $info ) {
-				$dbw->update(
-					'user',
-					[ 'user_editcount=user_editcount+' . (int)$info->getIncrement() ],
-					[ 'user_id' => $userId, 'user_editcount IS NOT NULL' ],
-					$fname
-				);
+				$dbw->newUpdateQueryBuilder()
+					->update( 'user' )
+					->set( [ 'user_editcount=user_editcount+' . (int)$info->getIncrement() ] )
+					->where( [ 'user_id' => $userId, 'user_editcount IS NOT NULL' ] )
+					->caller( $fname )->execute();
 				// Lazy initialization check...
 				if ( $dbw->affectedRows() == 0 ) {
 					// The user_editcount is probably NULL (e.g. not initialized).

@@ -39,6 +39,9 @@ class SimpleAuthority implements Authority {
 	/** @var UserIdentity */
 	private $actor;
 
+	/** @var bool */
+	private $isTemp;
+
 	/** @var true[] permissions (stored in the keys, values are ignored) */
 	private $permissions;
 
@@ -46,49 +49,34 @@ class SimpleAuthority implements Authority {
 	 * @stable to call
 	 * @param UserIdentity $actor
 	 * @param string[] $permissions A list of permissions to grant to the actor
+	 * @param bool $isTemp Whether the user is auto-created (since 1.39)
 	 */
-	public function __construct( UserIdentity $actor, array $permissions ) {
+	public function __construct(
+		UserIdentity $actor,
+		array $permissions,
+		bool $isTemp = false
+	) {
 		$this->actor = $actor;
+		$this->isTemp = $isTemp;
 		$this->permissions = array_fill_keys( $permissions, true );
 	}
 
-	/**
-	 * The user identity associated with this authority.
-	 *
-	 * @return UserIdentity
-	 */
+	/** @inheritDoc */
 	public function getUser(): UserIdentity {
 		return $this->actor;
 	}
 
-	/**
-	 * @param int $freshness
-	 *
-	 * @return ?Block always null
-	 * @since 1.37
-	 */
+	/** @inheritDoc */
 	public function getBlock( int $freshness = self::READ_NORMAL ): ?Block {
 		return null;
 	}
 
-	/**
-	 * @inheritDoc
-	 *
-	 * @param string $permission
-	 *
-	 * @return bool
-	 */
-	public function isAllowed( string $permission ): bool {
+	/** @inheritDoc */
+	public function isAllowed( string $permission, PermissionStatus $status = null ): bool {
 		return isset( $this->permissions[ $permission ] );
 	}
 
-	/**
-	 * @inheritDoc
-	 *
-	 * @param string ...$permissions
-	 *
-	 * @return bool
-	 */
+	/** @inheritDoc */
 	public function isAllowedAny( ...$permissions ): bool {
 		if ( !$permissions ) {
 			throw new InvalidArgumentException( 'At least one permission must be specified' );
@@ -103,13 +91,7 @@ class SimpleAuthority implements Authority {
 		return false;
 	}
 
-	/**
-	 * @inheritDoc
-	 *
-	 * @param string ...$permissions
-	 *
-	 * @return bool
-	 */
+	/** @inheritDoc */
 	public function isAllowedAll( ...$permissions ): bool {
 		if ( !$permissions ) {
 			throw new InvalidArgumentException( 'At least one permission must be specified' );
@@ -135,15 +117,7 @@ class SimpleAuthority implements Authority {
 		return $ok;
 	}
 
-	/**
-	 * @inheritDoc
-	 *
-	 * @param string $action
-	 * @param PageIdentity $target
-	 * @param PermissionStatus|null $status
-	 *
-	 * @return bool
-	 */
+	/** @inheritDoc */
 	public function probablyCan(
 		string $action,
 		PageIdentity $target,
@@ -152,15 +126,7 @@ class SimpleAuthority implements Authority {
 		return $this->checkPermission( $action, $status );
 	}
 
-	/**
-	 * @inheritDoc
-	 *
-	 * @param string $action
-	 * @param PageIdentity $target
-	 * @param PermissionStatus|null $status
-	 *
-	 * @return bool
-	 */
+	/** @inheritDoc */
 	public function definitelyCan(
 		string $action,
 		PageIdentity $target,
@@ -169,15 +135,17 @@ class SimpleAuthority implements Authority {
 		return $this->checkPermission( $action, $status );
 	}
 
-	/**
-	 * @inheritDoc
-	 *
-	 * @param string $action
-	 * @param PageIdentity $target
-	 * @param PermissionStatus|null $status
-	 *
-	 * @return bool
-	 */
+	/** @inheritDoc */
+	public function isDefinitelyAllowed( string $action, PermissionStatus $status = null ): bool {
+		return $this->checkPermission( $action, $status );
+	}
+
+	/** @inheritDoc */
+	public function authorizeAction( string $action, PermissionStatus $status = null ): bool {
+		return $this->checkPermission( $action, $status );
+	}
+
+	/** @inheritDoc */
 	public function authorizeRead(
 		string $action,
 		PageIdentity $target,
@@ -186,15 +154,7 @@ class SimpleAuthority implements Authority {
 		return $this->checkPermission( $action, $status );
 	}
 
-	/**
-	 * @inheritDoc
-	 *
-	 * @param string $action
-	 * @param PageIdentity $target
-	 * @param PermissionStatus|null $status
-	 *
-	 * @return bool
-	 */
+	/** @inheritDoc */
 	public function authorizeWrite(
 		string $action,
 		PageIdentity $target,
@@ -203,4 +163,15 @@ class SimpleAuthority implements Authority {
 		return $this->checkPermission( $action, $status );
 	}
 
+	public function isRegistered(): bool {
+		return $this->actor->isRegistered();
+	}
+
+	public function isTemp(): bool {
+		return $this->isTemp;
+	}
+
+	public function isNamed(): bool {
+		return $this->isRegistered() && !$this->isTemp();
+	}
 }

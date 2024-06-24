@@ -21,6 +21,14 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use MediaWiki\Html\Html;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Permissions\GrantsLocalization;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\User\User;
+
 /**
  * This special page lists all defined rights grants and the associated rights.
  * See also @ref $wgGrantPermissions and @ref $wgGrantPermissionGroups.
@@ -28,8 +36,11 @@
  * @ingroup SpecialPage
  */
 class SpecialListGrants extends SpecialPage {
-	public function __construct() {
+	private GrantsLocalization $grantsLocalization;
+
+	public function __construct( GrantsLocalization $grantsLocalization ) {
 		parent::__construct( 'Listgrants' );
+		$this->grantsLocalization = $grantsLocalization;
 	}
 
 	/**
@@ -44,23 +55,29 @@ class SpecialListGrants extends SpecialPage {
 		$out->addModuleStyles( 'mediawiki.special' );
 
 		$out->addHTML(
-			\Html::openElement( 'table',
-				[ 'class' => 'wikitable mw-listgrouprights-table' ] ) .
+			Html::openElement( 'table', [ 'class' => 'wikitable mw-listgrouprights-table' ] ) .
 				'<tr>' .
-				\Html::element( 'th', [], $this->msg( 'listgrants-grant' )->text() ) .
-				\Html::element( 'th', [], $this->msg( 'listgrants-rights' )->text() ) .
+				Html::element( 'th', [], $this->msg( 'listgrants-grant' )->text() ) .
+				Html::element( 'th', [], $this->msg( 'listgrants-rights' )->text() ) .
 				'</tr>'
 		);
 
-		foreach ( $this->getConfig()->get( 'GrantPermissions' ) as $grant => $rights ) {
+		$lang = $this->getLanguage();
+
+		foreach (
+			$this->getConfig()->get( MainConfigNames::GrantPermissions ) as $grant => $rights
+		) {
 			$descs = [];
 			$rights = array_filter( $rights ); // remove ones with 'false'
 			foreach ( $rights as $permission => $granted ) {
-				$descs[] = $this->msg(
-					'listgrouprights-right-display',
-					\User::getRightDescription( $permission ),
-					'<span class="mw-listgrants-right-name">' . $permission . '</span>'
-				)->parse();
+				$descs[] = $this->msg( 'listgrouprights-right-display' )
+					->params( User::getRightDescription( $permission ) )
+					->rawParams( Html::element(
+						'span',
+						[ 'class' => 'mw-listgrants-right-name' ],
+						$permission
+					) )
+					->parse();
 			}
 			if ( $descs === [] ) {
 				$grantCellHtml = '';
@@ -69,23 +86,30 @@ class SpecialListGrants extends SpecialPage {
 				$grantCellHtml = '<ul><li>' . implode( "</li>\n<li>", $descs ) . '</li></ul>';
 			}
 
-			$id = Sanitizer::escapeIdForAttribute( $grant );
-			$out->addHTML( \Html::rawElement( 'tr', [ 'id' => $id ],
-				"<td>" .
-				$this->msg(
-					"listgrants-grant-display",
-					MWGrants::grantName( $grant ),
-					"<span class='mw-listgrants-grant-name'>" . $id . "</span>"
-				)->parse() .
+			$out->addHTML( Html::rawElement( 'tr', [ 'id' => $grant ],
+															 "<td>" .
+				$this->msg( 'listgrants-grant-display' )
+					->params( $this->grantsLocalization->getGrantDescription( $grant, $lang ) )
+					->rawParams( Html::element(
+						'span',
+						[ 'class' => 'mw-listgrants-grant-name' ],
+						$grant
+					) )
+					->parse() .
 				"</td>" .
 				"<td>" . $grantCellHtml . "</td>"
 			) );
 		}
 
-		$out->addHTML( \Html::closeElement( 'table' ) );
+		$out->addHTML( Html::closeElement( 'table' ) );
 	}
 
 	protected function getGroupName() {
 		return 'users';
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialListGrants::class, 'SpecialListGrants' );

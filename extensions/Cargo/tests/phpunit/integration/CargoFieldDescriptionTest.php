@@ -29,15 +29,10 @@ class CargoFieldDescriptionTest extends MediaWikiIntegrationTestCase {
 	/**
 	 * @return array
 	 */
-	public function provideValidDescriptionString() {
+	public static function provideValidDescriptionString() {
 		return [
 			[ 'URL' ],
-			[ 'list (;) of String (size=10;dependent on=size;allowed values=*,)' ],
-			[
-				'{{#cargo_declare:_table=Test|Name='
-				. 'String (size=10;dependent on=size;delimiter=\;allowed values=*One**Oneone;mandatory;'
-				. 'unique;regex=xxx;hidden;hierarchy;)}}'
-			]
+			[ 'list (;) of String (size=10;dependent on=size;allowed values=*,)' ]
 		];
 	}
 
@@ -53,10 +48,14 @@ class CargoFieldDescriptionTest extends MediaWikiIntegrationTestCase {
 	/**
 	 * @return array
 	 */
-	public function provideInValidDescriptionString() {
+	public static function provideInValidDescriptionString() {
 		return [
 			[ 'list (;) of BOOLEAN' ],
 			[ 'TEXT (unique;)' ],
+			[ 'String (size=(10))' ],
+			[ 'String (allowed values)=monday,tuesday,wednesday,thursday,friday)' ],
+			[ 'String (' ],
+			[ 'String )' ],
 		];
 	}
 
@@ -87,7 +86,7 @@ class CargoFieldDescriptionTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/** @return array */
-	public function provideDescriptionData() {
+	public static function provideDescriptionData() {
 		return [
 			[
 				[
@@ -135,7 +134,7 @@ class CargoFieldDescriptionTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/** @return array */
-	public function provideDateTimeFormat() {
+	public static function provideDateTimeFormat() {
 		return [
 			[ 'Date' ],
 			[ 'Start date' ],
@@ -157,7 +156,7 @@ class CargoFieldDescriptionTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/** @return array */
-	public function provideNotDateTimeFormat() {
+	public static function provideNotDateTimeFormat() {
 		return [
 			[ 'Da-te' ],
 			[ 'Start-date' ],
@@ -181,7 +180,7 @@ class CargoFieldDescriptionTest extends MediaWikiIntegrationTestCase {
 	}
 
 	/** @return array */
-	public function provideFieldSize() {
+	public static function provideFieldSize() {
 		return [
 			[ 'Date', 100, null ],
 			[ 'Integer', 200, null ],
@@ -246,10 +245,10 @@ class CargoFieldDescriptionTest extends MediaWikiIntegrationTestCase {
 		$this->assertArrayEquals( $actual, $expected );
 	}
 
-	public function provideFieldValueData() {
+	public static function provideFieldValueData() {
 		return [
-			[ '', null, [ 'value' => '' ] ],
-			[ 'Date', null, [ 'value' => null ] ],
+			[ '', '', [ 'value' => '' ] ],
+			[ 'Date', '', [ 'value' => null ] ],
 
 			[
 				"list (;) of String (allowed values=monday,tuesday,wednesday,thursday,friday)",
@@ -260,6 +259,26 @@ class CargoFieldDescriptionTest extends MediaWikiIntegrationTestCase {
 				"String (allowed values=monday,tuesday,wednesday,thursday,friday)",
 				'tuesday',
 				[ 'value' => 'tuesday' ]
+			],
+			[
+				"String (ALLOWED VALUES=Group A (female), Group B (male)",
+				"Group B (male",
+				[ 'value' => "Group B (male" ]
+			],
+			[
+				"String (allowed values=Group A (female), Group B (male)",
+				"Group B (male",
+				[ 'value' => "Group B (male" ]
+			],
+			[
+				"String (allowed values=Group A (female), Group B (male))",
+				"Group B (male)",
+				[ 'value' => "Group B (male)" ]
+			],
+			[
+				"String (size=100; allowed values=Group A (female), Group B (male))",
+				"Group B (male)",
+				[ 'value' => "Group B (male)" ]
 			],
 
 			[
@@ -277,7 +296,7 @@ class CargoFieldDescriptionTest extends MediaWikiIntegrationTestCase {
 				"10;100;1,000;109.95",
 				[ 'value' => "10;100;1000;110" ]
 			],
-			[ 'Integer', '20 000', [ 'value' => 20.0 ] ],
+			// [ 'Integer', '20 000', [ 'value' => 20.0 ] ],
 			[ 'Integer', '2,000', [ 'value' => 2000.0 ] ],
 			[ 'Integer', '200', [ 'value' => 200.0 ] ],
 			[ 'Integer', '20.4', [ 'value' => 20.0 ] ],

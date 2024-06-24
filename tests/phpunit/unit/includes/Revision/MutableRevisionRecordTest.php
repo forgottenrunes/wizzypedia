@@ -7,6 +7,7 @@ use DummyContentForTesting;
 use InvalidArgumentException;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Page\PageIdentityValue;
+use MediaWiki\Revision\BadRevisionException;
 use MediaWiki\Revision\MutableRevisionRecord;
 use MediaWiki\Revision\MutableRevisionSlots;
 use MediaWiki\Revision\RevisionAccessException;
@@ -23,6 +24,10 @@ use Wikimedia\Assert\PreconditionException;
  */
 class MutableRevisionRecordTest extends MediaWikiUnitTestCase {
 	use RevisionRecordTests;
+
+	protected function expectedDefaultFieldVisibility( $field ): bool {
+		return true;
+	}
 
 	/**
 	 * @param array $rowOverrides
@@ -63,7 +68,7 @@ class MutableRevisionRecordTest extends MediaWikiUnitTestCase {
 		return $record;
 	}
 
-	public function provideConstructorFailure() {
+	public static function provideConstructorFailure() {
 		yield 'not a wiki id' => [
 			new PageIdentityValue( 17, NS_MAIN, 'Dummy', PageIdentity::LOCAL ),
 			InvalidArgumentException::class,
@@ -276,10 +281,10 @@ class MutableRevisionRecordTest extends MediaWikiUnitTestCase {
 				'slot_content_id' => 1,
 				'content_address' => null, // touched
 				'model_name' => 'x',
-				'role_name' => 'main',
+				'role_name' => SlotRecord::MAIN,
 				'slot_origin' => null // touched
 			],
-			new DummyContentForTesting( 'main' )
+			new DummyContentForTesting( SlotRecord::MAIN )
 		);
 		$auxSlot = new SlotRecord(
 			(object)[
@@ -297,7 +302,7 @@ class MutableRevisionRecordTest extends MediaWikiUnitTestCase {
 		$record->setSlot( $mainSlot );
 		$record->setSlot( $auxSlot );
 
-		$this->assertSame( [ 'main' ], $record->getOriginalSlots()->getSlotRoles() );
+		$this->assertSame( [ SlotRecord::MAIN ], $record->getOriginalSlots()->getSlotRoles() );
 		$this->assertSame( $mainSlot, $record->getOriginalSlots()->getSlot( SlotRecord::MAIN ) );
 
 		$this->assertSame( [ 'aux' ], $record->getInheritedSlots()->getSlotRoles() );
@@ -354,9 +359,7 @@ class MutableRevisionRecordTest extends MediaWikiUnitTestCase {
 		$user = new UserIdentityValue( 42, 'Test' );
 
 		/** @var CommentStoreComment $comment */
-		$comment = $this->getMockBuilder( CommentStoreComment::class )
-			->disableOriginalConstructor()
-			->getMock();
+		$comment = $this->createMock( CommentStoreComment::class );
 
 		$content = new DummyContentForTesting( 'Test' );
 
@@ -435,5 +438,34 @@ class MutableRevisionRecordTest extends MediaWikiUnitTestCase {
 			'An Authority object must be given when checking FOR_THIS_USER audience.'
 		);
 		$record->audienceCan( RevisionRecord::DELETED_TEXT, RevisionRecord::FOR_THIS_USER );
+	}
+
+	public function testGetContent_bad() {
+		$record = new MutableRevisionRecord(
+			new PageIdentityValue( 1, NS_MAIN, 'Foo', PageIdentity::LOCAL )
+		);
+		$slot = new SlotRecord(
+			(object)[
+				'slot_id' => 1,
+				'slot_revision_id' => null,
+				'slot_content_id' => 1,
+				'content_address' => null,
+				'model_name' => 'x',
+				'role_name' => SlotRecord::MAIN,
+				'slot_origin' => null
+			],
+			static function () {
+				throw new BadRevisionException( 'bad' );
+			}
+		);
+		$record->setSlot( $slot );
+
+		$exception = null;
+		try {
+			$record->getContentOrThrow( SlotRecord::MAIN );
+		} catch ( BadRevisionException $exception ) {
+		}
+		$this->assertNotNull( $exception );
+		$this->assertNull( $record->getContent( SlotRecord::MAIN ) );
 	}
 }

@@ -8,10 +8,10 @@ use MediaWiki\Extension\AbuseFilter\EditBox\AceEditBoxBuiler;
 use MediaWiki\Extension\AbuseFilter\EditBox\EditBoxBuilderFactory;
 use MediaWiki\Extension\AbuseFilter\EditBox\PlainEditBoxBuiler;
 use MediaWiki\Extension\AbuseFilter\KeywordsManager;
+use MediaWiki\Permissions\Authority;
 use MediaWikiUnitTestCase;
 use MessageLocalizer;
 use OutputPage;
-use User;
 
 /**
  * @coversDefaultClass \MediaWiki\Extension\AbuseFilter\Editbox\EditBoxBuilderFactory
@@ -40,7 +40,7 @@ class EditBoxBuilderFactoryTest extends MediaWikiUnitTestCase {
 	public function testNewEditBoxBuilder( bool $isCodeEditorLoaded ) {
 		$builder = $this->getFactory( $isCodeEditorLoaded )->newEditBoxBuilder(
 			$this->createMock( MessageLocalizer::class ),
-			$this->createMock( User::class ),
+			$this->createMock( Authority::class ),
 			$this->createMock( OutputPage::class )
 		);
 		$isCodeEditorLoaded
@@ -48,7 +48,7 @@ class EditBoxBuilderFactoryTest extends MediaWikiUnitTestCase {
 			: $this->assertInstanceOf( PlainEditBoxBuiler::class, $builder );
 	}
 
-	public function provideNewEditBoxBuilder(): array {
+	public static function provideNewEditBoxBuilder(): array {
 		return [
 			[ true ],
 			[ false ]
@@ -63,7 +63,7 @@ class EditBoxBuilderFactoryTest extends MediaWikiUnitTestCase {
 			PlainEditBoxBuiler::class,
 			$this->getFactory( false )->newPlainBoxBuilder(
 				$this->createMock( MessageLocalizer::class ),
-				$this->createMock( User::class ),
+				$this->createMock( Authority::class ),
 				$this->createMock( OutputPage::class )
 			)
 		);
@@ -77,7 +77,7 @@ class EditBoxBuilderFactoryTest extends MediaWikiUnitTestCase {
 			AceEditBoxBuiler::class,
 			$this->getFactory( true )->newAceBoxBuilder(
 				$this->createMock( MessageLocalizer::class ),
-				$this->createMock( User::class ),
+				$this->createMock( Authority::class ),
 				$this->createMock( OutputPage::class )
 			)
 		);
@@ -90,7 +90,7 @@ class EditBoxBuilderFactoryTest extends MediaWikiUnitTestCase {
 		$this->expectException( BadMethodCallException::class );
 		$this->getFactory( false )->newAceBoxBuilder(
 			$this->createMock( MessageLocalizer::class ),
-			$this->createMock( User::class ),
+			$this->createMock( Authority::class ),
 			$this->createMock( OutputPage::class )
 		);
 	}

@@ -1,15 +1,19 @@
 <?php
 
+namespace MediaWiki\Extension\Scribunto\Tests\Engines\LuaCommon;
+
 use MediaWiki\Interwiki\ClassicInterwikiLookup;
 use MediaWiki\Page\PageIdentityValue;
 use MediaWiki\Parser\ParserOutputFlags;
 use MediaWiki\Permissions\RestrictionStore;
+use MediaWiki\Title\Title;
+use WikitextContent;
 
 /**
- * @covers Scribunto_LuaTitleLibrary
+ * @covers \MediaWiki\Extension\Scribunto\Engines\LuaCommon\TitleLibrary
  * @group Database
  */
-class Scribunto_LuaTitleLibraryTest extends Scribunto_LuaEngineTestBase {
+class TitleLibraryTest extends LuaEngineTestBase {
 	/** @inheritDoc */
 	protected static $moduleName = 'TitleLibraryTests';
 
@@ -41,7 +45,7 @@ class Scribunto_LuaTitleLibraryTest extends Scribunto_LuaEngineTestBase {
 			] ),
 		] );
 
-		$editor = $this->getTestSysop()->getUser();
+		$editor = self::getTestSysop()->getUser();
 
 		$wikiPageFactory = $this->getServiceContainer()->getWikiPageFactory();
 
@@ -80,7 +84,8 @@ class Scribunto_LuaTitleLibraryTest extends Scribunto_LuaEngineTestBase {
 				'areRestrictionsLoaded',
 				'areCascadeProtectionSourcesLoaded',
 				'getAllRestrictions',
-				'registerOldRestrictions' // just do nothing
+				// just do nothing
+				'registerOldRestrictions'
 			]
 		);
 
@@ -208,7 +213,7 @@ class Scribunto_LuaTitleLibraryTest extends Scribunto_LuaEngineTestBase {
 		$this->assertSame( $flag, $engine->getParser()->getOutput()->getOutputFlag( ParserOutputFlags::VARY_PAGE_ID ) );
 	}
 
-	public function provideVaryPageId() {
+	public static function provideVaryPageId() {
 		return [
 			'by getCurrentTitle()' => [
 				'ScribuntoTestPage',

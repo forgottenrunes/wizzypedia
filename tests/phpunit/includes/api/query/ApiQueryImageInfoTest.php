@@ -1,6 +1,8 @@
 <?php
 
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
+use MediaWiki\User\UserIdentityValue;
+use MediaWiki\Utils\MWTimestamp;
 
 /**
  * @covers ApiQueryImageInfo
@@ -23,6 +25,8 @@ class ApiQueryImageInfoTest extends ApiTestCase {
 
 	private const NO_COMMENT_TIMESTAMP = '20201105235239';
 
+	private $testUser = null;
+
 	protected function setUp(): void {
 		parent::setUp();
 		$this->tablesUsed[] = 'image';
@@ -31,9 +35,11 @@ class ApiQueryImageInfoTest extends ApiTestCase {
 
 	public function addDBData() {
 		parent::addDBData();
+		$this->testUser = new UserIdentityValue( 12364321, 'Dummy User' );
+
 		$actorId = $this->getServiceContainer()
 			->getActorStore()
-			->acquireActorId( $this->getTestUser()->getUserIdentity(), $this->db );
+			->acquireActorId( $this->testUser, $this->db );
 		$this->db->insert(
 			'image',
 			[
@@ -127,8 +133,8 @@ class ApiQueryImageInfoTest extends ApiTestCase {
 		$image = $this->getImageInfoFromResult( $result );
 		$this->assertSame( MWTimestamp::convert( TS_ISO_8601, self::NEW_IMAGE_TIMESTAMP ), $image['timestamp'] );
 		$this->assertSame( "'''comment'''", $image['comment'] );
-		$this->assertSame( $this->getTestUser()->getUserIdentity()->getName(), $image['user'] );
-		$this->assertSame( $this->getTestUser()->getUserIdentity()->getId(), $image['userid'] );
+		$this->assertSame( $this->testUser->getName(), $image['user'] );
+		$this->assertSame( $this->testUser->getId(), $image['userid'] );
 		$this->assertSame( self::NEW_IMAGE_SIZE, $image['size'] );
 	}
 
@@ -158,7 +164,7 @@ class ApiQueryImageInfoTest extends ApiTestCase {
 			],
 			null,
 			false,
-			$this->getTestUser()->getUser()
+			$this->getTestUser()->getAuthority()
 		);
 		$image = $this->getImageInfoFromResult( $result );
 		$this->assertSame( MWTimestamp::convert( TS_ISO_8601, self::OLD_IMAGE_TIMESTAMP ), $image['timestamp'] );
@@ -189,8 +195,8 @@ class ApiQueryImageInfoTest extends ApiTestCase {
 		$this->assertTrue( $image['commenthidden'] );
 		$this->assertSame( 'deleted comment', $image['comment'] );
 		$this->assertTrue( $image['userhidden'] );
-		$this->assertSame( $this->getTestUser()->getUserIdentity()->getName(), $image['user'] );
-		$this->assertSame( $this->getTestUser()->getUserIdentity()->getId(), $image['userid'] );
+		$this->assertSame( $this->testUser->getName(), $image['user'] );
+		$this->assertSame( $this->testUser->getId(), $image['userid'] );
 		$this->assertTrue( $image['filehidden'] );
 		$this->assertSame( self::OLD_IMAGE_SIZE, $image['size'] );
 	}

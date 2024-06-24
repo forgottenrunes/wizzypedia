@@ -306,6 +306,7 @@
 				q = {};
 				// using replace to iterate over a string
 				if ( uri.query ) {
+					// eslint-disable-next-line security/detect-unsafe-regex
 					uri.query.replace( /(?:^|&)([^&=]*)(?:(=)([^&]*))?/g, function ( match, k, eq, v ) {
 						var arrayKeyMatch, i;
 						if ( k ) {
@@ -398,8 +399,8 @@
 			getQueryString: function () {
 				var args = [],
 					arrayParams = this.arrayParams;
-				// eslint-disable-next-line no-jquery/no-each-util
-				$.each( this.query, function ( key, val ) {
+				Object.keys( this.query ).forEach( function ( key ) {
+					var val = this.query[ key ];
 					var k = Uri.encode( key ),
 						isArrayParam = Array.isArray( val ),
 						vals = isArrayParam ? val : [ val ];
@@ -416,7 +417,7 @@
 							args.push( ki + '=' + Uri.encode( v ) );
 						}
 					} );
-				} );
+				}.bind( this ) );
 				return args.join( '&' );
 			},
 
@@ -432,7 +433,13 @@
 			/**
 			 * Get the entire URI string.
 			 *
-			 * May not be precisely the same as input due to order of query arguments.
+			 * Note that the output may not be precisely the same as the constructor input,
+			 * due to order of query arguments.
+			 * Note also that the fragment is not always roundtripped as-is; some characters will
+			 * become encoded, including the slash character, which can cause problems with e.g.
+			 * mediawiki.router. It is recommended to use the native URL class (via
+			 * web2017-polyfills, which loads a polyfill if needed) in contexts where the fragment
+			 * is important.
 			 *
 			 * @return {string} The URI string
 			 */

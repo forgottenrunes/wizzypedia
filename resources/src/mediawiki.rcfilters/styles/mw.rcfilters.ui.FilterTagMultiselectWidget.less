@@ -1,6 +1,6 @@
-@import 'mediawiki.mixins.less';
-@import 'mediawiki.ui/variables.less';
+@import 'mediawiki.skin.variables.less';
 @import 'mw.rcfilters.variables.less';
+@import 'mediawiki.mixins.less';
 
 .mw-rcfilters-ui-filterTagMultiselectWidget {
 	max-width: none;
@@ -15,7 +15,7 @@
 
 	&.oo-ui-widget-enabled {
 		.oo-ui-tagMultiselectWidget-handle {
-			background-color: @colorGray15;
+			background-color: @background-color-interactive-subtle;
 			border: @border-base;
 			border-bottom: 0;
 			border-radius: @border-radius-base @border-radius-base 0 0;
@@ -47,7 +47,7 @@
 			// per T177206#4271707 we avoid keeping the collapsed element to take the whole width of the screen
 			// we are providing enough cues (keeping the labels) for it to be clear that the panel gets compacted
 			// to the left and the user not to feel lost with the transition.
-			width: unset;
+			width: auto;
 			max-width: 100%;
 		}
 
@@ -60,11 +60,11 @@
 	}
 
 	.oo-ui-tagMultiselectWidget.oo-ui-widget-enabled &-animate.oo-ui-tagMultiselectWidget-handle {
-		.transition( background-color 500ms ease-out );
+		transition: background-color 500ms ease-out;
 	}
 
 	.oo-ui-tagMultiselectWidget.oo-ui-widget-enabled &-emphasize.oo-ui-tagMultiselectWidget-handle {
-		background-color: @background-color-primary;
+		background-color: @background-color-progressive-subtle;
 	}
 
 	&-hideshowButton.oo-ui-buttonElement > .oo-ui-buttonElement-button {
@@ -102,12 +102,12 @@
 		&-content {
 			&-title {
 				font-weight: bold;
-				color: @colorGray5;
+				color: @color-subtle;
 				white-space: nowrap;
 			}
 
 			&-savedQueryTitle {
-				color: @colorGray2;
+				color: @color-base;
 				padding-left: 1em;
 				font-weight: bold;
 				vertical-align: top;
@@ -134,7 +134,7 @@
 		&-select {
 			&-widget.oo-ui-widget {
 				display: block;
-				.box-sizing( border-box );
+				box-sizing: border-box;
 				height: 2.5em;
 				border: @border-base;
 				border-left-width: 0;
@@ -154,7 +154,7 @@
 	}
 
 	&-emptyFilters {
-		color: @color-base--subtle;
+		color: @color-subtle;
 	}
 
 	&-cell-filters {

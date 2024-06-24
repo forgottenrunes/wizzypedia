@@ -21,43 +21,64 @@ namespace MediaWiki\Extension\OATHAuth;
 use BagOStuff;
 use ConfigException;
 use FormatJson;
-use MediaWiki\Logger\LoggerFactory;
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Config\ServiceOptions;
+use MediaWiki\User\CentralId\CentralIdLookupFactory;
 use MWException;
+use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerInterface;
 use RequestContext;
-use stdClass;
+use RuntimeException;
 use User;
-use Wikimedia\Rdbms\DBConnRef;
-use Wikimedia\Rdbms\ILoadBalancer;
 
-class OATHUserRepository {
-	/** @var ILoadBalancer */
-	protected $lb;
+class OATHUserRepository implements LoggerAwareInterface {
+	/** @var ServiceOptions */
+	private ServiceOptions $options;
+
+	/** @var OATHAuthDatabase */
+	private OATHAuthDatabase $database;
 
 	/** @var BagOStuff */
-	protected $cache;
+	private BagOStuff $cache;
 
-	/**
-	 * @var OATHAuth
-	 */
-	protected $auth;
+	/** @var OATHAuthModuleRegistry */
+	private OATHAuthModuleRegistry $moduleRegistry;
+
+	/** @var CentralIdLookupFactory */
+	private CentralIdLookupFactory $centralIdLookupFactory;
 
 	/** @var LoggerInterface */
-	private $logger;
+	private LoggerInterface $logger;
+
+	/** @internal Only public for service wiring use. */
+	public const CONSTRUCTOR_OPTIONS = [
+		'OATHAuthMultipleDevicesMigrationStage',
+	];
 
 	/**
 	 * OATHUserRepository constructor.
-	 * @param ILoadBalancer $lb
+	 *
+	 * @param ServiceOptions $options
+	 * @param OATHAuthDatabase $database
 	 * @param BagOStuff $cache
-	 * @param OATHAuth $auth
+	 * @param OATHAuthModuleRegistry $moduleRegistry
+	 * @param CentralIdLookupFactory $centralIdLookupFactory
+	 * @param LoggerInterface $logger
 	 */
-	public function __construct( ILoadBalancer $lb, BagOStuff $cache, OATHAuth $auth ) {
-		$this->lb = $lb;
+	public function __construct(
+		ServiceOptions $options,
+		OATHAuthDatabase $database,
+		BagOStuff $cache,
+		OATHAuthModuleRegistry $moduleRegistry,
+		CentralIdLookupFactory $centralIdLookupFactory,
+		LoggerInterface $logger
+	) {
+		$options->assertRequiredOptions( self::CONSTRUCTOR_OPTIONS );
+		$this->options = $options;
+		$this->database = $database;
 		$this->cache = $cache;
-		$this->auth = $auth;
-
-		$this->setLogger( LoggerFactory::getInstance( 'authentication' ) );
+		$this->moduleRegistry = $moduleRegistry;
+		$this->centralIdLookupFactory = $centralIdLookupFactory;
+		$this->setLogger( $logger );
 	}
 
 	/**
@@ -78,41 +99,64 @@ class OATHUserRepository {
 		if ( !$oathUser ) {
 			$oathUser = new OATHUser( $user, [] );
 
-			$uid = MediaWikiServices::getInstance()
-				->getCentralIdLookupFactory()
-				->getLookup()
+			$uid = $this->centralIdLookupFactory->getLookup()
 				->centralIdFromLocalUser( $user );
-			$res = $this->getDB( DB_REPLICA )->selectRow(
-				'oathauth_users',
-				'*',
-				[ 'id' => $uid ],
-				__METHOD__
-			);
-			if ( $res ) {
-				$data = $res->data;
-				$moduleKey = $res->module;
-				if ( $this->isLegacy( $res ) ) {
-					$module = $this->auth->getModuleByKey( 'totp' );
-					$data = $this->checkAndResolveLegacy( $data, $res );
-				} else {
-					$module = $this->auth->getModuleByKey( $moduleKey );
+
+			$moduleId = null;
+			$keys = [];
+
+			if ( $this->getMultipleDevicesMigrationStage() & SCHEMA_COMPAT_READ_NEW ) {
+				$res = $this->database->getDB( DB_REPLICA )->newSelectQueryBuilder()
+					->select( [
+						'oad_data',
+						'oat_name',
+					] )
+					->from( 'oathauth_devices' )
+					->join( 'oathauth_types', null, [ 'oat_id = oad_type' ] )
+					->where( [ 'oad_user' => $uid ] )
+					->caller( __METHOD__ )
+					->fetchResultSet();
+
+				foreach ( $res as $row ) {
+					if ( $moduleId && $row->oat_name !== $moduleId ) {
+						// Not supported by current application-layer code.
+						throw new RuntimeException( "user {$uid} has multiple different oathauth modules defined" );
+					}
+
+					$moduleId = $row->oat_name;
+					$keys[] = FormatJson::decode( $row->oad_data, true );
 				}
+			} elseif ( $this->getMultipleDevicesMigrationStage() & SCHEMA_COMPAT_READ_OLD ) {
+				$res = $this->database->getDB( DB_REPLICA )->selectRow(
+					'oathauth_users',
+					[ 'module', 'data' ],
+					[ 'id' => $uid ],
+					__METHOD__
+				);
+
+				if ( $res ) {
+					$moduleId = $res->module;
+					$decodedData = FormatJson::decode( $res->data, true );
+
+					if ( is_array( $decodedData['keys'] ) ) {
+						$keys = $decodedData['keys'];
+					}
+				}
+			} else {
+				throw new RuntimeException( 'Either READ_NEW or READ_OLD must be set' );
+			}
+
+			if ( $moduleId ) {
+				$module = $this->moduleRegistry->getModuleByKey( $moduleId );
 				if ( $module === null ) {
-					// For sanity
 					throw new MWException( 'oathauth-module-invalid' );
 				}
 
 				$oathUser->setModule( $module );
-				$decodedData = FormatJson::decode( $res->data, true );
-				if ( !isset( $decodedData['keys'] ) && $module->getName() === 'totp' ) {
-					// Legacy single-key setup
-					$key = $module->newKey( $decodedData );
+
+				foreach ( $keys as $keyData ) {
+					$key = $module->newKey( $keyData );
 					$oathUser->addKey( $key );
-				} elseif ( is_array( $decodedData['keys'] ) ) {
-					foreach ( $decodedData['keys'] as $keyData ) {
-						$key = $module->newKey( $keyData );
-						$oathUser->addKey( $key );
-					}
 				}
 			}
 
@@ -132,21 +176,56 @@ class OATHUserRepository {
 			$clientInfo = RequestContext::getMain()->getRequest()->getIP();
 		}
 		$prevUser = $this->findByUser( $user->getUser() );
-		$data = $user->getModule()->getDataFromUser( $user );
+		$userId = $this->centralIdLookupFactory->getLookup()->centralIdFromLocalUser( $user->getUser() );
 
-		$this->getDB( DB_PRIMARY )->replace(
-			'oathauth_users',
-			'id',
-			[
-				'id' => MediaWikiServices::getInstance()
-					->getCentralIdLookupFactory()
-					->getLookup()
-					->centralIdFromLocalUser( $user->getUser() ),
-				'module' => $user->getModule()->getName(),
-				'data' => FormatJson::encode( $data )
-			],
-			__METHOD__
-		);
+		if ( $this->getMultipleDevicesMigrationStage() & SCHEMA_COMPAT_WRITE_NEW ) {
+			$moduleId = $this->moduleRegistry->getModuleId( $user->getModule()->getName() );
+			$rows = [];
+			foreach ( $user->getKeys() as $key ) {
+				$rows[] = [
+					'oad_user' => $userId,
+					'oad_type' => $moduleId,
+					'oad_data' => FormatJson::encode( $key->jsonSerialize() )
+				];
+			}
+
+			$dbw = $this->database->getDB( DB_PRIMARY );
+			$dbw->startAtomic( __METHOD__ );
+
+			// TODO: only update changed rows
+			$dbw->delete(
+				'oathauth_devices',
+				[ 'oad_user' => $userId ],
+				__METHOD__
+			);
+			$dbw->insert(
+				'oathauth_devices',
+				$rows,
+				__METHOD__
+			);
+			$dbw->endAtomic( __METHOD__ );
+		}
+
+		if ( $this->getMultipleDevicesMigrationStage() & SCHEMA_COMPAT_WRITE_OLD ) {
+			$data = [
+				'keys' => []
+			];
+
+			foreach ( $user->getKeys() as $key ) {
+				$data['keys'][] = $key->jsonSerialize();
+			}
+
+			$this->database->getDB( DB_PRIMARY )->replace(
+				'oathauth_users',
+				'id',
+				[
+					'id' => $userId,
+					'module' => $user->getModule()->getName(),
+					'data' => FormatJson::encode( $data )
+				],
+				__METHOD__
+			);
+		}
 
 		$userName = $user->getUser()->getName();
 		$this->cache->set( $userName, $user );
@@ -165,6 +244,7 @@ class OATHUserRepository {
 				'clientip' => $clientInfo,
 				'oathtype' => $user->getModule()->getName(),
 			] );
+			Manager::notifyEnabled( $user );
 		}
 	}
 
@@ -174,14 +254,23 @@ class OATHUserRepository {
 	 * @param bool $self Whether they disabled it themselves
 	 */
 	public function remove( OATHUser $user, $clientInfo, bool $self ) {
-		$this->getDB( DB_PRIMARY )->delete(
-			'oathauth_users',
-			[ 'id' => MediaWikiServices::getInstance()
-				->getCentralIdLookupFactory()
-				->getLookup()
-				->centralIdFromLocalUser( $user->getUser() ) ],
-			__METHOD__
-		);
+		$userId = $this->centralIdLookupFactory->getLookup()
+			->centralIdFromLocalUser( $user->getUser() );
+		if ( $this->getMultipleDevicesMigrationStage() & SCHEMA_COMPAT_WRITE_NEW ) {
+			$this->database->getDB( DB_PRIMARY )->delete(
+				'oathauth_devices',
+				[ 'oad_user' => $userId ],
+				__METHOD__
+			);
+		}
+
+		if ( $this->getMultipleDevicesMigrationStage() & SCHEMA_COMPAT_WRITE_OLD ) {
+			$this->database->getDB( DB_PRIMARY )->delete(
+				'oathauth_users',
+				[ 'id' => $userId ],
+				__METHOD__
+			);
+		}
 
 		$userName = $user->getUser()->getName();
 		$this->cache->delete( $userName );
@@ -194,49 +283,7 @@ class OATHUserRepository {
 		Notifications\Manager::notifyDisabled( $user, $self );
 	}
 
-	/**
-	 * @param int $index DB_PRIMARY/DB_REPLICA
-	 * @return DBConnRef
-	 */
-	private function getDB( $index ) {
-		global $wgOATHAuthDatabase;
-
-		return $this->lb->getConnectionRef( $index, [], $wgOATHAuthDatabase );
-	}
-
-	/**
-	 * @param stdClass $row
-	 * @return bool
-	 */
-	private function isLegacy( $row ) {
-		if ( $row->module !== '' ) {
-			return false;
-		}
-		if ( property_exists( $row, 'secret' ) && $row->secret !== null ) {
-			return true;
-		}
-		return false;
-	}
-
-	/**
-	 * Checks if the DB data is in the new format,
-	 * if not converts old data to new
-	 *
-	 * @param string $data
-	 * @param stdClass $row
-	 * @return string
-	 */
-	private function checkAndResolveLegacy( $data, $row ) {
-		if ( $data ) {
-			// New data exists - no action required
-			return $data;
-		}
-		if ( property_exists( $row, 'secret' ) && property_exists( $row, 'scratch_tokens' ) ) {
-			return FormatJson::encode( [
-				'secret' => $row->secret,
-				'scratch_tokens' => $row->scratch_tokens
-			] );
-		}
-		return '';
+	private function getMultipleDevicesMigrationStage(): int {
+		return $this->options->get( 'OATHAuthMultipleDevicesMigrationStage' );
 	}
 }

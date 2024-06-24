@@ -1,32 +1,35 @@
 <?php
 
+namespace MediaWiki\Specials;
+
+use ContentHandler;
+use ErrorPageError;
+use HTMLForm;
+use LogEventsList;
+use LogPage;
+use MediaWiki\CommentStore\CommentStore;
 use MediaWiki\Content\IContentHandlerFactory;
 use MediaWiki\EditPage\SpamChecker;
+use MediaWiki\Language\RawMessage;
 use MediaWiki\Page\ContentModelChangeFactory;
 use MediaWiki\Page\WikiPageFactory;
 use MediaWiki\Revision\RevisionLookup;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\SpecialPage\FormSpecialPage;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\Title;
+use SearchEngineFactory;
+use Xml;
 
 class SpecialChangeContentModel extends FormSpecialPage {
 
-	/** @var IContentHandlerFactory */
-	private $contentHandlerFactory;
-
-	/** @var ContentModelChangeFactory */
-	private $contentModelChangeFactory;
-
-	/** @var SpamChecker */
-	private $spamChecker;
-
-	/** @var RevisionLookup */
-	private $revisionLookup;
-
-	/** @var WikiPageFactory */
-	private $wikiPageFactory;
-
-	/** @var SearchEngineFactory */
-	private $searchEngineFactory;
+	private IContentHandlerFactory $contentHandlerFactory;
+	private ContentModelChangeFactory $contentModelChangeFactory;
+	private SpamChecker $spamChecker;
+	private RevisionLookup $revisionLookup;
+	private WikiPageFactory $wikiPageFactory;
+	private SearchEngineFactory $searchEngineFactory;
 
 	/**
 	 * @param IContentHandlerFactory $contentHandlerFactory
@@ -81,7 +84,7 @@ class SpecialChangeContentModel extends FormSpecialPage {
 		}
 	}
 
-	protected function postText() {
+	protected function postHtml() {
 		$text = '';
 		if ( $this->title ) {
 			$contentModelLogPage = new LogPage( 'contentmodel' );
@@ -146,7 +149,7 @@ class SpecialChangeContentModel extends FormSpecialPage {
 		];
 		if ( $this->title ) {
 			$options = $this->getOptionsForTitle( $this->title );
-			if ( empty( $options ) ) {
+			if ( !$options ) {
 				throw new ErrorPageError(
 					'changecontentmodel-emptymodels-title',
 					'changecontentmodel-emptymodels-text',
@@ -234,7 +237,6 @@ class SpecialChangeContentModel extends FormSpecialPage {
 			return Status::newFatal( new RawMessage( '$1', [ $wikitext ] ) );
 		}
 
-		// Can also throw a ThrottledError, don't catch it
 		$status = $changer->doContentModelChange(
 			$this->getContext(),
 			$data['reason'],
@@ -246,7 +248,7 @@ class SpecialChangeContentModel extends FormSpecialPage {
 
 	public function onSuccess() {
 		$out = $this->getOutput();
-		$out->setPageTitle( $this->msg( 'changecontentmodel-success-title' ) );
+		$out->setPageTitleMsg( $this->msg( 'changecontentmodel-success-title' ) );
 		$out->addWikiMsg( 'changecontentmodel-success-text', $this->title );
 	}
 
@@ -266,3 +268,8 @@ class SpecialChangeContentModel extends FormSpecialPage {
 		return 'pagetools';
 	}
 }
+
+/**
+ * @deprecated since 1.41
+ */
+class_alias( SpecialChangeContentModel::class, 'SpecialChangeContentModel' );

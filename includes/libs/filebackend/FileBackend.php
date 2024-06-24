@@ -198,7 +198,7 @@ abstract class FileBackend implements LoggerAwareInterface {
 		$this->domainId = $config['domainId'] // e.g. "my_wiki-en_"
 			?? $config['wikiId'] // b/c alias
 			?? null;
-		if ( !preg_match( '!^[a-zA-Z0-9-_]{1,255}$!', $this->name ) ) {
+		if ( !is_string( $this->name ) || !preg_match( '!^[a-zA-Z0-9-_]{1,255}$!', $this->name ) ) {
 			throw new InvalidArgumentException( "Backend name '{$this->name}' is invalid." );
 		}
 		if ( !is_string( $this->domainId ) ) {
@@ -1147,7 +1147,7 @@ abstract class FileBackend implements LoggerAwareInterface {
 	 * @param array $params Parameters include:
 	 *   - src    : source storage path
 	 *   - latest : use the latest available data
-	 * @return FSFile|null Local file copy or null (missing file or I/O error)
+	 * @return FSFile|null|false Local file copy or false (missing) or null (error)
 	 */
 	final public function getLocalReference( array $params ) {
 		$fsFiles = $this->getLocalReferenceMulti( [ 'srcs' => [ $params['src'] ] ] + $params );
@@ -1169,7 +1169,7 @@ abstract class FileBackend implements LoggerAwareInterface {
 	 *   - srcs        : list of source storage paths
 	 *   - latest      : use the latest available data
 	 *   - parallelize : try to do operations in parallel when possible
-	 * @return array Map of (path name => FSFile or null on failure)
+	 * @return array Map of (path name => FSFile or false (missing) or null (error))
 	 * @since 1.20
 	 */
 	abstract public function getLocalReferenceMulti( array $params );
@@ -1184,7 +1184,7 @@ abstract class FileBackend implements LoggerAwareInterface {
 	 * @param array $params Parameters include:
 	 *   - src    : source storage path
 	 *   - latest : use the latest available data
-	 * @return TempFSFile|null Temporary local file copy or null (missing file or I/O error)
+	 * @return TempFSFile|null|false Temporary local file copy or false (missing) or null (error)
 	 */
 	final public function getLocalCopy( array $params ) {
 		$tmpFiles = $this->getLocalCopyMulti( [ 'srcs' => [ $params['src'] ] ] + $params );
@@ -1204,7 +1204,7 @@ abstract class FileBackend implements LoggerAwareInterface {
 	 *   - srcs        : list of source storage paths
 	 *   - latest      : use the latest available data
 	 *   - parallelize : try to do operations in parallel when possible
-	 * @return array Map of (path name => TempFSFile or null on failure)
+	 * @return array Map of (path name => TempFSFile or false (missing) or null (error))
 	 * @since 1.20
 	 */
 	abstract public function getLocalCopyMulti( array $params );
@@ -1318,6 +1318,7 @@ abstract class FileBackend implements LoggerAwareInterface {
 	 *   - dir        : storage directory
 	 *   - topOnly    : only return direct child files of the directory (since 1.20)
 	 *   - adviseStat : set to true if stat requests will be made on the files (since 1.22)
+	 *   - forWrite   : true if the list will inform a write operations (since 1.41)
 	 * @return Traversable|array|null File list enumerator or null (initial I/O error)
 	 */
 	abstract public function getFileList( array $params );
@@ -1504,11 +1505,11 @@ abstract class FileBackend implements LoggerAwareInterface {
 	 * Check if a given path is a "mwstore://" path.
 	 * This does not do any further validation or any existence checks.
 	 *
-	 * @param string $path
+	 * @param string|null $path
 	 * @return bool
 	 */
 	final public static function isStoragePath( $path ) {
-		return ( strpos( $path, 'mwstore://' ) === 0 );
+		return ( strpos( $path ?? '', 'mwstore://' ) === 0 );
 	}
 
 	/**
@@ -1543,7 +1544,7 @@ abstract class FileBackend implements LoggerAwareInterface {
 	 * @return string|null Normalized storage path or null on failure
 	 */
 	final public static function normalizeStoragePath( $storagePath ) {
-		list( $backend, $container, $relPath ) = self::splitStoragePath( $storagePath );
+		[ $backend, $container, $relPath ] = self::splitStoragePath( $storagePath );
 		if ( $relPath !== null ) { // must be for this backend
 			$relPath = self::normalizeContainerPath( $relPath );
 			if ( $relPath !== null ) {
@@ -1569,7 +1570,7 @@ abstract class FileBackend implements LoggerAwareInterface {
 		// doesn't contain characters like '\', behavior can vary by platform. We should use
 		// explode() instead.
 		$storagePath = dirname( $storagePath );
-		list( , , $rel ) = self::splitStoragePath( $storagePath );
+		[ , , $rel ] = self::splitStoragePath( $storagePath );
 
 		return ( $rel === null ) ? null : $storagePath;
 	}

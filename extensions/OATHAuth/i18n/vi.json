@@ -2,9 +2,10 @@
 	"@metadata": {
 		"authors": [
 			"Minh Nguyen",
-			"Vinhtantran",
 			"NguoiDungKhongDinhDanh",
-			"NguyenHung"
+			"NguyenHung",
+			"Tryvix1509",
+			"Vinhtantran"
 		]
 	},
 	"oathauth-desc": "Cho phép xác nhận dùng các mật khẩu một lần dựa trên mã xác thực thông điệp được băm (HMAC)",
@@ -47,7 +48,7 @@
 	"action-oathauth-enable": "xác thực dùng hai nhân tố",
 	"oathauth-auth-token-label": "Token",
 	"oathauth-auth-token-help": "Mật khẩu dùng một lần được sử dụng làm nhân tố thứ hai trong quá trình xác thực dùng hai nhân tố.",
-	"oathauth-auth-ui": "Xin hãy nhập một mã xác nhận từ máy xác thực của bạn.",
+	"oathauth-auth-ui": "Xin hãy nhập một mã xác nhận từ trình xác thực của bạn.",
 	"oathauth-throttled": "Đã cố xác nhận danh tính nhiều lần quá! Xin hãy chờ $1.",
 	"oathauth-login-failed": "Xác nhận thất bại.",
 	"oathauth-describe-provider": "Xác thực dùng hai nhân tố (OATH).",
@@ -84,6 +85,7 @@
 	"oathauth-switch-method-warning": "Sau khi đổi sang phương pháp xác thực dùng hai nhân tố $2, phương pháp hiện tại ($1) sẽ bị tắt, và tất cả những dữ liệu liên quan đến phương pháp xác thực hiện tại sẽ bị xóa",
 	"oathauth-totp-disable-warning": "Bạn sẽ không thể sử dụng thiết bị xác thực đăng ký với tài khoản này nữa. Tất cả các mã liên quan đến tài khoản sẽ được tắt.",
 	"oathauth-invalidrequest": "Yêu cầu không hợp lệ",
+	"oathauth-notifications-enable-help": "Trợ giúp",
 	"oathauth-verify-enabled": "{{GENDER:$1}}$1 đã bật xác thực dùng hai nhân tố.",
 	"oathauth-verify-disabled": "{{GENDER:$1}}$1 không bật xác thực dùng hai nhân tố."
 }

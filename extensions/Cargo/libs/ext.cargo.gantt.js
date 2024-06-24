@@ -4,12 +4,28 @@
 
 $(document).ready(function() {
 
+	gantt.config.date_format = "%Y-%m-%d %H:%i";
+	gantt.config.readonly = true;
+	// Remove the 'add'/'+' column.
+	for ( var i = gantt.config.columns.length - 1; i >= 0; i-- ) {
+		if ( gantt.config.columns[i].name == 'add' ) {
+			gantt.config.columns.splice( i, 1 );
+		}
+	}
+
 	$('.cargoGantt').each( function() {
-        var dataURL = decodeURI( $(this).attr('dataurl') );
-        gantt.config.date_format = "%Y-%m-%d %H:%i";
-        gantt.config.readonly = true;
         gantt.init("ganttid");
-        gantt.load(dataURL);
+	if ( $(this).attr('dataurl') !== undefined ) {
+		var dataURL = decodeURI( $(this).attr('dataurl') );
+		gantt.load(dataURL);
+	} else {
+		var dataFull = decodeURI( $(this).attr('datafull') );
+		gantt.parse(dataFull);
+	}
+	// @todo - add support for values other than ''.
+	if ( $(this).attr('data-columns') === '' ) {
+		gantt.config.columns = [];
+	}
 
         function setGanttZoom( evt ) {
             switch (evt.data) {
@@ -63,7 +79,19 @@ $(document).ready(function() {
         $('#ganttid').after( '<div id="ganttZoomInput"></div><br style="clear: both;" />' );
         $('#ganttZoomInput').append( zoomLayout.$element );
 
-        gantt.attachEvent("onLoadEnd", function() {
+	// @hack - we need to use the "onGanttRender" event in order to set
+	// the zoom correctly, whether the Gantt chart is loaded or passed.
+	// (For loading, there's the "onLoadEnd" event, but there doesn't seem
+	// to be a usable equvalent for parsing.) Unfortunately, "onGanttRender"
+	// is called a lot - not just when the chart is first rendered. So, in
+	// order to make sure the zoom is only set once, we add a "zoom set"
+	// attribute once it's set, then escape every time afterwards.
+	// There's probably a better way to do this.
+        gantt.attachEvent("onGanttRender", function() {
+		if ( $(this).attr('data-zoom-set') !== undefined ) {
+			return;
+		}
+
             var earliestDate = gantt.getSubtaskDates().start_date;
             var latestDate = gantt.getSubtaskDates().end_date;
             // Duration in milliseconds.
@@ -74,15 +102,14 @@ $(document).ready(function() {
                 selectedZoom = 'hours';
             } else if ( numDays < 90 ) {
                 return;
-            } else if ( numDays < 1080 ) {
+            } else if ( numDays < 730 ) {
                 selectedZoom = 'months';
             }
 
             buttonSelect.selectItemByData(selectedZoom);
+		$(this).attr('data-zoom-set', true);
         });
 
 	});
 
 });
-
-

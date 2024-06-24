@@ -3,9 +3,11 @@
 namespace MediaWiki\Tests\User;
 
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\MainConfigNames;
 use MediaWiki\User\ActorNormalization;
 use MediaWiki\User\ActorStore;
 use MediaWiki\User\ActorStoreFactory;
+use MediaWiki\User\TempUser\TempUserConfig;
 use MediaWiki\User\UserIdentityLookup;
 use MediaWiki\User\UserNameUtils;
 use MediaWikiUnitTestCase;
@@ -21,36 +23,36 @@ use Wikimedia\Rdbms\ILoadBalancer;
  */
 class ActorStoreFactoryTest extends MediaWikiUnitTestCase {
 
-	public function provideGetActorStore() {
+	public static function provideGetActorStore() {
 		yield 'local, no shared' => [
 			false, // $domain,
 			[
-				'SharedDB' => false,
-				'SharedTables' => false
+				MainConfigNames::SharedDB => false,
+				MainConfigNames::SharedTables => false
 			], // $config
 			false, // $expectedDomain
 		];
 		yield 'foreign, no shared' => [
 			'acmewiki', // $domain,
 			[
-				'SharedDB' => false,
-				'SharedTables' => false
+				MainConfigNames::SharedDB => false,
+				MainConfigNames::SharedTables => false
 			], //
 			'acmewiki', // $expectedDomain
 		];
 		yield 'local, shared' => [
 			false, // $domain,
 			[
-				'SharedDB' => [ 'sharedwiki' ],
-				'SharedTables' => [ 'user', 'actor' ]
+				MainConfigNames::SharedDB => [ 'sharedwiki' ],
+				MainConfigNames::SharedTables => [ 'user', 'actor' ]
 			], // $config
 			false, // $expectedDomain
 		];
 		yield 'foreign, shared' => [
 			'acmewiki', // $domain,
 			[
-				'SharedDB' => [ 'sharedwiki' ],
-				'SharedTables' => [ 'user', 'actor' ]
+				MainConfigNames::SharedDB => [ 'sharedwiki' ],
+				MainConfigNames::SharedTables => [ 'user', 'actor' ]
 			], // $config
 			false, // $expectedDomain
 		];
@@ -64,6 +66,7 @@ class ActorStoreFactoryTest extends MediaWikiUnitTestCase {
 			new ServiceOptions( ActorStoreFactory::CONSTRUCTOR_OPTIONS, $config ),
 			$this->getMockLoadBalancerFactory( $expectedDomain ),
 			$this->createNoOpMock( UserNameUtils::class ),
+			$this->createNoOpMock( TempUserConfig::class ),
 			new NullLogger()
 		);
 		$notFromCache = $factory->getActorStore( $domain );
@@ -79,6 +82,7 @@ class ActorStoreFactoryTest extends MediaWikiUnitTestCase {
 			new ServiceOptions( ActorStoreFactory::CONSTRUCTOR_OPTIONS, $config ),
 			$this->getMockLoadBalancerFactory( $expectedDomain ),
 			$this->createNoOpMock( UserNameUtils::class ),
+			$this->createNoOpMock( TempUserConfig::class ),
 			new NullLogger()
 		);
 		$notFromCache = $factory->getActorNormalization( $domain );
@@ -94,6 +98,7 @@ class ActorStoreFactoryTest extends MediaWikiUnitTestCase {
 			new ServiceOptions( ActorStoreFactory::CONSTRUCTOR_OPTIONS, $config ),
 			$this->getMockLoadBalancerFactory( $expectedDomain ),
 			$this->createNoOpMock( UserNameUtils::class ),
+			$this->createNoOpMock( TempUserConfig::class ),
 			new NullLogger()
 		);
 		$notFromCache = $factory->getUserIdentityLookup( $domain );
@@ -106,14 +111,12 @@ class ActorStoreFactoryTest extends MediaWikiUnitTestCase {
 	 * @return MockObject|ILBFactory
 	 */
 	private function getMockLoadBalancerFactory( $expectDomain ) {
-		$mock = $this->getMockBuilder( ILBFactory::class )
-			->disableOriginalConstructor()->getMock();
+		$mock = $this->createMock( ILBFactory::class );
 
 		$mock->method( 'getMainLB' )
 			->willReturnCallback( function ( $domain ) use ( $expectDomain ) {
 				$this->assertSame( $expectDomain, $domain );
-				return $this->getMockBuilder( ILoadBalancer::class )
-					->disableOriginalConstructor()->getMock();
+				return $this->createMock( ILoadBalancer::class );
 			} );
 
 		return $mock;

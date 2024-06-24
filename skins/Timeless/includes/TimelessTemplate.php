@@ -12,7 +12,6 @@ use File;
 use Html;
 use Linker;
 use MediaWiki\MediaWikiServices;
-use MWDebug;
 use ResourceLoaderSkinModule;
 use Sanitizer;
 use SpecialPage;
@@ -58,10 +57,7 @@ class TimelessTemplate extends BaseTemplate {
 		$this->pileOfTools = $this->getPageTools();
 		$userLinks = $this->getUserLinks();
 
-		// Open html, body elements, etc
-		$html = $this->get( 'headelement' );
-
-		$html .= Html::openElement( 'div', [ 'id' => 'mw-wrapper', 'class' => $userLinks['class'] ] );
+		$html = Html::openElement( 'div', [ 'id' => 'mw-wrapper', 'class' => $userLinks['class'] ] );
 
 		$html .= Html::rawElement( 'div', [ 'id' => 'mw-header-container', 'class' => 'ts-container' ],
 			Html::rawElement( 'div', [ 'id' => 'mw-header', 'class' => 'ts-inner' ],
@@ -88,7 +84,6 @@ class TimelessTemplate extends BaseTemplate {
 					$this->getSidebarChunk(
 						'site-tools',
 						'timeless-sitetools',
-						// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 						$this->getPortlet(
 							'tb',
 							$this->pileOfTools['general'],
@@ -112,15 +107,6 @@ class TimelessTemplate extends BaseTemplate {
 
 		$html .= Html::closeElement( 'div' );
 
-		// BaseTemplate::printTrail() stuff (has no get version)
-		// Required for RL to run
-		$html .= MWDebug::getDebugHTML( $this->getSkin()->getContext() );
-		$html .= $this->get( 'bottomscripts' );
-		$html .= $this->get( 'reporttime' );
-
-		$html .= Html::closeElement( 'body' );
-		$html .= Html::closeElement( 'html' );
-
 		// The unholy echo
 		echo $html;
 	}
@@ -135,21 +121,19 @@ class TimelessTemplate extends BaseTemplate {
 		$templateData = $this->getSkin()->getTemplateData();
 		$html = Html::rawElement(
 			'div',
-			[ 'id' => 'content', 'class' => 'mw-body',  'role' => 'main' ],
+			[ 'id' => 'content', 'class' => 'mw-body', 'role' => 'main' ],
 			$this->getSiteNotices() .
 			$this->getIndicators() .
 			$templateData[ 'html-title-heading' ] .
 			Html::rawElement( 'div', [ 'id' => 'bodyContentOuter' ],
 				Html::rawElement( 'div', [ 'id' => 'siteSub' ], $this->getMsg( 'tagline' )->parse() ) .
 				Html::rawElement( 'div', [ 'id' => 'mw-page-header-links' ],
-					// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 					$this->getPortlet(
 						'namespaces',
 						$this->pileOfTools['namespaces'],
 						'timeless-namespaces',
 						[ 'extra-classes' => 'tools-inline' ]
 					) .
-					// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 					$this->getPortlet(
 						'more',
 						$this->pileOfTools['more'],
@@ -157,7 +141,6 @@ class TimelessTemplate extends BaseTemplate {
 						[ 'extra-classes' => 'tools-inline' ]
 					) .
 					$this->getVariants() .
-					// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 					$this->getPortlet(
 						'views',
 						$this->pileOfTools['page-primary'],
@@ -206,6 +189,7 @@ class TimelessTemplate extends BaseTemplate {
 	 * @suppress PhanTypeMismatchArgumentNullable
 	 */
 	protected function getPortlet( $name, $content, $msg = null, $setOptions = [] ) {
+		$skin = $this->getSkin();
 		// random stuff to override with any provided options
 		$options = array_merge( [
 			'role' => 'navigation',
@@ -249,13 +233,13 @@ class TimelessTemplate extends BaseTemplate {
 			$contentText .= $options['list-prepend'];
 			foreach ( $content as $key => $item ) {
 				if ( is_array( $options['text-wrapper'] ) ) {
-					$contentText .= $this->makeListItem(
+					$contentText .= $skin->makeListItem(
 						$key,
 						$item,
 						[ 'text-wrapper' => $options['text-wrapper'] ]
 					);
 				} else {
-					$contentText .= $this->makeListItem(
+					$contentText .= $skin->makeListItem(
 						$key,
 						$item
 					);
@@ -531,11 +515,13 @@ class TimelessTemplate extends BaseTemplate {
 		}
 		if ( $part !== 'text' ) {
 			$logoImage = $this->getLogoImage( $config->get( 'TimelessLogo' ) );
-			if ( $logoImage === false && isset( $logos['icon'] ) ) {
-				$logoSrc = $logos['icon'];
-				$logoImage = Html::element( 'img', [
-					'src' => $logoSrc,
-				] );
+			if ( $logoImage === false ) {
+				$logoSrc = $logos['svg'] ?? $logos['icon'] ?? '';
+				if ( $logoSrc !== '' ) {
+					$logoImage = Html::element( 'img', [
+						'src' => $logoSrc,
+					] );
+				}
 			}
 
 			$html .= Html::rawElement(
@@ -561,6 +547,7 @@ class TimelessTemplate extends BaseTemplate {
 	 * @return string html
 	 */
 	protected function getSearch() {
+		$skin = $this->getSkin();
 		$html = Html::openElement( 'div', [ 'class' => 'mw-portlet', 'id' => 'p-search' ] );
 
 		$html .= Html::rawElement(
@@ -572,16 +559,16 @@ class TimelessTemplate extends BaseTemplate {
 		$html .= Html::rawElement( 'form', [ 'action' => $this->get( 'wgScript' ), 'id' => 'searchform' ],
 			Html::rawElement( 'div', [ 'id' => 'simpleSearch' ],
 				Html::rawElement( 'div', [ 'id' => 'searchInput-container' ],
-					$this->makeSearchInput( [
+					$skin->makeSearchInput( [
 						'id' => 'searchInput'
 					] )
 				) .
 				Html::hidden( 'title', $this->get( 'searchtitle' ) ) .
-				$this->makeSearchButton(
+				$skin->makeSearchButton(
 					'fulltext',
 					[ 'id' => 'mw-searchButton', 'class' => 'searchButton mw-fallbackSearchButton' ]
 				) .
-				$this->makeSearchButton(
+				$skin->makeSearchButton(
 					'go',
 					[ 'id' => 'searchButton', 'class' => 'searchButton' ]
 				)
@@ -653,19 +640,16 @@ class TimelessTemplate extends BaseTemplate {
 	 * @return string html
 	 */
 	protected function getPageToolSidebar() {
-		// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 		$pageTools = $this->getPortlet(
 			'cactions',
 			$this->pileOfTools['page-secondary'],
 			'timeless-pageactions'
 		);
-		// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 		$pageTools .= $this->getPortlet(
 			'userpagetools',
 			$this->pileOfTools['user'],
 			'timeless-userpagetools'
 		);
-		// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 		$pageTools .= $this->getPortlet(
 			'pagemisc',
 			$this->pileOfTools['page-tertiary'],
@@ -688,8 +672,9 @@ class TimelessTemplate extends BaseTemplate {
 	 * (for width adjustments)
 	 */
 	protected function getUserLinks() {
-		$user = $this->getSkin()->getUser();
-		$personalTools = $this->getPersonalTools();
+		$skin = $this->getSkin();
+		$user = $skin->getUser();
+		$personalTools = $skin->getPersonalToolsForMakeListItem( $this->get( 'personal_urls' ) );
 		// Preserve standard username label to allow customisation (T215822)
 		$userName = $personalTools['userpage']['links'][0]['text'] ?? $user->getName();
 
@@ -698,6 +683,15 @@ class TimelessTemplate extends BaseTemplate {
 		// Remove anon placeholder
 		if ( isset( $personalTools['anonuserpage'] ) ) {
 			unset( $personalTools['anonuserpage'] );
+		}
+		// Remove temp user placeholder, as we display the user name in the dropdown header instead.
+		// Removing the use of .mw-userpage-tmp class also prevents the anchored popup from appearing,
+		// which is good, because there's no reasonable place to put it.
+		if (
+			isset( $personalTools['userpage'] ) &&
+			in_array( 'mw-userpage-tmp', $personalTools['userpage']['links'][0]['class'] ?? [] )
+		) {
+			unset( $personalTools['userpage'] );
 		}
 
 		// Remove Echo badges
@@ -720,9 +714,12 @@ class TimelessTemplate extends BaseTemplate {
 		}
 
 		// Labels
-		if ( $user->isRegistered() ) {
+		if ( $user->isNamed() ) {
 			$dropdownHeader = $userName;
 			$headerMsg = [ 'timeless-loggedinas', $userName ];
+		} elseif ( $user->isTemp() ) {
+			$dropdownHeader = $user->getName();
+			$headerMsg = 'timeless-notloggedin';
 		} else {
 			$dropdownHeader = $this->getMsg( 'timeless-anonymous' )->text();
 			$headerMsg = 'timeless-notloggedin';
@@ -742,7 +739,7 @@ class TimelessTemplate extends BaseTemplate {
 		if ( !empty( $extraTools ) ) {
 			$iconList = '';
 			foreach ( $extraTools as $key => $item ) {
-				$iconList .= $this->makeListItem( $key, $item );
+				$iconList .= $skin->makeListItem( $key, $item );
 			}
 
 			$html .= Html::rawElement(
@@ -843,11 +840,6 @@ class TimelessTemplate extends BaseTemplate {
 		// Tools specific to the page
 		$pileOfEditTools = [];
 		$contentNavigation = $this->data['content_navigation'];
-		// T300100: Do not use categories here. Already added to sidebar
-		unset(
-			$contentNavigation['category-normal'],
-			$contentNavigation['category-hidden']
-		);
 
 		foreach ( $contentNavigation as $navKey => $navBlock ) {
 			// Just use namespaces items as they are
@@ -1012,7 +1004,7 @@ class TimelessTemplate extends BaseTemplate {
 					->getBoolOption( $skin->getUser(), 'showhiddencats' )
 				) {
 					$hiddenCatClass[] = 'mw-hidden-cats-user-shown';
-				} elseif ( $skin->getTitle()->getNamespace() == NS_CATEGORY ) {
+				} elseif ( $skin->getTitle()->getNamespace() === NS_CATEGORY ) {
 					$hiddenCatClass[] = 'mw-hidden-cats-ns-shown';
 				} else {
 					$hiddenCatClass[] = 'mw-hidden-cats-hidden';
@@ -1057,7 +1049,6 @@ class TimelessTemplate extends BaseTemplate {
 			implode( '', $categoryItems )
 		);
 
-		// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 		$html .= $this->getPortlet( $id, $categoriesHtml, $message );
 
 		return $html . Html::closeElement( 'div' );
@@ -1074,7 +1065,6 @@ class TimelessTemplate extends BaseTemplate {
 		$html = '';
 
 		if ( $this->pileOfTools['variants'] ) {
-			// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 			$html .= $this->getPortlet(
 				'variants-desktop',
 				$this->pileOfTools['variants'],
@@ -1099,7 +1089,6 @@ class TimelessTemplate extends BaseTemplate {
 		$variantsOnly = false;
 
 		if ( $this->pileOfTools['variants'] ) {
-			// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 			$variants = $this->getPortlet(
 				'variants',
 				$this->pileOfTools['variants']

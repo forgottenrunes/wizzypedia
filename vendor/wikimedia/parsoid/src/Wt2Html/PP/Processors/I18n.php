@@ -11,6 +11,7 @@ use Wikimedia\Parsoid\Utils\DOMDataUtils;
 use Wikimedia\Parsoid\Utils\DOMUtils;
 use Wikimedia\Parsoid\Wt2Html\Wt2HtmlDOMProcessor;
 
+/** This pass adds placeholders for i18n messages. It will eventually be replaced by a HTML2HTML pass in core. */
 class I18n implements Wt2HtmlDOMProcessor {
 
 	/**
@@ -23,12 +24,9 @@ class I18n implements Wt2HtmlDOMProcessor {
 		$spans = DOMCompat::querySelectorAll( $root, 'span[typeof~="mw:I18n"]' );
 		foreach ( $spans as $span ) {
 			DOMUtils::removeTypeOf( $span, 'mw:I18n' );
-			$dp = DOMDataUtils::getDataParsoid( $span );
-			$i18n = $dp->tmp->i18n;
-			$msg = "Error: {$i18n['key']}";
-			// $msg = wfMessage( $i18n['key'], ...( $i18n['params'] ?? [] ) )->text();
+			$i18n = DOMDataUtils::getDataNodeI18n( $span );
 			$span->appendChild(
-				$span->ownerDocument->createTextNode( $msg )
+				$span->ownerDocument->createTextNode( $i18n->key )
 			);
 		}
 	}

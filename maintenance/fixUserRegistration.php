@@ -22,9 +22,10 @@
  * @ingroup Maintenance
  */
 
-require_once __DIR__ . '/Maintenance.php';
+use MediaWiki\User\ActorMigration;
+use MediaWiki\User\User;
 
-use MediaWiki\MediaWikiServices;
+require_once __DIR__ . '/Maintenance.php';
 
 /**
  * Maintenance script that fixes the user_registration field.
@@ -42,22 +43,15 @@ class FixUserRegistration extends Maintenance {
 		$dbw = $this->getDB( DB_PRIMARY );
 
 		$lastId = 0;
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 		do {
 			// Get user IDs which need fixing
-			$res = $dbw->select(
-				'user',
-				'user_id',
-				[
-					'user_id > ' . $dbw->addQuotes( $lastId ),
-					'user_registration IS NULL'
-				],
-				__METHOD__,
-				[
-					'LIMIT' => $this->getBatchSize(),
-					'ORDER BY' => 'user_id',
-				]
-			);
+			$res = $dbw->newSelectQueryBuilder()
+				->select( 'user_id' )
+				->from( 'user' )
+				->where( [ 'user_id > ' . $dbw->addQuotes( $lastId ), 'user_registration' => null ] )
+				->orderBy( 'user_id' )
+				->limit( $this->getBatchSize() )
+				->caller( __METHOD__ )->fetchResultSet();
 			foreach ( $res as $row ) {
 				$id = $row->user_id;
 				$lastId = $id;
@@ -88,7 +82,7 @@ class FixUserRegistration extends Maintenance {
 				}
 			}
 			$this->output( "Waiting for replica DBs..." );
-			$lbFactory->waitForReplication();
+			$this->waitForReplication();
 			$this->output( " done.\n" );
 		} while ( $res->numRows() >= $this->getBatchSize() );
 	}

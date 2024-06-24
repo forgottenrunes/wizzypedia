@@ -10,7 +10,7 @@ use MediaWiki\Rest\RequestData;
 use MediaWiki\Rest\RequestInterface;
 use MediaWiki\Revision\ContributionsLookup;
 use MediaWiki\Revision\ContributionsSegment;
-use MediaWiki\Storage\MutableRevisionRecord;
+use MediaWiki\Revision\MutableRevisionRecord;
 use MediaWiki\Tests\Unit\DummyServicesTrait;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
@@ -47,7 +47,7 @@ class UserContributionsHandlerTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @param int $numRevisions
-	 * @param string[] $tags
+	 * @param array $tags
 	 * @param array $deltas
 	 * @param array $flags
 	 *
@@ -147,7 +147,7 @@ class UserContributionsHandlerTest extends \MediaWikiUnitTestCase {
 		return new ContributionsSegment( $revisions, $tags, null, null, $deltas, $flags );
 	}
 
-	public function provideValidQueryParameters() {
+	public static function provideValidQueryParameters() {
 		yield [ [] ];
 		yield [ [ 'limit' => self::DEFAULT_LIMIT ] ];
 		yield [ [ 'tag' => 'test', 'limit' => 7 ] ];
@@ -254,7 +254,7 @@ class UserContributionsHandlerTest extends \MediaWikiUnitTestCase {
 		$this->assertArrayHasKey( 'contributions', $data );
 	}
 
-	public function provideThatResponseConformsToSchema() {
+	public static function provideThatResponseConformsToSchema() {
 		$basePath = 'https://wiki.example.com/rest/me/contributions';
 		yield [ 0,
 			[],

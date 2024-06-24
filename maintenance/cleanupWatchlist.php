@@ -29,7 +29,8 @@
  * @ingroup Maintenance
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Title\Title;
 
 require_once __DIR__ . '/TableCleanup.php';
 
@@ -62,7 +63,7 @@ class CleanupWatchlist extends TableCleanup {
 	protected function processRow( $row ) {
 		$current = Title::makeTitle( $row->wl_namespace, $row->wl_title );
 		$display = $current->getPrefixedText();
-		$verified = MediaWikiServices::getInstance()->getContentLanguage()->normalize( $display );
+		$verified = $this->getServiceContainer()->getContentLanguage()->normalize( $display );
 		$title = Title::newFromText( $verified );
 
 		if ( $row->wl_user == 0 || $title === null || !$title->equals( $current ) ) {
@@ -84,7 +85,7 @@ class CleanupWatchlist extends TableCleanup {
 				[ 'wl_id' => $row->wl_id ],
 				__METHOD__
 			);
-			if ( $this->getConfig()->get( 'WatchlistExpiry' ) ) {
+			if ( $this->getConfig()->get( MainConfigNames::WatchlistExpiry ) ) {
 				$dbw->delete(
 					'watchlist_expiry',
 					[ 'we_item' => $row->wl_id ],

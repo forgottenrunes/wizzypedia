@@ -54,6 +54,29 @@ class DOMUtils {
 	}
 
 	/**
+	 * Determine whether the node matches the given rel attribute value.
+	 *
+	 * @param Node $n
+	 * @param string $rel Expected value of "rel" attribute, as a literal string.
+	 * @return ?string The match if there is one, null otherwise
+	 */
+	public static function matchRel( Node $n, string $rel ): ?string {
+		return DU::matchRel( $n, $rel );
+	}
+
+	/**
+	 * Add a type to the rel attribute.  This method should almost always
+	 * be used instead of `setAttribute`, to ensure we don't overwrite existing
+	 * rel information.
+	 *
+	 * @param Element $node node
+	 * @param string $rel type
+	 */
+	public static function addRel( Element $node, string $rel ): void {
+		DU::addRel( $node, $rel );
+	}
+
+	/**
 	 * Assert that this is a DOM element node.
 	 * This is primarily to help phan analyze variable types.
 	 * @phan-assert Element $node
@@ -62,37 +85,6 @@ class DOMUtils {
 	 */
 	public static function assertElt( ?Node $node ): bool {
 		return DU::assertElt( $node );
-	}
-
-	/**
-	 * Check a node to see whether it's a diff marker.
-	 *
-	 * @param ?Node $node
-	 * @param ?string $mark
-	 * @return bool
-	 */
-	public static function isDiffMarker(
-		?Node $node, ?string $mark = null
-	): bool {
-		return DU::isDiffMarker( $node, $mark );
-	}
-
-	/**
-	 * Test the number of children this node has without using
-	 * `DOMNode::$childNodes->count()`.  This walks the sibling list and so
-	 * takes O(`nchildren`) time -- so `nchildren` is expected to be small
-	 * (say: 0, 1, or 2).
-	 *
-	 * Skips all diff markers by default.
-	 * @param Node $node
-	 * @param int $nchildren
-	 * @param bool $countDiffMarkers
-	 * @return bool
-	 */
-	public static function hasNChildren(
-		Node $node, int $nchildren, bool $countDiffMarkers = false
-	): bool {
-		return DU::hasNChildren( $node, $nchildren, $countDiffMarkers );
 	}
 
 	/**
@@ -119,14 +111,13 @@ class DOMUtils {
 	}
 
 	/**
-	 * Get the first child element or non-IEW text node, ignoring
-	 * whitespace-only text nodes, comments, and deleted nodes.
+	 * Find an ancestor of $node with nodeName $name.
 	 *
 	 * @param Node $node
-	 * @return Node|null
+	 * @param string $name
+	 * @return ?Element
 	 */
-	public static function firstNonSepChild( Node $node ): ?Node {
-		return DU::firstNonSepChild( $node );
+	public static function findAncestorOfName( Node $node, string $name ): ?Element {
+		return DU::findAncestorOfName( $node, $name );
 	}
-
 }

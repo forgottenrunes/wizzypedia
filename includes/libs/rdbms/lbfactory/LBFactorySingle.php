@@ -1,7 +1,5 @@
 <?php
 /**
- * Simple generator of database connections that always returns the same object.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,16 +16,16 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Database
  */
-
 namespace Wikimedia\Rdbms;
 
 use BadMethodCallException;
 use InvalidArgumentException;
 
 /**
- * An LBFactory class that always returns a single database object.
+ * Manage a single hardcoded database connection.
+ *
+ * @ingroup Database
  */
 class LBFactorySingle extends LBFactory {
 	/** @var LoadBalancerSingle */
@@ -36,20 +34,26 @@ class LBFactorySingle extends LBFactory {
 	/**
 	 * You probably want to use {@link newFromConnection} instead.
 	 *
-	 * @param array $conf An associative array with one member:
-	 *  - connection: The IDatabase connection object
+	 * @param array $conf An associative array containing one of the following:
+	 *  - connection: The IDatabase connection object to use
+	 *  - lb: The ILoadBalancer object to use
 	 */
 	public function __construct( array $conf ) {
 		parent::__construct( $conf );
 
-		if ( !isset( $conf['connection'] ) ) {
-			throw new InvalidArgumentException( "Missing 'connection' argument." );
+		if ( isset( $conf['lb'] ) ) {
+			$lb = $conf['lb'];
+		} else {
+			if ( !isset( $conf['connection'] ) ) {
+				throw new InvalidArgumentException( "Missing 'connection' argument." );
+			}
+
+			$lb = new LoadBalancerSingle( array_merge(
+				$this->baseLoadBalancerParams(),
+				$conf
+			) );
 		}
 
-		$lb = new LoadBalancerSingle( array_merge(
-			$this->baseLoadBalancerParams( $this->getOwnershipId() ),
-			$conf
-		) );
 		$this->initLoadBalancer( $lb );
 
 		$this->lb = $lb;
@@ -69,7 +73,20 @@ class LBFactorySingle extends LBFactory {
 		) );
 	}
 
-	public function newMainLB( $domain = false, $owner = null ): ILoadBalancer {
+	/**
+	 * @param array $params Parameter map to LBFactorySingle::__construct()
+	 *        and LoadBalancerDisabled::__construct()
+	 * @return LBFactorySingle
+	 * @since 1.40
+	 */
+	public static function newDisabled( array $params = [] ) {
+		return new static( array_merge(
+			[ 'lb' => new LoadBalancerDisabled( $params ) ],
+			$params
+		) );
+	}
+
+	public function newMainLB( $domain = false ): ILoadBalancerForOwner {
 		// @phan-suppress-previous-line PhanPluginNeverReturnMethod
 		throw new BadMethodCallException( "Method is not supported." );
 	}
@@ -78,7 +95,7 @@ class LBFactorySingle extends LBFactory {
 		return $this->lb;
 	}
 
-	public function newExternalLB( $cluster, $owner = null ): ILoadBalancer {
+	public function newExternalLB( $cluster ): ILoadBalancerForOwner {
 		// @phan-suppress-previous-line PhanPluginNeverReturnMethod
 		throw new BadMethodCallException( "Method is not supported." );
 	}
@@ -96,9 +113,9 @@ class LBFactorySingle extends LBFactory {
 		return [];
 	}
 
-	public function forEachLB( $callback, array $params = [] ) {
+	protected function getLBsForOwner() {
 		if ( isset( $this->lb ) ) { // may not be set during _destruct()
-			$callback( $this->lb, ...$params );
+			yield $this->lb;
 		}
 	}
 

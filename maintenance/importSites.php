@@ -13,13 +13,13 @@ require_once __DIR__ . '/Maintenance.php';
 class ImportSites extends Maintenance {
 
 	public function __construct() {
+		parent::__construct();
+
 		$this->addDescription( 'Imports site definitions from XML into the sites table.' );
 
 		$this->addArg( 'file', 'An XML file containing site definitions (see docs/sitelist.md). ' .
 			'Use "php://stdin" to read from stdin.', true
 		);
-
-		parent::__construct();
 	}
 
 	/**
@@ -28,7 +28,7 @@ class ImportSites extends Maintenance {
 	public function execute() {
 		$file = $this->getArg( 0 );
 
-		$siteStore = \MediaWiki\MediaWikiServices::getInstance()->getSiteStore();
+		$siteStore = $this->getServiceContainer()->getSiteStore();
 		$importer = new SiteImporter( $siteStore );
 		$importer->setExceptionCallback( [ $this, 'reportException' ] );
 

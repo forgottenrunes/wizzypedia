@@ -76,16 +76,16 @@ class DOMCompat {
 	 * @see https://html.spec.whatwg.org/multipage/dom.html#dom-document-body
 	 */
 	public static function getBody( $document ) {
-		// Use an undeclared dynamic property as a cache.
 		// WARNING: this will not be updated if (for some reason) the
 		// document body changes.
-		if ( isset( $document->body ) ) {
+		if ( $document->body !== null ) {
 			return $document->body;
 		}
 		foreach ( $document->documentElement->childNodes as $element ) {
 			/** @var Element $element */
 			if ( self::nodeName( $element ) === 'body' || self::nodeName( $element ) === 'frameset' ) {
-				$document->body = $element; // Caching!
+				// Caching!
+				$document->body = $element;
 				// @phan-suppress-next-line PhanTypeMismatchReturnSuperType
 				return $element;
 			}
@@ -168,6 +168,7 @@ class DOMCompat {
 	 * Return the descendant with the specified ID.
 	 * Workaround for https://bugs.php.net/bug.php?id=77686 and other issues related to
 	 * inconsistent indexing behavior.
+	 * XXX: 77686 is fixed in php 8.1.21
 	 * @param Document|DocumentFragment $node
 	 * @param string $id
 	 * @return Element|null
@@ -469,7 +470,7 @@ class DOMCompat {
 	 * https://developer.mozilla.org/en-US/docs/Web/API/ParentNode/replaceChildren
 	 *
 	 * @param Document|DocumentFragment|Element $parentNode
-	 * @param array<string|Node> ...$nodes
+	 * @param string|Node ...$nodes
 	 */
 	public static function replaceChildren(
 		$parentNode, ...$nodes

@@ -24,6 +24,12 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials\Redirects;
+
+use MediaWiki\SpecialPage\RedirectSpecialPage;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
+
 /**
  * Special page pointing to current user's contributions.
  *
@@ -55,3 +61,8 @@ class SpecialMycontributions extends RedirectSpecialPage {
 		return true;
 	}
 }
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialMycontributions::class, 'SpecialMycontributions' );

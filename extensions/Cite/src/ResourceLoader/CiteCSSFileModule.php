@@ -3,14 +3,15 @@
 namespace Cite\ResourceLoader;
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\ResourceLoader\FileModule;
 
 /**
- * ResourceLoaderFileModule for adding the content language Cite CSS
+ * ResourceLoader FileModule for adding the content language Cite CSS
  *
  * @copyright 2011-2018 VisualEditor Team's Cite sub-team and others; see AUTHORS.txt
  * @license MIT
  */
-class CiteCSSFileModule extends \ResourceLoaderFileModule {
+class CiteCSSFileModule extends FileModule {
 
 	/**
 	 * @inheritDoc
@@ -30,7 +31,7 @@ class CiteCSSFileModule extends \ResourceLoaderFileModule {
 			$contLang->getFallbackLanguages()
 		);
 		foreach ( $langCodes as $lang ) {
-			$langStyleFile = 'ext.cite.style.' . $lang . '.css';
+			$langStyleFile = 'ext.cite.style.' . strtr( $lang, '-', '_' ) . '.css';
 			$localPath = $this->getLocalPath( $langStyleFile );
 			if ( file_exists( $localPath ) ) {
 				$this->styles[] = $langStyleFile;

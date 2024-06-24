@@ -20,6 +20,11 @@
  * @file
  */
 
+use MediaWiki\Search\TitleMatcher;
+use MediaWiki\Status\Status;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\EnumDef;
+
 /**
  * Query module to perform full text search within wiki titles and content
  *
@@ -28,31 +33,27 @@
 class ApiQuerySearch extends ApiQueryGeneratorBase {
 	use SearchApi;
 
-	/** @var array list of api allowed params */
-	private $allowedParams;
-
-	/** @var SearchEngineConfig */
-	private $searchEngineConfig;
-
-	/** @var SearchEngineFactory */
-	private $searchEngineFactory;
+	private TitleMatcher $titleMatcher;
 
 	/**
 	 * @param ApiQuery $query
 	 * @param string $moduleName
 	 * @param SearchEngineConfig $searchEngineConfig
 	 * @param SearchEngineFactory $searchEngineFactory
+	 * @param TitleMatcher $titleMatcher
 	 */
 	public function __construct(
 		ApiQuery $query,
 		$moduleName,
 		SearchEngineConfig $searchEngineConfig,
-		SearchEngineFactory $searchEngineFactory
+		SearchEngineFactory $searchEngineFactory,
+		TitleMatcher $titleMatcher
 	) {
 		parent::__construct( $query, $moduleName, 'sr' );
 		// Services also needed in SearchApi trait
 		$this->searchEngineConfig = $searchEngineConfig;
 		$this->searchEngineFactory = $searchEngineFactory;
+		$this->titleMatcher = $titleMatcher;
 	}
 
 	public function execute() {
@@ -84,6 +85,8 @@ class ApiQuerySearch extends ApiQueryGeneratorBase {
 		}
 		$search->setFeatureData( 'rewrite', (bool)$params['enablerewrites'] );
 		$search->setFeatureData( 'interwiki', (bool)$interwiki );
+		// Hint to some SearchEngines about what snippets we would like returned
+		$search->setFeatureData( 'snippets', $this->decideSnippets( $prop ) );
 
 		$nquery = $search->replacePrefixes( $query );
 		if ( $nquery !== $query ) {
@@ -100,8 +103,7 @@ class ApiQuerySearch extends ApiQueryGeneratorBase {
 		} elseif ( $what == 'nearmatch' ) {
 			// near matches must receive the user input as provided, otherwise
 			// the near matches within namespaces are lost.
-			$matches = $search->getNearMatcher( $this->getConfig() )
-				->getNearMatchResultSet( $params['search'] );
+			$matches = $this->titleMatcher->getNearMatchResultSet( $params['search'] );
 		} else {
 			// We default to title searches; this is a terrible legacy
 			// of the way we initially set up the MySQL fulltext-based
@@ -352,35 +354,54 @@ class ApiQuerySearch extends ApiQueryGeneratorBase {
 		return $totalhits;
 	}
 
+	private function decideSnippets( array $prop ): array {
+		// Field names align with definitions in ContentHandler::getFieldsForSearchIndex.
+		// Except `redirect` which isn't explicitly created, but refers to the title of
+		// pages that redirect to the result page.
+		$fields = [];
+		if ( isset( $prop['titlesnippet'] ) ) {
+			$fields[] = 'title';
+		}
+		// checking snippet and title variants is a bit special cased, but some search
+		// engines generate the title variant from the snippet and thus must have the
+		// snippet requested to provide the title.
+		if ( isset( $prop['redirectsnippet'] ) || isset( $prop['redirecttitle'] ) ) {
+			$fields[] = 'redirect';
+		}
+		if ( isset( $prop['categorysnippet'] ) ) {
+			$fields[] = 'category';
+		}
+		if ( isset( $prop['sectionsnippet'] ) || isset( $prop['sectiontitle'] ) ) {
+			$fields[] = 'heading';
+		}
+		return $fields;
+	}
+
 	public function getCacheMode( $params ) {
 		return 'public';
 	}
 
 	public function getAllowedParams() {
-		if ( $this->allowedParams !== null ) {
-			return $this->allowedParams;
-		}
-
-		$this->allowedParams = $this->buildCommonApiParams() + [
+		$allowedParams = $this->buildCommonApiParams() + [
 			'what' => [
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_TYPE => [
 					'title',
 					'text',
 					'nearmatch',
 				]
 			],
 			'info' => [
-				ApiBase::PARAM_DFLT => 'totalhits|suggestion|rewrittenquery',
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_DEFAULT => 'totalhits|suggestion|rewrittenquery',
+				ParamValidator::PARAM_TYPE => [
 					'totalhits',
 					'suggestion',
 					'rewrittenquery',
 				],
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'prop' => [
-				ApiBase::PARAM_DFLT => 'size|wordcount|timestamp|snippet',
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_DEFAULT => 'size|wordcount|timestamp|snippet',
+				ParamValidator::PARAM_TYPE => [
 					'size',
 					'wordcount',
 					'timestamp',
@@ -396,9 +417,9 @@ class ApiQuerySearch extends ApiQueryGeneratorBase {
 					'hasrelated', // deprecated
 					'extensiondata',
 				],
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_ISMULTI => true,
 				ApiBase::PARAM_HELP_MSG_PER_VALUE => [],
-				ApiBase::PARAM_DEPRECATED_VALUES => [
+				EnumDef::PARAM_DEPRECATED_VALUES => [
 					'score' => true,
 					'hasrelated' => true
 				],
@@ -409,21 +430,21 @@ class ApiQuerySearch extends ApiQueryGeneratorBase {
 
 		// Generators only add info/properties if explicitly requested. T263841
 		if ( $this->isInGeneratorMode() ) {
-			$this->allowedParams['prop'][ApiBase::PARAM_DFLT] = '';
-			$this->allowedParams['info'][ApiBase::PARAM_DFLT] = '';
+			$allowedParams['prop'][ParamValidator::PARAM_DEFAULT] = '';
+			$allowedParams['info'][ParamValidator::PARAM_DEFAULT] = '';
 		}
 
 		// If we have more than one engine the list of available sorts is
 		// difficult to represent. For now don't expose it.
 		$alternatives = $this->searchEngineConfig->getSearchTypes();
 		if ( count( $alternatives ) == 1 ) {
-			$this->allowedParams['sort'] = [
-				ApiBase::PARAM_DFLT => SearchEngine::DEFAULT_SORT,
-				ApiBase::PARAM_TYPE => $this->searchEngineFactory->create()->getValidSorts(),
+			$allowedParams['sort'] = [
+				ParamValidator::PARAM_DEFAULT => SearchEngine::DEFAULT_SORT,
+				ParamValidator::PARAM_TYPE => $this->searchEngineFactory->create()->getValidSorts(),
 			];
 		}
 
-		return $this->allowedParams;
+		return $allowedParams;
 	}
 
 	public function getSearchProfileParams() {

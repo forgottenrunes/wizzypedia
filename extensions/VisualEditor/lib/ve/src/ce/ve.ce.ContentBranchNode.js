@@ -28,9 +28,6 @@ ve.ce.ContentBranchNode = function VeCeContentBranchNode() {
 
 	this.onClickHandler = this.onClick.bind( this );
 
-	// DOM changes (keep in sync with #onSetup)
-	this.$element.addClass( 've-ce-contentBranchNode' );
-
 	// Events
 	this.connect( this, { childUpdate: 'onChildUpdate' } );
 	this.model.connect( this, { detach: 'onModelDetach' } );
@@ -86,6 +83,15 @@ ve.ce.ContentBranchNode.static.appendRenderedContents = function ( container, wr
 };
 
 /* Methods */
+
+/**
+ * @inheritdoc
+ */
+ve.ce.ContentBranchNode.prototype.initialize = function () {
+	// Parent method
+	ve.ce.ContentBranchNode.super.prototype.initialize.call( this );
+	this.$element.addClass( 've-ce-contentBranchNode' );
+};
 
 /**
  * @inheritdoc
@@ -444,8 +450,8 @@ ve.ce.ContentBranchNode.prototype.renderContents = function () {
 		while ( rendered.firstChild ) {
 			newWrapper.appendChild( rendered.firstChild );
 		}
-		ve.normalizeNode( oldWrapper );
-		ve.normalizeNode( newWrapper );
+		oldWrapper.normalize();
+		newWrapper.normalize();
 		if ( newWrapper.isEqualNode( oldWrapper ) ) {
 			return false;
 		}

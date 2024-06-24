@@ -23,6 +23,7 @@ namespace MediaWiki\Auth;
 
 use BagOStuff;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerInterface;
@@ -70,7 +71,7 @@ class Throttler implements LoggerAwareInterface {
 
 		if ( $conditions === null ) {
 			$config = MediaWikiServices::getInstance()->getMainConfig();
-			$conditions = $config->get( 'PasswordAttemptThrottle' );
+			$conditions = $config->get( MainConfigNames::PasswordAttemptThrottle );
 			$params += [
 				'type' => 'password',
 				'cache' => \ObjectCache::getLocalClusterInstance(),
@@ -127,13 +128,7 @@ class Throttler implements LoggerAwareInterface {
 				continue;
 			}
 
-			$throttleKey = $this->cache->makeGlobalKey(
-				'throttler',
-				$this->type,
-				$index,
-				$ipKey ?? '',
-				$userKey ?? ''
-			);
+			$throttleKey = $this->getThrottleKey( $this->type, $index, $ipKey, $userKey );
 			$throttleCount = $this->cache->get( $throttleKey );
 			if ( $throttleCount && $throttleCount >= $count ) {
 				// Throttle limited reached
@@ -165,15 +160,32 @@ class Throttler implements LoggerAwareInterface {
 	 *
 	 * @param string|null $username
 	 * @param string|null $ip
-	 * @throws \MWException
 	 */
 	public function clear( $username = null, $ip = null ) {
 		$userKey = $username ? md5( $username ) : null;
 		foreach ( $this->conditions as $index => $specificThrottle ) {
 			$ipKey = isset( $specificThrottle['allIPs'] ) ? null : $ip;
-			$throttleKey = $this->cache->makeGlobalKey( 'throttler', $this->type, $index, $ipKey, $userKey );
+			$throttleKey = $this->getThrottleKey( $this->type, $index, $ipKey, $userKey );
 			$this->cache->delete( $throttleKey );
 		}
+	}
+
+	/**
+	 * Construct a cache key for the throttle counter
+	 * @param string $type
+	 * @param int $index
+	 * @param string|null $ipKey
+	 * @param string|null $userKey
+	 * @return string
+	 */
+	private function getThrottleKey( string $type, int $index, ?string $ipKey, ?string $userKey ): string {
+		return $this->cache->makeGlobalKey(
+			'throttler',
+			$type,
+			$index,
+			$ipKey ?? '',
+			$userKey ?? ''
+		);
 	}
 
 	/**

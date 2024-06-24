@@ -1,6 +1,8 @@
+const { ViewLogger } = require( 'mmv' );
+
 ( function () {
 	QUnit.module( 'mmv.logging.ViewLogger', QUnit.newMwEnvironment( {
-		setup: function () {
+		beforeEach: function () {
 			this.clock = this.sandbox.useFakeTimers();
 
 			// since jQuery 2/3, $.now will capture a reference to Date.now
@@ -8,43 +10,18 @@
 			// override that new behavior in order to run these tests...
 			// @see https://github.com/sinonjs/lolex/issues/76
 			this.oldNow = $.now;
-			$.now = function () { return +( new Date() ); };
+			$.now = () => Date.now();
 		},
 
-		teardown: function () {
+		afterEach: function () {
 			$.now = this.oldNow;
 			this.clock.restore();
 		}
 	} ) );
 
-	QUnit.test( 'unview()', function ( assert ) {
-		var logger = { log: function () {} },
-			viewLogger = new mw.mmv.logging.ViewLogger( { recordVirtualViewBeaconURI: function () {} }, {}, logger );
-
-		this.sandbox.stub( logger, 'log' );
-
-		viewLogger.unview();
-
-		assert.strictEqual( logger.log.called, false, 'action logger not called' );
-
-		viewLogger.setLastViewLogged( false );
-		viewLogger.unview();
-
-		assert.strictEqual( logger.log.called, false, 'action logger not called' );
-
-		viewLogger.setLastViewLogged( true );
-		viewLogger.unview();
-
-		assert.strictEqual( logger.log.calledOnce, true, 'action logger called' );
-
-		viewLogger.unview();
-
-		assert.strictEqual( logger.log.calledOnce, true, 'action logger not called again' );
-	} );
-
 	QUnit.test( 'focus and blur', function ( assert ) {
 		var $fakeWindow = $( '<div>' ),
-			viewLogger = new mw.mmv.logging.ViewLogger( { recordVirtualViewBeaconURI: function () {} }, $fakeWindow, { log: function () {} } );
+			viewLogger = new ViewLogger( { recordVirtualViewBeaconURI: function () {} }, $fakeWindow, { log: function () {} } );
 
 		this.clock.tick( 1 ); // This is just so that the timer ticks up in the fake timer environment
 
@@ -68,7 +45,7 @@
 	} );
 
 	QUnit.test( 'stopViewDuration before startViewDuration', function ( assert ) {
-		var viewLogger = new mw.mmv.logging.ViewLogger( { recordVirtualViewBeaconURI: function () {} }, {}, { log: function () {} } );
+		var viewLogger = new ViewLogger( { recordVirtualViewBeaconURI: function () {} }, {}, { log: function () {} } );
 
 		this.clock.tick( 1 ); // This is just so that the timer ticks up in the fake timer environment
 

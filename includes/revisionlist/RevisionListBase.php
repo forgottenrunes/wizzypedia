@@ -21,6 +21,7 @@
  */
 
 use MediaWiki\Page\PageIdentity;
+use MediaWiki\Title\Title;
 use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Rdbms\IResultWrapper;
 
@@ -30,8 +31,8 @@ use Wikimedia\Rdbms\IResultWrapper;
 abstract class RevisionListBase extends ContextSource implements Iterator {
 	use DeprecationHelper;
 
-	/** @var Title */
-	protected $title;
+	/** @var PageIdentity */
+	protected $page;
 
 	/** @var int[]|null */
 	protected $ids;
@@ -43,24 +44,31 @@ abstract class RevisionListBase extends ContextSource implements Iterator {
 	protected $current;
 
 	/**
-	 * Construct a revision list for a given title
+	 * Construct a revision list for a given page identity
 	 * @param IContextSource $context
 	 * @param PageIdentity $page
 	 */
 	public function __construct( IContextSource $context, PageIdentity $page ) {
 		$this->setContext( $context );
-		$this->title = Title::castFromPageIdentity( $page );
+		$this->page = $page;
 
-		$this->deprecatePublicPropertyFallback( 'title', '1.37', function () {
-			return $this->title;
-		} );
+		$this->deprecatePublicPropertyFallback(
+			'title',
+			'1.37',
+			function (): Title {
+				return Title::newFromPageIdentity( $this->page );
+			},
+			function ( PageIdentity $page ) {
+				$this->page = $page;
+			}
+		);
 	}
 
 	/**
 	 * @return PageIdentity
 	 */
 	public function getPage(): PageIdentity {
-		return $this->title;
+		return $this->page;
 	}
 
 	/**
@@ -68,7 +76,7 @@ abstract class RevisionListBase extends ContextSource implements Iterator {
 	 * @return string
 	 */
 	public function getPageName(): string {
-		return $this->title->getPrefixedText();
+		return Title::newFromPageIdentity( $this->page )->getPrefixedText();
 	}
 
 	/**
@@ -114,14 +122,15 @@ abstract class RevisionListBase extends ContextSource implements Iterator {
 		return $this->current;
 	}
 
-	public function rewind() {
+	public function rewind(): void {
 		$this->reset();
 	}
 
 	/**
 	 * Get the current list item, or false if we are at the end
-	 * @return RevisionItemBase
+	 * @return RevisionItemBase|false
 	 */
+	#[\ReturnTypeWillChange]
 	public function current() {
 		return $this->current;
 	}
@@ -131,18 +140,19 @@ abstract class RevisionListBase extends ContextSource implements Iterator {
 	 * @return RevisionItemBase
 	 * @suppress PhanParamSignatureMismatchInternal
 	 */
+	#[\ReturnTypeWillChange]
 	public function next() {
 		$this->res->next();
 		$this->initCurrent();
 		return $this->current;
 	}
 
-	public function key() {
+	public function key(): int {
 		return $this->res ? $this->res->key() : 0;
 	}
 
-	public function valid() {
-		return $this->res ? $this->res->valid() : false;
+	public function valid(): bool {
+		return $this->res && $this->res->valid();
 	}
 
 	/**

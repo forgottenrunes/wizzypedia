@@ -7,7 +7,6 @@
 		]
 	},
 	"visualeditor": "ویرایشگر دیداری",
-	"visualeditor-aliencontextitem-title": "آیتم",
 	"visualeditor-aliennode-tooltip": "پوزش، هم‌اکنون این عنصر تنها در حالت متنی ویرایش‌پذیر است.",
 	"visualeditor-align-widget-center": "نؤم جا/ مرکز",
 	"visualeditor-align-widget-left": "چپ",
@@ -27,7 +26,6 @@
 	"visualeditor-clipboard-cut": "بریدن",
 	"visualeditor-clipboard-paste": "چسباندن",
 	"visualeditor-clipboard-paste-special": "چسباندن به عنوان متن ساده",
-	"visualeditor-commentinspector-edit": "ویرایش نظر",
 	"visualeditor-commentinspector-title": "گەپ(قسە)بنۆیس",
 	"visualeditor-commentinspector-tooltip": "گەپ(قسە)بنۆیس",
 	"visualeditor-content-select-all": "انتخاب کؤل(گشت)",

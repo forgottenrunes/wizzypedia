@@ -1,8 +1,13 @@
 <?php
 
+use MediaWiki\Content\ValidationParams;
+use MediaWiki\Page\PageIdentity;
+use MediaWiki\Page\PageIdentityValue;
+use MediaWiki\Title\Title;
+
 class JsonContentHandlerIntegrationTest extends MediaWikiLangTestCase {
 
-	public function provideDataAndParserText() {
+	public static function provideDataAndParserText() {
 		return [
 			[
 				[],
@@ -44,6 +49,10 @@ class JsonContentHandlerIntegrationTest extends MediaWikiLangTestCase {
 				'&lt;script>alert("evil!")&lt;/script>"' .
 				'</td></tr></tbody></table>',
 			],
+			[
+				'{ broken JSON ]',
+				'Invalid JSON: $1',
+			],
 		];
 	}
 
@@ -52,7 +61,11 @@ class JsonContentHandlerIntegrationTest extends MediaWikiLangTestCase {
 	 * @covers JsonContentHandler::fillParserOutput
 	 */
 	public function testFillParserOutput( $data, $expected ) {
-		$content = new JsonContent( FormatJson::encode( $data ) );
+		if ( !is_string( $data ) ) {
+			$data = FormatJson::encode( $data );
+		}
+
+		$content = new JsonContent( $data );
 		$contentRenderer = $this->getServiceContainer()->getContentRenderer();
 		$parserOutput = $contentRenderer->getParserOutput(
 			$content,
@@ -63,5 +76,39 @@ class JsonContentHandlerIntegrationTest extends MediaWikiLangTestCase {
 		);
 		$this->assertInstanceOf( ParserOutput::class, $parserOutput );
 		$this->assertEquals( $expected, $parserOutput->getText() );
+	}
+
+	/**
+	 * @covers JsonContentHandler::validateSave
+	 */
+	public function testValidateSave() {
+		$handler = new JsonContentHandler();
+		$validationParams = new ValidationParams(
+			PageIdentityValue::localIdentity( 123, NS_MEDIAWIKI, 'Config.json' ),
+			0
+		);
+
+		$validJson = new JsonContent( FormatJson::encode( [ 'test' => 'value' ] ) );
+		$invalidJson = new JsonContent( '{"key":' );
+
+		$this->assertStatusGood( $handler->validateSave( $validJson, $validationParams ) );
+		$this->assertStatusNotOK( $handler->validateSave( $invalidJson, $validationParams ) );
+
+		$this->setTemporaryHook(
+			'JsonValidateSave',
+			static function ( JsonContent $content, PageIdentity $pageIdentity, StatusValue $status )
+			{
+				if ( $pageIdentity->getDBkey() === 'Config.json' &&
+					!isset( $content->getData()->getValue()->foo ) ) {
+					$status->fatal( 'missing-key-foo' );
+				}
+			}
+		);
+
+		$this->assertStatusNotOK( $handler->validateSave( $validJson, $validationParams ) );
+		$this->assertStatusError( 'invalid-json-data',
+			$handler->validateSave( $invalidJson, $validationParams ) );
+		$this->assertStatusError( 'missing-key-foo',
+			$handler->validateSave( $validJson, $validationParams ) );
 	}
 }

@@ -1,7 +1,5 @@
 <?php
 
-use MediaWiki\MediaWikiServices;
-
 require_once __DIR__ . '/Maintenance.php';
 
 /**
@@ -87,11 +85,12 @@ class MigrateRevisionActorTemp extends LoggedUpdateMaintenance {
 				break;
 			}
 
+			// @phan-suppress-next-line PhanTypeSuspiciousStringExpression last is not-null when used
 			$this->output( "... rev_id=$last, updated $updated\n" );
 			$conds = [ 'rev_id > ' . $dbw->addQuotes( $last ) ];
 
 			// Sleep between batches for replication to catch up
-			MediaWikiServices::getInstance()->getDBLoadBalancerFactory()->waitForReplication();
+			$this->waitForReplication();
 			$sleep = (int)$this->getOption( 'sleep', 0 );
 			if ( $sleep > 0 ) {
 				sleep( $sleep );

@@ -33,7 +33,7 @@
 					group: 'insert',
 					tools: {
 						link: {
-							labelMsg: 'wikieditor-toolbar-tool-link',
+							label: mw.msg( 'wikieditor-toolbar-tool-link' ),
 							type: 'button',
 							oouiIcon: 'link',
 							action: {
@@ -42,25 +42,12 @@
 							}
 						},
 						file: {
-							labelMsg: 'wikieditor-toolbar-tool-file',
+							label: mw.msg( 'wikieditor-toolbar-tool-file' ),
 							type: 'button',
 							oouiIcon: 'image',
 							action: {
 								type: 'dialog',
 								module: 'insert-file'
-							}
-						},
-						reference: {
-							labelMsg: 'wikieditor-toolbar-tool-reference',
-							filters: [ 'body.ns-subject' ],
-							type: 'button',
-							oouiIcon: 'reference',
-							action: {
-								type: 'encapsulate',
-								options: {
-									pre: '<ref>',
-									post: '</ref>'
-								}
 							}
 						}
 					}
@@ -70,7 +57,7 @@
 					group: 'insert',
 					tools: {
 						table: {
-							labelMsg: 'wikieditor-toolbar-tool-table',
+							label: mw.msg( 'wikieditor-toolbar-tool-table' ),
 							type: 'button',
 							oouiIcon: 'table',
 							action: {
@@ -86,7 +73,7 @@
 						search: {
 							tools: {
 								replace: {
-									labelMsg: 'wikieditor-toolbar-tool-replace',
+									label: mw.msg( 'wikieditor-toolbar-tool-replace' ),
 									type: 'button',
 									oouiIcon: 'articleSearch',
 									action: {
@@ -103,7 +90,7 @@
 		getDefaultConfig: function () {
 			return { dialogs: {
 				'insert-link': {
-					titleMsg: 'wikieditor-toolbar-tool-link-title',
+					title: mw.message( 'wikieditor-toolbar-tool-link-title' ).parse(),
 					id: 'wikieditor-toolbar-link-dialog',
 					html: $( '<fieldset>' ).append(
 						insertLinkTitleInputField.$element,
@@ -189,7 +176,7 @@
 									} else {
 										target = target.trim();
 										// Prepend http:// if there is no protocol
-										if ( !target.match( /^[a-z]+:\/\/./ ) ) {
+										if ( !/^[a-z]+:\/\/./.test( target ) ) {
 											target = 'http://' + target;
 										}
 
@@ -199,7 +186,13 @@
 											var buttons = {};
 											buttons[ mw.msg( 'wikieditor-toolbar-tool-link-lookslikeinternal-int' ) ] =
 												function () {
-													insertLinkTitleInputField.getField().setValue( match[ 1 ] );
+													var titleValue = match[ 1 ];
+													try {
+														titleValue = decodeURI( titleValue );
+													} catch ( ex ) {
+														// Ignore invalid URLs; use plain titleValue instead.
+													}
+													insertLinkTitleInputField.getField().setValue( titleValue );
 													insertLinkTitleInputField.setUrlMode( LinkTypeField.static.LINK_MODE_INTERNAL );
 													$( this ).dialog( 'close' );
 													// Select the first match (i.e. the value set above) so that the
@@ -257,8 +250,10 @@
 						},
 						open: function () {
 							// Obtain the server name without the protocol. wgServer may be protocol-relative
+							// eslint-disable-next-line security/detect-unsafe-regex
 							var serverName = mw.config.get( 'wgServer' ).replace( /^(https?:)?\/\//, '' );
 							// Cache the articlepath regex
+							// eslint-disable-next-line security/detect-non-literal-regexp
 							$( this ).data( 'articlePathRegex', new RegExp(
 								'^https?://' + mw.util.escapeRegExp( serverName + mw.config.get( 'wgArticlePath' ) )
 									.replace( /\\\$1/g, '(.*)' ) + '$'
@@ -340,7 +335,7 @@
 					}
 				},
 				'insert-file': {
-					titleMsg: 'wikieditor-toolbar-tool-file-title',
+					title: mw.message( 'wikieditor-toolbar-tool-file-title' ).parse(),
 					id: 'wikieditor-toolbar-file-dialog',
 					htmlTemplate: 'dialogInsertFile.html',
 					init: function () {
@@ -498,9 +493,6 @@
 								if ( !match ) {
 									return false;
 								}
-								var result = {};
-								result.pre = match[ 1 ];
-								result.post = match[ 3 ];
 								// Escape pipes inside links and templates,
 								// then split the parameters at the remaining pipes
 								var params = match[ 2 ].replace( /\[\[[^[\]]*\]\]|\{\{[^{}]\}\}/g, function ( link ) {
@@ -510,7 +502,11 @@
 								if ( !file || file.getNamespaceId() !== 6 ) {
 									return false;
 								}
-								result.fileName = file.getMainText();
+								var result = {
+									pre: match[ 1 ],
+									post: match[ 3 ],
+									fileName: file.getMainText()
+								};
 								for ( var i = 1; i < params.length; i++ ) {
 									var paramOrig = params[ i ];
 									var param = paramOrig.toLowerCase();
@@ -589,7 +585,7 @@
 					}
 				},
 				'insert-table': {
-					titleMsg: 'wikieditor-toolbar-tool-table-title',
+					title: mw.message( 'wikieditor-toolbar-tool-table-title' ).parse(),
 					id: 'wikieditor-toolbar-table-dialog',
 					htmlTemplate: 'dialogInsertTable.html',
 					init: function () {
@@ -754,7 +750,7 @@
 					}
 				},
 				'search-and-replace': {
-					titleMsg: 'wikieditor-toolbar-tool-replace-title',
+					title: mw.message( 'wikieditor-toolbar-tool-replace-title' ).parse(),
 					id: 'wikieditor-toolbar-replace-dialog',
 					htmlTemplate: 'dialogReplace.html',
 					init: function () {
@@ -811,11 +807,7 @@
 							var match = false;
 							var offset, textRemainder;
 							if ( mode !== 'replaceAll' ) {
-								if ( mode === 'replace' ) {
-									offset = $( this ).data( 'matchIndex' );
-								} else {
-									offset = $( this ).data( 'offset' );
-								}
+								offset = $( this ).data( mode === 'replace' ? 'matchIndex' : 'offset' );
 								textRemainder = text.slice( offset );
 								match = textRemainder.match( regex );
 							}
@@ -865,28 +857,20 @@
 									offset = offset + match.index + actualReplacement.length;
 									textRemainder = text.slice( offset );
 									match = textRemainder.match( regex );
-
-									if ( match ) {
-										start = offset + match.index;
-										end = start + match[ 0 ].length;
-									} else {
+									if ( !match ) {
 										// If no new string was found, try searching from the beginning.
 										// TODO: Add a "Wrap around" option.
+										offset = 0;
 										textRemainder = text;
 										match = textRemainder.match( regex );
-										if ( match ) {
-											start = match.index;
-											end = start + match[ 0 ].length;
-										} else {
-											// Give up
-											start = 0;
-											end = 0;
-										}
 									}
-								} else {
-									start = offset + match.index;
-									end = start + match[ 0 ].length;
+									if ( !match ) {
+										// Give up
+										match = { index: 0, 0: { length: 0 } };
+									}
 								}
+								start = offset + match.index;
+								end = start + match[ 0 ].length;
 
 								$( this ).data( 'matchIndex', start );
 
@@ -922,8 +906,7 @@
 						},
 						open: function () {
 							var that = this;
-							$( this ).data( 'offset', 0 );
-							$( this ).data( 'matchIndex', 0 );
+							$( this ).data( { offset: 0, matchIndex: 0 } );
 
 							$( '#wikieditor-toolbar-replace-search' ).trigger( 'focus' );
 							$( '#wikieditor-toolbar-replace-nomatch, #wikieditor-toolbar-replace-success, #wikieditor-toolbar-replace-emptysearch, #wikieditor-toolbar-replace-invalidregex' ).hide();
@@ -945,10 +928,7 @@
 							}
 							var $dialog = $( this ).closest( '.ui-dialog' );
 							that = this;
-							var context = $( this ).data( 'context' );
-							var $textbox = context.$textarea;
-
-							$textbox
+							$( this ).data( 'context' ).$textarea
 								.on( 'keypress.srdialog', function ( e ) {
 									if ( e.which === 13 ) {
 										// Enter
@@ -961,9 +941,8 @@
 								} );
 						},
 						close: function () {
-							var context = $( this ).data( 'context' ),
-								$textbox = context.$textarea;
-							$textbox.off( 'keypress.srdialog' );
+							$( this ).data( 'context' ).$textarea
+								.off( 'keypress.srdialog' );
 							$( this ).closest( '.ui-dialog' ).data( 'dialogaction', false );
 						}
 					}

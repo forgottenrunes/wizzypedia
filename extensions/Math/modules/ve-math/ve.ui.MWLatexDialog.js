@@ -31,20 +31,7 @@ ve.ui.MWLatexDialog.static.size = 'larger';
 
 ve.ui.MWLatexDialog.static.dir = 'ltr';
 
-ve.ui.MWLatexDialog.static.symbols = null;
-
 ve.ui.MWLatexDialog.static.symbolsModule = null;
-
-/* static methods */
-
-/**
- * Set the symbols property
- *
- * @param {Object} symbols The symbols and their group names
- */
-ve.ui.MWLatexDialog.static.setSymbols = function ( symbols ) {
-	this.symbols = symbols;
-};
 
 /* Methods */
 
@@ -62,11 +49,13 @@ ve.ui.MWLatexDialog.prototype.initialize = function () {
 
 	var formulaTabPanel = new OO.ui.TabPanelLayout( 'formula', {
 		label: ve.msg( 'math-visualeditor-mwlatexdialog-card-formula' ),
-		padded: true
+		padded: true,
+		classes: [ 'latex-dialog-formula-panel' ]
 	} );
 	var optionsTabPanel = new OO.ui.TabPanelLayout( 'options', {
 		label: ve.msg( 'math-visualeditor-mwlatexdialog-card-options' ),
-		padded: true
+		padded: true,
+		classes: [ 'latex-dialog-options-panel' ]
 	} );
 
 	this.indexLayout.addTabPanels( [
@@ -113,18 +102,27 @@ ve.ui.MWLatexDialog.prototype.initialize = function () {
 	} );
 
 	this.idInput = new OO.ui.TextInputWidget();
+	this.qidInput = new mw.widgets.MathWbEntitySelector();
 
 	var inputField = new OO.ui.FieldLayout( this.input, {
 		align: 'top',
+		classes: [ 'latex-dialog-formula-field' ],
 		label: ve.msg( 'math-visualeditor-mwlatexdialog-card-formula' )
 	} );
 	var displayField = new OO.ui.FieldLayout( this.displaySelect, {
 		align: 'top',
+		classes: [ 'latex-dialog-display-field' ],
 		label: ve.msg( 'math-visualeditor-mwlatexinspector-display' )
 	} );
 	var idField = new OO.ui.FieldLayout( this.idInput, {
 		align: 'top',
+		classes: [ 'latex-dialog-id-field' ],
 		label: ve.msg( 'math-visualeditor-mwlatexinspector-id' )
+	} );
+	var qidField = new OO.ui.FieldLayout( this.qidInput, {
+		align: 'top',
+		classes: [ 'latex-dialog-qid-field' ],
+		label: ve.msg( 'math-visualeditor-mwlatexinspector-qid' )
 	} );
 
 	var formulaPanel = new OO.ui.PanelLayout( {
@@ -140,8 +138,8 @@ ve.ui.MWLatexDialog.prototype.initialize = function () {
 		continuous: true
 	} );
 	this.pages = [];
-	this.symbolsPromise = mw.loader.using( this.constructor.static.symbolsModule ).done( function () {
-		var symbols = dialog.constructor.static.symbols;
+	this.symbolsPromise = mw.loader.using( this.constructor.static.symbolsModule ).done( function ( require ) {
+		var symbols = require( dialog.constructor.static.symbolsModule );
 		for ( var category in symbols ) {
 			dialog.pages.push(
 				new ve.ui.MWLatexPage(
@@ -175,7 +173,8 @@ ve.ui.MWLatexDialog.prototype.initialize = function () {
 		);
 		optionsTabPanel.$element.append(
 			displayField.$element,
-			idField.$element
+			idField.$element,
+			qidField.$element
 		);
 
 		dialog.$body
@@ -194,17 +193,20 @@ ve.ui.MWLatexDialog.prototype.getSetupProcess = function ( data ) {
 			var attributes = this.selectedNode && this.selectedNode.getAttribute( 'mw' ).attrs,
 				display = attributes && attributes.display || 'default',
 				id = attributes && attributes.id || '',
+				qid = attributes && attributes.qid || '',
 				isReadOnly = this.isReadOnly();
 
 			// Populate form
 			// TODO: This widget is not readable when disabled
 			this.displaySelect.selectItemByData( display ).setDisabled( isReadOnly );
 			this.idInput.setValue( id ).setReadOnly( isReadOnly );
+			this.qidInput.setValue( qid ).setReadOnly( isReadOnly );
 
 			// Add event handlers
 			this.input.on( 'change', this.onChangeHandler );
 			this.displaySelect.on( 'choose', this.onChangeHandler );
 			this.idInput.on( 'change', this.onChangeHandler );
+			this.qidInput.on( 'change', this.onChangeHandler );
 		}, this );
 };
 
@@ -212,6 +214,7 @@ ve.ui.MWLatexDialog.prototype.getSetupProcess = function ( data ) {
  * @inheritdoc
  */
 ve.ui.MWLatexDialog.prototype.getReadyProcess = function ( data ) {
+	mw.hook( 've.ui.MwLatexDialogReadyProcess' ).fire();
 	return ve.ui.MWLatexDialog.super.prototype.getReadyProcess.call( this, data )
 		.next( function () {
 			return this.symbolsPromise;
@@ -233,6 +236,7 @@ ve.ui.MWLatexDialog.prototype.getTeardownProcess = function ( data ) {
 			this.input.off( 'change', this.onChangeHandler );
 			this.displaySelect.off( 'choose', this.onChangeHandler );
 			this.idInput.off( 'change', this.onChangeHandler );
+			this.qidInput.off( 'change', this.onChangeHandler );
 			this.getManager().disconnect( this );
 			this.indexLayout.setTabPanel( 'formula' );
 			this.indexLayout.resetScroll();
@@ -251,10 +255,12 @@ ve.ui.MWLatexDialog.prototype.updateMwData = function ( mwData ) {
 	// Get data from dialog
 	var display = this.displaySelect.findSelectedItem().getData();
 	var id = this.idInput.getValue();
+	var qid = this.qidInput.getValue();
 
 	// Update attributes
 	mwData.attrs.display = display !== 'default' ? display : undefined;
 	mwData.attrs.id = id || undefined;
+	mwData.attrs.qid = qid || undefined;
 };
 
 /**

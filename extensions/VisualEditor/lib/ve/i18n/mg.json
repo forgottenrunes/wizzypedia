@@ -5,7 +5,6 @@
 		]
 	},
 	"visualeditor": "VisualEditor",
-	"visualeditor-aliencontextitem-title": "Zavatra",
 	"visualeditor-aliennode-tooltip": "Miala tsiny fa ovaina amin'ny fanovana ny fango ihany ity zavatra ity.",
 	"visualeditor-align-widget-center": "Afovoany",
 	"visualeditor-align-widget-default": "Raha tsy misy",
@@ -36,7 +35,6 @@
 	"visualeditor-clipboard-paste-special": "Apetaka ho soratra tsy manan'endrika",
 	"visualeditor-command-dialog-cancel": "Hidiana / hamoana ny fiovana",
 	"visualeditor-command-dialog-confirm": "Marihana ilay fiovana",
-	"visualeditor-commentinspector-edit": "Resaky ny fiovana",
 	"visualeditor-commentinspector-title": "Ambangovangony",
 	"visualeditor-commentinspector-tooltip": "Hanisy ambangovangony",
 	"visualeditor-content-select-all": "Fidiana daholo",
@@ -63,7 +61,6 @@
 	"visualeditor-dialog-table-title": "Tondron'ilay tabilao",
 	"visualeditor-diff-no-changes": "Tsy misy fiovana",
 	"visualeditor-find-and-replace-diacritic": "Tsy miraharaha ny diakritika",
-	"visualeditor-find-and-replace-diacritic-unavailable": "Tsy afaka mampiasa fikarohana tsy miraharaha diakritika anatin'ity mpitety ity",
 	"visualeditor-find-and-replace-done": "Vita",
 	"visualeditor-find-and-replace-find-text": "Tadiavina",
 	"visualeditor-find-and-replace-match-case": "Ampiadiana amin'ny haben-tsoratra",

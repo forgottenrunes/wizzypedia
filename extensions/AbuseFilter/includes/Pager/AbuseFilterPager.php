@@ -4,23 +4,42 @@ namespace MediaWiki\Extension\AbuseFilter\Pager;
 
 use Linker;
 use LogicException;
+use MediaWiki\Cache\LinkBatchFactory;
 use MediaWiki\Extension\AbuseFilter\AbuseFilterPermissionManager;
+use MediaWiki\Extension\AbuseFilter\AbuseFilterServices;
 use MediaWiki\Extension\AbuseFilter\SpecsFormatter;
 use MediaWiki\Extension\AbuseFilter\View\AbuseFilterViewList;
 use MediaWiki\Linker\LinkRenderer;
-use MWException;
 use SpecialPage;
 use stdClass;
 use TablePager;
+use UnexpectedValueException;
 use Wikimedia\Rdbms\FakeResultWrapper;
+use Wikimedia\Rdbms\IResultWrapper;
 
 /**
  * Class to build paginated filter list
  */
 class AbuseFilterPager extends TablePager {
 
+	/**
+	 * The unique sort fields for the sort options for unique paginate
+	 */
+	private const INDEX_FIELDS = [
+		'af_id' => [ 'af_id' ],
+		'af_enabled' => [ 'af_enabled', 'af_deleted', 'af_id' ],
+		'af_timestamp' => [ 'af_timestamp', 'af_id' ],
+		'af_hidden' => [ 'af_hidden', 'af_id' ],
+		'af_group' => [ 'af_group', 'af_id' ],
+		'af_hit_count' => [ 'af_hit_count', 'af_id' ],
+		'af_public_comments' => [ 'af_public_comments', 'af_id' ],
+	];
+
+	/** @var ?LinkBatchFactory */
+	private $linkBatchFactory;
+
 	/** @var AbuseFilterPermissionManager */
-	protected $afPermManager;
+	private $afPermManager;
 
 	/** @var SpecsFormatter */
 	protected $specsFormatter;
@@ -28,11 +47,11 @@ class AbuseFilterPager extends TablePager {
 	/**
 	 * @var AbuseFilterViewList The associated page
 	 */
-	protected $mPage;
+	private $mPage;
 	/**
 	 * @var array Query WHERE conditions
 	 */
-	protected $conds;
+	private $conds;
 	/**
 	 * @var string|null The pattern being searched
 	 */
@@ -45,6 +64,7 @@ class AbuseFilterPager extends TablePager {
 	/**
 	 * @param AbuseFilterViewList $page
 	 * @param LinkRenderer $linkRenderer
+	 * @param ?LinkBatchFactory $linkBatchFactory
 	 * @param AbuseFilterPermissionManager $afPermManager
 	 * @param SpecsFormatter $specsFormatter
 	 * @param array $conds
@@ -54,6 +74,7 @@ class AbuseFilterPager extends TablePager {
 	public function __construct(
 		AbuseFilterViewList $page,
 		LinkRenderer $linkRenderer,
+		?LinkBatchFactory $linkBatchFactory,
 		AbuseFilterPermissionManager $afPermManager,
 		SpecsFormatter $specsFormatter,
 		array $conds,
@@ -65,6 +86,7 @@ class AbuseFilterPager extends TablePager {
 		$this->specsFormatter = $specsFormatter;
 		parent::__construct( $page->getContext(), $linkRenderer );
 		$this->mPage = $page;
+		$this->linkBatchFactory = $linkBatchFactory;
 		$this->conds = $conds;
 		$this->searchPattern = $searchPattern;
 		$this->searchMode = $searchMode;
@@ -74,8 +96,9 @@ class AbuseFilterPager extends TablePager {
 	 * @return array
 	 */
 	public function getQueryInfo() {
+		$actorQuery = AbuseFilterServices::getActorMigration()->getJoin( 'af_user' );
 		return [
-			'tables' => [ 'abuse_filter' ],
+			'tables' => [ 'abuse_filter' ] + $actorQuery['tables'],
 			'fields' => [
 				// All columns but af_comments
 				'af_id',
@@ -87,14 +110,32 @@ class AbuseFilterPager extends TablePager {
 				'af_hidden',
 				'af_hit_count',
 				'af_timestamp',
-				'af_user_text',
-				'af_user',
 				'af_actions',
 				'af_group',
 				'af_throttled'
-			],
+			] + $actorQuery['fields'],
 			'conds' => $this->conds,
+			'join_conds' => $actorQuery['joins'],
 		];
+	}
+
+	/**
+	 * @param IResultWrapper $result
+	 */
+	protected function preprocessResults( $result ) {
+		// LinkBatchFactory only provided and needed for local wiki results
+		if ( $this->linkBatchFactory === null || $this->getNumRows() === 0 ) {
+			return;
+		}
+
+		$lb = $this->linkBatchFactory->newLinkBatch();
+		$lb->setCaller( __METHOD__ );
+		foreach ( $result as $row ) {
+			$lb->add( NS_USER, $row->af_user_text );
+			$lb->add( NS_USER_TALK, $row->af_user_text );
+		}
+		$lb->execute();
+		$result->seek( 0 );
 	}
 
 	/**
@@ -167,12 +208,12 @@ class AbuseFilterPager extends TablePager {
 			'af_hidden' => 'abusefilter-list-visibility',
 		];
 
-		$user = $this->getUser();
-		if ( $this->afPermManager->canSeeLogDetails( $user ) ) {
+		$performer = $this->getAuthority();
+		if ( $this->afPermManager->canSeeLogDetails( $performer ) ) {
 			$headers['af_hit_count'] = 'abusefilter-list-hitcount';
 		}
 
-		if ( $this->afPermManager->canViewPrivateFilters( $user ) && $this->searchMode !== null ) {
+		if ( $this->afPermManager->canViewPrivateFilters( $performer ) && $this->searchMode !== null ) {
 			// This is also excluded in the default view
 			$headers['af_pattern'] = 'abusefilter-list-pattern';
 		}
@@ -286,7 +327,7 @@ class AbuseFilterPager extends TablePager {
 			case 'af_group':
 				return $this->specsFormatter->nameGroup( $value );
 			default:
-				throw new MWException( "Unknown row type $name!" );
+				throw new UnexpectedValueException( "Unknown row type $name!" );
 		}
 	}
 
@@ -383,29 +424,23 @@ class AbuseFilterPager extends TablePager {
 	}
 
 	/**
-	 * @param string $name
-	 * @return bool
+	 * @inheritDoc
 	 */
-	public function isFieldSortable( $name ) {
-		$sortable_fields = [
-			'af_id',
-			'af_enabled',
-			'af_timestamp',
-			'af_hidden',
-			'af_group',
-		];
-		if ( $this->afPermManager->canSeeLogDetails( $this->getUser() ) ) {
-			$sortable_fields[] = 'af_hit_count';
-			$sortable_fields[] = 'af_public_comments';
-		}
-		return in_array( $name, $sortable_fields );
+	public function getIndexField() {
+		return [ self::INDEX_FIELDS[$this->mSort] ];
 	}
 
 	/**
-	 * @codeCoverageIgnore Merely declarative
-	 * @inheritDoc
+	 * @param string $field
+	 *
+	 * @return bool
 	 */
-	public function getExtraSortFields() {
-		return [ 'af_enabled' => 'af_deleted' ];
+	public function isFieldSortable( $field ) {
+		if ( ( $field === 'af_hit_count' || $field === 'af_public_comments' )
+			&& !$this->afPermManager->canSeeLogDetails( $this->getAuthority() )
+		) {
+			return false;
+		}
+		return isset( self::INDEX_FIELDS[$field] );
 	}
 }

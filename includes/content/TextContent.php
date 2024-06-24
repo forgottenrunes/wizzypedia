@@ -25,7 +25,9 @@
  * @author Daniel Kinzler
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use Wikimedia\Diff\Diff;
 
 /**
  * Content object implementation for representing flat text.
@@ -47,7 +49,6 @@ class TextContent extends AbstractContent {
 	 * @stable to call
 	 * @param string $text
 	 * @param string $model_id
-	 * @throws MWException
 	 */
 	public function __construct( $text, $model_id = CONTENT_MODEL_TEXT ) {
 		parent::__construct( $model_id );
@@ -60,7 +61,7 @@ class TextContent extends AbstractContent {
 		}
 
 		if ( !is_string( $text ) ) {
-			throw new MWException( "TextContent expects a string in the constructor." );
+			throw new InvalidArgumentException( "TextContent expects a string in the constructor." );
 		}
 
 		$this->mText = $text;
@@ -116,7 +117,8 @@ class TextContent extends AbstractContent {
 	 * @return bool
 	 */
 	public function isCountable( $hasLinks = null ) {
-		$articleCountMethod = MediaWikiServices::getInstance()->getMainConfig()->get( 'ArticleCountMethod' );
+		$articleCountMethod = MediaWikiServices::getInstance()->getMainConfig()->get(
+			MainConfigNames::ArticleCountMethod );
 
 		if ( $this->isRedirect() ) {
 			return false;
@@ -173,7 +175,7 @@ class TextContent extends AbstractContent {
 	 *
 	 * @note this allows any text-based content to be transcluded as if it was wikitext.
 	 *
-	 * @return string|bool The raw text, or false if the conversion failed.
+	 * @return string|false The raw text, or false if the conversion failed.
 	 */
 	public function getWikitextForTransclusion() {
 		/** @var WikitextContent $wikitext */
@@ -249,7 +251,7 @@ class TextContent extends AbstractContent {
 	 * @param string $lossy Flag, set to "lossy" to allow lossy conversion. If lossy conversion is not
 	 *     allowed, full round-trip conversion is expected to work without losing information.
 	 *
-	 * @return Content|bool A content object with the content model $toModel, or false if that
+	 * @return Content|false A content object with the content model $toModel, or false if that
 	 *     conversion is not supported.
 	 * @throws MWUnknownContentModelException
 	 *

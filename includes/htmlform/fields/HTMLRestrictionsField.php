@@ -1,5 +1,7 @@
 <?php
 
+use MediaWiki\Request\WebRequest;
+use MediaWiki\Status\Status;
 use Wikimedia\IPUtils;
 
 /**
@@ -29,11 +31,7 @@ class HTMLRestrictionsField extends HTMLTextAreaField {
 	}
 
 	public function getHelpText() {
-		$helpText = parent::getHelpText();
-		if ( $helpText === null ) {
-			$helpText = $this->msg( 'restrictionsfield-help' )->parse();
-		}
-		return $helpText;
+		return parent::getHelpText() ?? $this->msg( 'restrictionsfield-help' )->parse();
 	}
 
 	/**
@@ -58,11 +56,7 @@ class HTMLRestrictionsField extends HTMLTextAreaField {
 	 * @return MWRestrictions
 	 */
 	public function getDefault() {
-		$default = parent::getDefault();
-		if ( $default === null ) {
-			$default = MWRestrictions::newDefault();
-		}
-		return $default;
+		return parent::getDefault() ?? MWRestrictions::newDefault();
 	}
 
 	/**

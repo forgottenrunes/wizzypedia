@@ -21,6 +21,7 @@ namespace MediaWiki\Extension\OATHAuth\Key;
 
 use Base32\Base32;
 use DomainException;
+use EmptyBagOStuff;
 use Exception;
 use jakobo\HOTP\HOTP;
 use MediaWiki\Extension\OATHAuth\IAuthKey;
@@ -29,6 +30,7 @@ use MediaWiki\Extension\OATHAuth\OATHUserRepository;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\MediaWikiServices;
 use MWException;
+use ObjectCache;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -39,18 +41,6 @@ use Psr\Log\LoggerInterface;
  * @ingroup Extensions
  */
 class TOTPKey implements IAuthKey {
-	/**
-	 * Represents that a token corresponds to the main secret
-	 * @see verify
-	 */
-	private const MAIN_TOKEN = 1;
-
-	/**
-	 * Represents that a token corresponds to a scratch token
-	 * @see verify
-	 */
-	private const SCRATCH_TOKEN = -1;
-
 	/** @var array Two factor binary secret */
 	private $secret;
 
@@ -143,14 +133,20 @@ class TOTPKey implements IAuthKey {
 
 		// Prevent replay attacks
 		$store = MediaWikiServices::getInstance()->getMainObjectStash();
+
+		if ( $store instanceof EmptyBagOStuff ) {
+			// Try and find some usable cache if the MainObjectStash isn't useful
+			$store = ObjectCache::getLocalServerInstance( CACHE_ANYTHING );
+		}
+
 		$uid = MediaWikiServices::getInstance()
 			->getCentralIdLookupFactory()
 			->getLookup()
 			->centralIdFromLocalUser( $user->getUser() );
+
 		$key = $store->makeKey( 'oathauth-totp', 'usedtokens', $uid );
 		$lastWindow = (int)$store->get( $key );
 
-		$retval = false;
 		$results = HOTP::generateByTimeWindow(
 			Base32::decode( $this->secret['secret'] ),
 			$this->secret['period'],
@@ -158,7 +154,7 @@ class TOTPKey implements IAuthKey {
 			$wgOATHAuthWindowRadius
 		);
 
-		// Remove any whitespace from the received token, which can be an intended group seperator
+		// Remove any whitespace from the received token, which can be an intended group separator
 		// or trimmeable whitespace
 		$token = preg_replace( '/\s+/', '', $token );
 
@@ -171,61 +167,48 @@ class TOTPKey implements IAuthKey {
 		foreach ( $results as $window => $result ) {
 			if ( $window > $lastWindow && hash_equals( $result->toHOTP( 6 ), $token ) ) {
 				$lastWindow = $window;
-				$retval = self::MAIN_TOKEN;
 
 				$logger->info( 'OATHAuth user {user} entered a valid OTP from {clientip}', [
 					'user' => $user->getAccount(),
 					'clientip' => $clientIP,
 				] );
-				break;
+
+				$store->set(
+					$key,
+					$lastWindow,
+					$this->secret['period'] * ( 1 + 2 * $wgOATHAuthWindowRadius )
+				);
+
+				return true;
 			}
 		}
 
 		// See if the user is using a scratch token
-		if ( !$retval ) {
-			foreach ( $this->scratchTokens as $i => $scratchToken ) {
-				if ( hash_equals( $token, $scratchToken ) ) {
-					// If we used a scratch token, remove it from the scratch token list.
-					// This is saved below via OATHUserRepository::persist, TOTP::getDataFromUser.
-					array_splice( $this->scratchTokens, $i, 1 );
+		foreach ( $this->scratchTokens as $i => $scratchToken ) {
+			if ( hash_equals( $token, $scratchToken ) ) {
+				// If we used a scratch token, remove it from the scratch token list.
+				// This is saved below via OATHUserRepository::persist
+				array_splice( $this->scratchTokens, $i, 1 );
 
-					$logger->info( 'OATHAuth user {user} used a scratch token from {clientip}', [
-						'user' => $user->getAccount(),
-						'clientip' => $clientIP,
-					] );
+				$logger->info( 'OATHAuth user {user} used a scratch token from {clientip}', [
+					'user' => $user->getAccount(),
+					'clientip' => $clientIP,
+				] );
 
-					$auth = MediaWikiServices::getInstance()->getService( 'OATHAuth' );
-					$module = $auth->getModuleByKey( 'totp' );
+				$moduleRegistry = MediaWikiServices::getInstance()->getService( 'OATHAuthModuleRegistry' );
+				$module = $moduleRegistry->getModuleByKey( 'totp' );
 
-					/** @var OATHUserRepository $userRepo */
-					$userRepo = MediaWikiServices::getInstance()->getService( 'OATHUserRepository' );
-					$user->addKey( $this );
-					$user->setModule( $module );
-					$userRepo->persist( $user, $clientIP );
-					// Only return true if we removed it from the database
-					$retval = self::SCRATCH_TOKEN;
-					break;
-				}
+				/** @var OATHUserRepository $userRepo */
+				$userRepo = MediaWikiServices::getInstance()->getService( 'OATHUserRepository' );
+				// TODO: support for multiple keys
+				$user->setKeys( [ $this ] );
+				$userRepo->persist( $user, $clientIP );
+
+				return true;
 			}
 		}
 
-		if ( $retval ) {
-			$store->set(
-				$key,
-				$lastWindow,
-				$this->secret['period'] * ( 1 + 2 * $wgOATHAuthWindowRadius )
-			);
-		} else {
-			$logger->info( 'OATHAuth user {user} failed OTP/scratch token from {clientip}', [
-				'user' => $user->getAccount(),
-				'clientip' => $clientIP,
-			] );
-
-			// Increase rate limit counter for failed request
-			$user->getUser()->pingLimiter( 'badoath' );
-		}
-
-		return $retval;
+		return false;
 	}
 
 	public function regenerateScratchTokens() {
@@ -255,7 +238,7 @@ class TOTPKey implements IAuthKey {
 		return LoggerFactory::getInstance( 'authentication' );
 	}
 
-	public function jsonSerialize() {
+	public function jsonSerialize(): array {
 		return [
 			'secret' => $this->getSecret(),
 			'scratch_tokens' => $this->getScratchTokens()

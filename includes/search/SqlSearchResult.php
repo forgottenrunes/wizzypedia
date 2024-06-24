@@ -21,7 +21,9 @@
  * @ingroup Search
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
 
 class SqlSearchResult extends RevisionSearchResult {
 	/** @var string[] */
@@ -49,7 +51,7 @@ class SqlSearchResult extends RevisionSearchResult {
 	 */
 	public function getTextSnippet( $terms = [] ) {
 		$advancedSearchHighlighting = MediaWikiServices::getInstance()
-			->getMainConfig()->get( 'AdvancedSearchHighlighting' );
+			->getMainConfig()->get( MainConfigNames::AdvancedSearchHighlighting );
 		$this->initText();
 
 		$h = new SearchHighlighter();

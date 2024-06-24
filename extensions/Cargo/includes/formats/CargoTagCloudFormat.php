@@ -22,7 +22,7 @@ class CargoTagCloudFormat extends CargoDisplayFormat {
 	 * @return string HTML
 	 */
 	public function display( $valuesTagCloud, $formattedValuesTagCloud, $fieldDescriptions, $displayParams ) {
-		$this->mOutput->addModuleStyles( 'ext.cargo.main' );
+		$this->mOutput->addModuleStyles( [ 'ext.cargo.main' ] );
 
 		if ( count( $fieldDescriptions ) < 2 ) {
 			return '';
@@ -55,17 +55,8 @@ class CargoTagCloudFormat extends CargoDisplayFormat {
 			return '';
 		}
 
-		if ( isset( $displayParams['max size'] ) ) {
-			$maxSize = $displayParams['max size'];
-		} else {
-			$maxSize = 200;
-		}
-
-		if ( isset( $displayParams['min size'] ) ) {
-			$minSize = $displayParams['min size'];
-		} else {
-			$minSize = 80;
-		}
+		$maxSize = $displayParams['max size'] ?? 200;
+		$minSize = $displayParams['min size'] ?? 80;
 
 		$maxSizeIncrease = $maxSize - $minSize;
 

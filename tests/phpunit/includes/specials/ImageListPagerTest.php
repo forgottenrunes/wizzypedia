@@ -1,5 +1,7 @@
 <?php
 
+use MediaWiki\Pager\ImageListPager;
+
 /**
  * Test class for ImageListPagerTest class.
  *
@@ -19,10 +21,11 @@ class ImageListPagerTest extends MediaWikiIntegrationTestCase {
 			RequestContext::getMain(),
 			$services->getCommentStore(),
 			$services->getLinkRenderer(),
-			$services->getDBLoadBalancer(),
+			$services->getDBLoadBalancerFactory(),
 			$services->getRepoGroup(),
 			$services->getUserCache(),
 			$services->getUserNameUtils(),
+			$services->getCommentFormatter(),
 			null,
 			'',
 			false,

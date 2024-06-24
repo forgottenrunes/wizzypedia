@@ -18,6 +18,12 @@
  * @file
  */
 
+namespace MediaWiki\Config;
+
+use BagOStuff;
+use DnsSrvDiscoverer;
+use HashBagOStuff;
+use MultiHttpClient;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerInterface;
 use Wikimedia\IPUtils;
@@ -36,8 +42,6 @@ class EtcdConfig implements Config, LoggerAwareInterface {
 	private $srvCache;
 	/** @var array */
 	private $procCache;
-	/** @var LoggerInterface */
-	private $logger;
 	/** @var DnsSrvDiscoverer */
 	private $dsd;
 
@@ -116,31 +120,29 @@ class EtcdConfig implements Config, LoggerAwareInterface {
 			$this->srvCache = ObjectFactory::getObjectFromSpec( $params['cache'] );
 		}
 
-		$this->logger = new Psr\Log\NullLogger();
 		$this->http = new MultiHttpClient( [
 			'connTimeout' => $this->timeout,
 			'reqTimeout' => $this->timeout,
-			'logger' => $this->logger
 		] );
 		$this->dsd = new DnsSrvDiscoverer( $this->service, 'tcp', $this->host );
 	}
 
+	/**
+	 * @deprecated since 1.41 No longer used and did not work in practice
+	 */
 	public function setLogger( LoggerInterface $logger ) {
-		$this->logger = $logger;
-		$this->http->setLogger( $logger );
+		trigger_error( __METHOD__ . ' is deprecated since 1.41', E_USER_DEPRECATED );
 	}
 
 	public function has( $name ) {
 		$this->load();
 
-		// @phan-suppress-next-line PhanTypeArraySuspiciousNullable procCache is set after load()
 		return array_key_exists( $name, $this->procCache['config'] );
 	}
 
 	public function get( $name ) {
 		$this->load();
 
-		// @phan-suppress-next-line PhanTypeArraySuspiciousNullable procCache is set after load()
 		if ( !array_key_exists( $name, $this->procCache['config'] ) ) {
 			throw new ConfigException( "No entry found for '$name'." );
 		}
@@ -150,7 +152,6 @@ class EtcdConfig implements Config, LoggerAwareInterface {
 
 	public function getModifiedIndex() {
 		$this->load();
-		// @phan-suppress-next-line PhanTypeArraySuspiciousNullable procCache is set after load()
 		return $this->procCache['modifiedIndex'];
 	}
 
@@ -177,8 +178,6 @@ class EtcdConfig implements Config, LoggerAwareInterface {
 				// Check if the values are in cache yet...
 				$data = $this->srvCache->get( $key );
 				if ( is_array( $data ) && $data['expires'] > $now ) {
-					$this->logger->debug( "Found up-to-date etcd configuration cache." );
-
 					return WaitConditionLoop::CONDITION_REACHED;
 				}
 
@@ -200,11 +199,9 @@ class EtcdConfig implements Config, LoggerAwareInterface {
 							];
 							$this->srvCache->set( $key, $data, BagOStuff::TTL_INDEFINITE );
 
-							$this->logger->info( "Refreshed stale etcd configuration cache." );
-
 							return WaitConditionLoop::CONDITION_REACHED;
 						} else {
-							$this->logger->error( "Failed to fetch configuration: $error" );
+							trigger_error( "EtcdConfig failed to fetch data: $error", E_USER_WARNING );
 							if ( !$etcdResponse['retry'] ) {
 								// Fail fast since the error is likely to keep happening
 								return WaitConditionLoop::CONDITION_FAILED;
@@ -213,10 +210,12 @@ class EtcdConfig implements Config, LoggerAwareInterface {
 					} finally {
 						$this->srvCache->unlock( $key ); // release mutex
 					}
+				} else {
+					$error = 'lost lock';
 				}
 
 				if ( is_array( $data ) ) {
-					$this->logger->info( "Using stale etcd configuration cache." );
+					trigger_error( "EtcdConfig using stale data: $error", E_USER_NOTICE );
 
 					return WaitConditionLoop::CONDITION_REACHED;
 				}
@@ -228,9 +227,11 @@ class EtcdConfig implements Config, LoggerAwareInterface {
 
 		if ( $loop->invoke() !== WaitConditionLoop::CONDITION_REACHED ) {
 			// No cached value exists and etcd query failed; throw an error
+			// @phan-suppress-next-line PhanTypeSuspiciousStringExpression WaitConditionLoop throws or error set
 			throw new ConfigException( "Failed to load configuration from etcd: $error" );
 		}
 
+		// @phan-suppress-next-line PhanTypeMismatchProperty WaitConditionLoop throws ore data set
 		$this->procCache = $data;
 	}
 
@@ -240,9 +241,7 @@ class EtcdConfig implements Config, LoggerAwareInterface {
 	public function fetchAllFromEtcd() {
 		$servers = $this->dsd->getServers() ?: [ [ $this->host, $this->port ] ];
 
-		foreach ( $servers as $server ) {
-			list( $host, $port ) = $server;
-
+		foreach ( $servers as [ $host, $port ] ) {
 			// Try to load the config from this particular server
 			$response = $this->fetchAllFromEtcdServer( $host, $port );
 			if ( is_array( $response['config'] ) || $response['retry'] ) {
@@ -266,7 +265,7 @@ class EtcdConfig implements Config, LoggerAwareInterface {
 		}
 
 		// Retrieve all the values under the MediaWiki config directory
-		list( $rcode, $rdesc, /* $rhdrs */, $rbody, $rerr ) = $this->http->run( [
+		[ $rcode, $rdesc, /* $rhdrs */, $rbody, $rerr ] = $this->http->run( [
 			'method' => 'GET',
 			'url' => "{$this->protocol}://{$host}/v2/keys/{$this->directory}/?recursive=true",
 			'headers' => [
@@ -278,7 +277,7 @@ class EtcdConfig implements Config, LoggerAwareInterface {
 
 		static $terminalCodes = [ 404 => true ];
 		if ( $rcode < 200 || $rcode > 399 ) {
-			$response['error'] = strlen( $rerr ) ? $rerr : "HTTP $rcode ($rdesc)";
+			$response['error'] = strlen( $rerr ?? '' ) ? $rerr : "HTTP $rcode ($rdesc)";
 			$response['retry'] = empty( $terminalCodes[$rcode] );
 			return $response;
 		}
@@ -359,3 +358,9 @@ class EtcdConfig implements Config, LoggerAwareInterface {
 		return json_decode( $string, true );
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( EtcdConfig::class, 'EtcdConfig' );

@@ -22,7 +22,11 @@
  * @since 1.25
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Linker\Linker;
+use MediaWiki\MainConfigNames;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 
 /**
  * This class formats block log entries.
@@ -51,8 +55,8 @@ class BlockLogFormatter extends LogFormatter {
 		$subtype = $this->entry->getSubtype();
 		if ( $subtype === 'block' || $subtype === 'reblock' ) {
 			if ( !isset( $params[4] ) ) {
-				// Very old log entry without duration: means infinite
-				$params[4] = 'infinite';
+				// Very old log entry without duration: means infinity
+				$params[4] = 'infinity';
 			}
 			// Localize the duration, and add a tooltip
 			// in English to help visitors from other wikis.
@@ -66,6 +70,7 @@ class BlockLogFormatter extends LogFormatter {
 				(int)wfTimestamp( TS_UNIX, $this->entry->getTimestamp() )
 			);
 			if ( $this->plaintext ) {
+				// @phan-suppress-next-line SecurityCheck-XSS Unlikely positive, only if language format is bad
 				$params[4] = Message::rawParam( $blockExpiry );
 			} else {
 				$params[4] = Message::rawParam(
@@ -81,43 +86,55 @@ class BlockLogFormatter extends LogFormatter {
 			// block restrictions
 			if ( isset( $params[6] ) ) {
 				$pages = $params[6]['pages'] ?? [];
-				$pages = array_map( function ( $page ) {
-					return $this->makePageLink( Title::newFromText( $page ) );
-				}, $pages );
+				$pageLinks = [];
+				foreach ( $pages as $page ) {
+					$pageLinks[] = $this->makePageLink( Title::newFromText( $page ) );
+				}
 
-				$namespaces = $params[6]['namespaces'] ?? [];
-				$namespaces = array_map( function ( $ns ) {
+				$rawNamespaces = $params[6]['namespaces'] ?? [];
+				$namespaces = [];
+				foreach ( $rawNamespaces as $ns ) {
 					$text = (int)$ns === NS_MAIN
 						? $this->msg( 'blanknamespace' )->escaped()
 						: htmlspecialchars( $this->context->getLanguage()->getFormattedNsText( $ns ) );
-					$params = [ 'namespace' => $ns ];
+					if ( $this->plaintext ) {
+						// Because the plaintext cannot link to the Special:AllPages
+						// link that is linked to in non-plaintext mode, just return
+						// the name of the namespace.
+						$namespaces[] = $text;
+					} else {
+						$namespaces[] = $this->makePageLink(
+							SpecialPage::getTitleFor( 'Allpages' ),
+							[ 'namespace' => $ns ],
+							$text
+						);
+					}
+				}
 
-					return $this->makePageLink( SpecialPage::getTitleFor( 'Allpages' ), $params, $text );
-				}, $namespaces );
-
-				$actions = $params[6]['actions'] ?? [];
-				$actions = array_map( function ( $actions ) {
-					return $this->msg( 'ipb-action-' . $actions )->text();
-				}, $actions );
+				$rawActions = $params[6]['actions'] ?? [];
+				$actions = [];
+				foreach ( $rawActions as $action ) {
+					$actions[] = $this->msg( 'ipb-action-' . $action )->escaped();
+				}
 
 				$restrictions = [];
-				if ( $pages ) {
+				if ( $pageLinks ) {
 					$restrictions[] = $this->msg( 'logentry-partialblock-block-page' )
-						->numParams( count( $pages ) )
-						->rawParams( $this->context->getLanguage()->listToText( $pages ) )->text();
+						->numParams( count( $pageLinks ) )
+						->rawParams( $this->context->getLanguage()->listToText( $pageLinks ) )->escaped();
 				}
 
 				if ( $namespaces ) {
 					$restrictions[] = $this->msg( 'logentry-partialblock-block-ns' )
 						->numParams( count( $namespaces ) )
-						->rawParams( $this->context->getLanguage()->listToText( $namespaces ) )->text();
+						->rawParams( $this->context->getLanguage()->listToText( $namespaces ) )->escaped();
 				}
-				$enablePartialActionBlocks = MediaWikiServices::getInstance()
-					->getMainConfig()->get( 'EnablePartialActionBlocks' );
+				$enablePartialActionBlocks = $this->context->getConfig()
+					->get( MainConfigNames::EnablePartialActionBlocks );
 				if ( $actions && $enablePartialActionBlocks ) {
 					$restrictions[] = $this->msg( 'logentry-partialblock-block-action' )
 						->numParams( count( $actions ) )
-						->rawParams( $this->context->getLanguage()->listToText( $actions ) )->text();
+						->rawParams( $this->context->getLanguage()->listToText( $actions ) )->escaped();
 				}
 
 				$params[6] = Message::rawParam( $this->context->getLanguage()->listToText( $restrictions ) );
@@ -264,7 +281,7 @@ class BlockLogFormatter extends LogFormatter {
 		if ( $subtype === 'block' || $subtype === 'reblock' ) {
 			// Defaults for old log entries missing some fields
 			$params += [
-				'5::duration' => 'infinite',
+				'5::duration' => 'infinity',
 				'6:array:flags' => [],
 			];
 
@@ -275,7 +292,10 @@ class BlockLogFormatter extends LogFormatter {
 					: explode( ',', $params['6:array:flags'] );
 			}
 
-			if ( !wfIsInfinity( $params['5::duration'] ) ) {
+			if ( wfIsInfinity( $params['5::duration'] ) ) {
+				// Normalize all possible values to one for pre-T241709 rows
+				$params['5::duration'] = 'infinity';
+			} else {
 				$ts = (int)wfTimestamp( TS_UNIX, $entry->getTimestamp() );
 				$expiry = strtotime( $params['5::duration'], $ts );
 				if ( $expiry !== false && $expiry > 0 ) {
@@ -305,6 +325,7 @@ class BlockLogFormatter extends LogFormatter {
 		}
 
 		if ( isset( $ret['restrictions']['namespaces'] ) ) {
+			// @phan-suppress-next-line PhanTypeMismatchArgument False positive
 			ApiResult::setIndexedTagName( $ret['restrictions']['namespaces'], 'ns' );
 		}
 

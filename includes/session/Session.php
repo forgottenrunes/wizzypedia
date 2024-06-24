@@ -23,10 +23,11 @@
 
 namespace MediaWiki\Session;
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\User\User;
 use Psr\Log\LoggerInterface;
-use User;
-use WebRequest;
 
 /**
  * Manages data for an authenticated session
@@ -170,7 +171,7 @@ class Session implements \Countable, \Iterator, \ArrayAccess {
 	 * Returns the authenticated user for this session
 	 * @return User
 	 */
-	public function getUser() {
+	public function getUser(): User {
 		return $this->backend->getUser();
 	}
 
@@ -412,9 +413,9 @@ class Session implements \Countable, \Iterator, \ArrayAccess {
 	 */
 	private function getSecretKeys() {
 		$mainConfig = MediaWikiServices::getInstance()->getMainConfig();
-		$sessionSecret = $mainConfig->get( 'SessionSecret' );
-		$secretKey = $mainConfig->get( 'SecretKey' );
-		$sessionPbkdf2Iterations = $mainConfig->get( 'SessionPbkdf2Iterations' );
+		$sessionSecret = $mainConfig->get( MainConfigNames::SessionSecret );
+		$secretKey = $mainConfig->get( MainConfigNames::SecretKey );
+		$sessionPbkdf2Iterations = $mainConfig->get( MainConfigNames::SessionPbkdf2Iterations );
 		$wikiSecret = $sessionSecret ?: $secretKey;
 		$userSecret = $this->get( 'wsSessionSecret', null );
 		if ( $userSecret === null ) {
@@ -439,7 +440,8 @@ class Session implements \Countable, \Iterator, \ArrayAccess {
 	 * @return array
 	 */
 	private static function getEncryptionAlgorithm() {
-		$sessionInsecureSecrets = MediaWikiServices::getInstance()->getMainConfig()->get( 'SessionInsecureSecrets' );
+		$sessionInsecureSecrets = MediaWikiServices::getInstance()->getMainConfig()
+			->get( MainConfigNames::SessionInsecureSecrets );
 
 		if ( self::$encryptionAlgorithm === null ) {
 			if ( function_exists( 'openssl_encrypt' ) ) {
@@ -480,7 +482,7 @@ class Session implements \Countable, \Iterator, \ArrayAccess {
 	 * @param mixed $value
 	 */
 	public function setSecret( $key, $value ) {
-		list( $encKey, $hmacKey ) = $this->getSecretKeys();
+		[ $encKey, $hmacKey ] = $this->getSecretKeys();
 		$serialized = serialize( $value );
 
 		// The code for encryption (with OpenSSL) and sealing is taken from
@@ -539,8 +541,8 @@ class Session implements \Countable, \Iterator, \ArrayAccess {
 			$this->logger->warning( $ex->getMessage(), [ 'exception' => $ex ] );
 			return $default;
 		}
-		list( $hmac, $iv, $ciphertext ) = $pieces;
-		list( $encKey, $hmacKey ) = $this->getSecretKeys();
+		[ $hmac, $iv, $ciphertext ] = $pieces;
+		[ $encKey, $hmacKey ] = $this->getSecretKeys();
 		$integCalc = hash_hmac( 'sha256', $iv . '.' . $ciphertext, $hmacKey, true );
 		if ( !hash_equals( $integCalc, base64_decode( $hmac ) ) ) {
 			$ex = new \Exception( 'Sealed secret has been tampered with, aborting.' );
@@ -603,37 +605,39 @@ class Session implements \Countable, \Iterator, \ArrayAccess {
 	 */
 
 	/** @inheritDoc */
-	public function count() {
+	public function count(): int {
 		$data = &$this->backend->getData();
 		return count( $data );
 	}
 
 	/** @inheritDoc */
+	#[\ReturnTypeWillChange]
 	public function current() {
 		$data = &$this->backend->getData();
 		return current( $data );
 	}
 
 	/** @inheritDoc */
+	#[\ReturnTypeWillChange]
 	public function key() {
 		$data = &$this->backend->getData();
 		return key( $data );
 	}
 
 	/** @inheritDoc */
-	public function next() {
+	public function next(): void {
 		$data = &$this->backend->getData();
 		next( $data );
 	}
 
 	/** @inheritDoc */
-	public function rewind() {
+	public function rewind(): void {
 		$data = &$this->backend->getData();
 		reset( $data );
 	}
 
 	/** @inheritDoc */
-	public function valid() {
+	public function valid(): bool {
 		$data = &$this->backend->getData();
 		return key( $data ) !== null;
 	}

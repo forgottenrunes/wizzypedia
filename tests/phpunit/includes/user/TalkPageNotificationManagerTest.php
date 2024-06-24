@@ -1,12 +1,17 @@
 <?php
 
+use MediaWiki\Config\HashConfig;
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Revision\MutableRevisionRecord;
 use MediaWiki\Revision\RevisionLookup;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Tests\Unit\DummyServicesTrait;
+use MediaWiki\Title\Title;
 use MediaWiki\User\TalkPageNotificationManager;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
+use MediaWiki\Utils\MWTimestamp;
 use PHPUnit\Framework\AssertionFailedError;
 
 /**
@@ -28,14 +33,14 @@ class TalkPageNotificationManagerTest extends MediaWikiIntegrationTestCase {
 		// it, and its easier than needing to depend on a full user object
 		$userTalk = Title::makeTitle( NS_USER_TALK, $user->getName() );
 		$status = $this->editPage(
-			$userTalk->getPrefixedText(),
+			$userTalk,
 			$text,
 			'',
 			NS_MAIN,
 			$this->getTestSysop()->getUser()
 		);
-		$this->assertTrue( $status->isGood(), 'create revision of user talk' );
-		return $status->getValue()['revision-record'];
+		$this->assertStatusGood( $status, 'create revision of user talk' );
+		return $status->getNewRevision();
 	}
 
 	private function getManager(
@@ -48,16 +53,18 @@ class TalkPageNotificationManagerTest extends MediaWikiIntegrationTestCase {
 			new ServiceOptions(
 				TalkPageNotificationManager::CONSTRUCTOR_OPTIONS,
 				new HashConfig( [
-					'DisableAnonTalk' => $disableAnonTalk
+					MainConfigNames::DisableAnonTalk => $disableAnonTalk
 				] )
 			),
-			$services->getDBLoadBalancer(),
+			$services->getDBLoadBalancerFactory(),
 			$this->getDummyReadOnlyMode( $isReadOnly ),
-			$revisionLookup ?? $services->getRevisionLookup()
+			$revisionLookup ?? $services->getRevisionLookup(),
+			$this->createHookContainer(),
+			$services->getUserFactory()
 		);
 	}
 
-	public function provideUserHasNewMessages() {
+	public static function provideUserHasNewMessages() {
 		yield 'Registered user' => [ UserIdentityValue::newRegistered( 123, 'MyName' ) ];
 		yield 'Anonymous user' => [ UserIdentityValue::newAnonymous( '1.2.3.4' ) ];
 	}
@@ -69,7 +76,7 @@ class TalkPageNotificationManagerTest extends MediaWikiIntegrationTestCase {
 	 * @covers \MediaWiki\User\TalkPageNotificationManager::clearInstanceCache
 	 * @covers \MediaWiki\User\TalkPageNotificationManager::removeUserHasNewMessages
 	 */
-	private function testUserHasNewMessages( UserIdentity $user ) {
+	public function testUserHasNewMessages( UserIdentity $user ) {
 		$manager = $this->getManager();
 		$this->assertFalse( $manager->userHasNewMessages( $user ),
 			'Should be false before updated' );
@@ -182,4 +189,46 @@ class TalkPageNotificationManagerTest extends MediaWikiIntegrationTestCase {
 		$manager->removeUserHasNewMessages( $user );
 		$this->assertFalse( $manager->userHasNewMessages( $user ) );
 	}
+
+	/**
+	 * @covers \MediaWiki\User\TalkPageNotificationManager::clearForPageView
+	 */
+	public function testClearForPageView() {
+		$user = $this->getTestUser()->getUser();
+		$title = $user->getTalkPage();
+		$revision = new MutableRevisionRecord( $title );
+		$revision->setPageId( 100 );
+		$revision->setId( 101 );
+		$manager = $this->getManager();
+		$manager->setUserHasNewMessages( $user );
+		$this->assertTrue( $manager->userHasNewMessages( $user ) );
+
+		// DB should have the notification
+		$this->newSelectQueryBuilder()
+			->select( 'user_id' )
+			->from( 'user_newtalk' )
+			->where( [ 'user_id' => $user->getId() ] )
+			->assertFieldValue( $user->getId() );
+
+		$this->db->startAtomic( __METHOD__ ); // let deferred updates queue up
+
+		$updateCountBefore = DeferredUpdates::pendingUpdatesCount();
+		$manager->clearForPageView( $user, $revision );
+		// Cache should already be updated
+		$this->assertFalse( $manager->userHasNewMessages( $user ) );
+
+		$updateCountAfter = DeferredUpdates::pendingUpdatesCount();
+		$this->assertGreaterThan( $updateCountBefore, $updateCountAfter, 'An update should have been queued' );
+
+		$this->db->endAtomic( __METHOD__ ); // run deferred updates
+		$this->assertSame( 0, DeferredUpdates::pendingUpdatesCount(), 'No pending updates' );
+
+		// Notification should have been deleted from the DB
+		$this->newSelectQueryBuilder()
+			->select( 'user_id' )
+			->from( 'user_newtalk' )
+			->where( [ 'user_id' => $user->getId() ] )
+			->assertEmptyResult();
+	}
+
 }

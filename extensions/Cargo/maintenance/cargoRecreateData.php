@@ -32,9 +32,15 @@ if ( getenv( 'MW_INSTALL_PATH' ) ) {
 	require_once __DIR__ . '/../../../maintenance/Maintenance.php';
 }
 
+use MediaWiki\MediaWikiServices;
+
 $maintClass = CargoRecreateData::class;
 
 class CargoRecreateData extends Maintenance {
+	/** @var array */
+	private $templatesThatDeclareTables;
+	/** @var array */
+	private $templatesThatAttachToTables;
 
 	public function __construct() {
 		parent::__construct();
@@ -127,6 +133,12 @@ class CargoRecreateData extends Maintenance {
 			$templatesThatAttachToThisTable = [];
 		}
 		$templatesForThisTable = array_merge( $templatesThatDeclareThisTable, $templatesThatAttachToThisTable );
+		if ( method_exists( MediaWikiServices::class, 'getWikiPageFactory' ) ) {
+			// MW 1.36+
+			$wikiPageFactory = MediaWikiServices::getInstance()->getWikiPageFactory();
+		} else {
+			$wikiPageFactory = null;
+		}
 
 		foreach ( $templatesForThisTable as $templatePageID ) {
 			$templateTitle = Title::newFromID( $templatePageID );
@@ -155,7 +167,12 @@ class CargoRecreateData extends Maintenance {
 					// the #cargo_store function will take care of the rest.
 					CargoStore::$settings['origin'] = 'template';
 					CargoStore::$settings['dbTableName'] = $tableName;
-					$wikiPage = WikiPage::newFromID( $title->getArticleID() );
+					if ( $wikiPageFactory !== null ) {
+						// MW 1.36+
+						$wikiPage = $wikiPageFactory->newFromID( $title->getArticleID() );
+					} else {
+						$wikiPage = WikiPage::newFromID( $title->getArticleID() );
+					}
 					if ( $wikiPage == null ) {
 						continue;
 					}

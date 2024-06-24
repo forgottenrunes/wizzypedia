@@ -60,6 +60,10 @@ class RegressionTesting extends \Wikimedia\Parsoid\Tools\Maintenance {
 			"nSyn",
 			"Number of syntactic errors to check, -1 means 'all of them'",
 			25 /* default */, 'm' );
+		$this->addOptionWithDefault(
+			"updateTestreduce",
+			"Should testreduce1001 also be updated? (default true)",
+			true );
 		$this->setAllowUnregisteredOptions( true );
 	}
 
@@ -73,17 +77,6 @@ class RegressionTesting extends \Wikimedia\Parsoid\Tools\Maintenance {
 	private function sh( array $cmd, bool $use_cwd = false ): void {
 		if ( !$this->hasOption( 'quiet' ) ) {
 			error_log( implode( ' ', $cmd ) );
-		}
-		if ( PHP_VERSION_ID < 70400 ) {
-			// Below PHP 7.4, proc_open only takes a string, not an array :(
-			// Do a hacky job of escaping shell arguments
-			$cmd = implode( ' ', array_map( static function ( $a ) {
-				return '"' . str_replace(
-					[ '"', '$' ],
-					[ '\"', '\$' ],
-					$a
-				) . '"';
-			}, $cmd ) );
 		}
 		$descriptors = [ STDIN, STDOUT, STDERR ];
 		if ( $this->hasOption( 'quiet' ) ) {
@@ -178,7 +171,7 @@ class RegressionTesting extends \Wikimedia\Parsoid\Tools\Maintenance {
 	 */
 	public function runTest( $commit ): void {
 		$cdDir = self::cmd( 'cd /srv/parsoid-testing' );
-		$restartPHP = self::cmd( 'sudo systemctl restart php7.2-fpm.service' );
+		$restartPHP = self::cmd( 'sudo systemctl restart php7.4-fpm.service' );
 		$resultPath = "/tmp/results.$commit.json";
 		$testScript = self::cmd(
 			$cdDir, '&&',
@@ -191,14 +184,20 @@ class RegressionTesting extends \Wikimedia\Parsoid\Tools\Maintenance {
 		$this->dashes( "Checking out $commit on scandium" );
 		$this->ssh( self::cmd(
 			$cdDir, '&&',
+			"git fetch", '&&',
 			'git checkout', [ $commit ], '&&',
 			$restartPHP
 		), 'scandium.eqiad.wmnet' );
-		# Check out on testreduce1001 as well to ensure HTML version changes
-		# don't trip up our test script and we don't have to mess with passing in
-		# the --contentVersion option in most scenarios
-		$this->dashes( "Checking out $commit on testreduce1001" );
-		$this->ssh( self::cmd( $cdDir, '&&', 'git checkout', [ $commit ] ), 'testreduce1001.eqiad.wmnet' );
+		if ( $this->getOption( 'updateTestreduce' ) ) {
+			# Check out on testreduce1001 as well to ensure HTML version changes
+			# don't trip up our test script and we don't have to mess with passing in
+			# the --contentVersion option in most scenarios
+			$this->dashes( "Checking out $commit on testreduce1001" );
+			$this->ssh( self::cmd(
+				$cdDir, '&&',
+				"git fetch", '&&',
+				'git checkout', [ $commit ] ), 'testreduce1001.eqiad.wmnet' );
+		}
 
 		$this->dashes( "Running tests" );
 		$this->ssh( self::cmd(

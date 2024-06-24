@@ -23,12 +23,16 @@
  * @copyright Copyright © 2010-2013 Niklas Laxström, Siebrand Mazeland
  */
 
+namespace MediaWiki\Specials;
+
 use MediaWiki\Languages\LanguageNameUtils;
 use MediaWiki\Page\RedirectLookup;
+use MediaWiki\SpecialPage\RedirectSpecialArticle;
+use MediaWiki\Title\Title;
 
 /**
- * Unlisted special page just to redirect the user to the translated version of
- * a page, if it exists.
+ * Unlisted special page which redirects the user to the appropriate translated version of
+ * a page if it exists.
  *
  * Usage: [[Special:MyLanguage/Page name|link text]]
  *
@@ -37,11 +41,8 @@ use MediaWiki\Page\RedirectLookup;
  */
 class SpecialMyLanguage extends RedirectSpecialArticle {
 
-	/** @var LanguageNameUtils */
-	private $languageNameUtils;
-
-	/** @var RedirectLookup */
-	private $redirectLookup;
+	private LanguageNameUtils $languageNameUtils;
+	private RedirectLookup $redirectLookup;
 
 	/**
 	 * @param LanguageNameUtils $languageNameUtils
@@ -73,23 +74,59 @@ class SpecialMyLanguage extends RedirectSpecialArticle {
 	}
 
 	/**
-	 * Assuming the user's interface language is fi. Given input Page, it
-	 * returns Page/fi if it exists, otherwise Page. Given input Page/de,
-	 * it returns Page/fi if it exists, otherwise Page/de if it exists,
-	 * otherwise Page.
+	 * Find a title.
+	 *
+	 * This may return the base page, e.g. if the UI and
+	 * content language are the same.
+	 *
+	 * Examples, assuming the UI language is fi and the content language
+	 * is en:
+	 * - input Page: returns Page/fi if it exists, otherwise Page
+	 * - input Page/de: returns Page/fi if it exists, otherwise Page/de
+	 * if it exists, otherwise Page
 	 *
 	 * @param string|null $subpage
 	 * @return Title|null
 	 */
 	public function findTitle( $subpage ) {
-		// base = title without language code suffix
+		return $this->findTitleInternal( $subpage, false );
+	}
+
+	/**
+	 * Find a title for transclusion. This avoids returning the base
+	 * page if a suitable alternative exists.
+	 *
+	 * Examples, assuming the UI language is fi and the content language
+	 * is en:
+	 * - input Page: returns Page/fi if it exists, otherwise Page/en if
+	 * it exists, otherwise Page
+	 * - input Page/de: returns Page/fi if it exists, otherwise Page/de
+	 * if it exists, otherwise Page/en if it exists, otherwise Page
+	 *
+	 * @param string|null $subpage
+	 * @return Title|null
+	 */
+	public function findTitleForTransclusion( $subpage ) {
+		return $this->findTitleInternal( $subpage, true );
+	}
+
+	/**
+	 * Find a title, depending on the content language and the user's
+	 * interface language.
+	 *
+	 * @param string|null $subpage
+	 * @param bool $forTransclusion
+	 * @return Title|null
+	 */
+	private function findTitleInternal( $subpage, $forTransclusion ) {
+		// base = title without the language code suffix
 		// provided = the title as it was given
 		$base = $provided = null;
 		if ( $subpage !== null ) {
 			$provided = Title::newFromText( $subpage );
 			$base = $provided;
 
-			if ( $provided && strpos( $subpage, '/' ) !== false ) {
+			if ( $provided && str_contains( $subpage, '/' ) ) {
 				$pos = strrpos( $subpage, '/' );
 				$basepage = substr( $subpage, 0, $pos );
 				$code = substr( $subpage, $pos + 1 );
@@ -104,38 +141,54 @@ class SpecialMyLanguage extends RedirectSpecialArticle {
 			return null;
 		}
 
+		$fragment = '';
 		if ( $base->isRedirect() ) {
 			$base = $this->redirectLookup->getRedirectTarget( $base );
+			// Preserve the fragment from the redirect target
+			$fragment = $base->getFragment();
 		}
 
 		$uiLang = $this->getLanguage();
-		$contLang = $this->getContentLanguage();
+		$baseLang = $base->getPageLanguage();
 
-		if ( $uiLang->equals( $contLang ) ) {
+		// T309329: Always use subpages for transclusion
+		if ( !$forTransclusion && $baseLang->equals( $uiLang ) ) {
 			// Short circuit when the current UI language is the
-			// wiki's default language to avoid unnecessary page lookups.
+			// page's content language to avoid unnecessary page lookups.
 			return $base;
 		}
 
-		// Check for a subpage in current UI language
+		// Check for a subpage in the current UI language
 		$proposed = $base->getSubpage( $uiLang->getCode() );
 		if ( $proposed && $proposed->exists() ) {
+			if ( $fragment !== '' ) {
+				$proposed->setFragment( $fragment );
+			}
 			return $proposed;
 		}
 
+		// Explicit language code given and the page exists
 		if ( $provided !== $base && $provided->exists() ) {
-			// Explicit language code given and the page exists
+			// Not based on the redirect target, don't need the fragment
 			return $provided;
 		}
 
 		// Check for fallback languages specified by the UI language
 		$possibilities = $uiLang->getFallbackLanguages();
 		foreach ( $possibilities as $lang ) {
-			if ( $lang !== $contLang->getCode() ) {
-				$proposed = $base->getSubpage( $lang );
-				if ( $proposed && $proposed->exists() ) {
-					return $proposed;
+			// $base already include fragments
+			// T309329: Always use subpages for transclusion
+			// T333187: Do not ignore base language page if matched
+			if ( !$forTransclusion && $lang === $baseLang->getCode() ) {
+				return $base;
+			}
+			// Look for subpages if is for transclusion or didn't match base page language
+			$proposed = $base->getSubpage( $lang );
+			if ( $proposed && $proposed->exists() ) {
+				if ( $fragment !== '' ) {
+					$proposed->setFragment( $fragment );
 				}
+				return $proposed;
 			}
 		}
 
@@ -154,3 +207,9 @@ class SpecialMyLanguage extends RedirectSpecialArticle {
 		return true;
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialMyLanguage::class, 'SpecialMyLanguage' );

@@ -26,7 +26,7 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\User\ActorMigration;
 use Wikimedia\IPUtils;
 
 /**
@@ -69,16 +69,18 @@ TEXT
 			$this->fatalError( 'ip_changes table does not exist' );
 		}
 
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 		$dbr = $this->getDB( DB_REPLICA, [ 'vslow' ] );
 		$throttle = intval( $this->getOption( 'throttle', 0 ) );
 		$maxRevId = intval( $this->getOption( 'max-rev-id', 0 ) );
 		$start = $this->getOption( 'rev-id', 0 );
 		$end = $maxRevId > 0
 			? $maxRevId
-			: $dbw->selectField( 'revision', 'MAX(rev_id)', '', __METHOD__ );
+			: $dbw->newSelectQueryBuilder()
+				->select( 'MAX(rev_id)' )
+				->from( 'revision' )
+				->caller( __METHOD__ )->fetchField();
 
-		if ( empty( $end ) ) {
+		if ( !$end ) {
 			$this->output( "No revisions found, aborting.\n" );
 			return true;
 		}
@@ -134,7 +136,7 @@ TEXT
 				$inserted += $dbw->affectedRows();
 			}
 
-			$lbFactory->waitForReplication();
+			$this->waitForReplication();
 			usleep( $throttle * 1000 );
 
 			$blockStart = $blockEnd + 1;

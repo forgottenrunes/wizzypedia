@@ -1,7 +1,5 @@
 <?php
 /**
- * Cantonese (粵語) specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,26 +16,22 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
 
 /**
  * Cantonese (粵語)
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class LanguageYue extends Language {
 
-	/**
-	 * @return bool
-	 */
 	public function hasWordBreaks() {
 		return false;
 	}
 
 	/**
-	 * Eventually this should be a word segmentation;
-	 * for now just treat each character as a word.
+	 * Eventually, this should be a word segmentation;
+	 * but for now just treat each character as a word.
 	 * @todo FIXME: Only do this for Han characters...
 	 *
 	 * @param string $string
@@ -45,20 +39,6 @@ class LanguageYue extends Language {
 	 */
 	public function segmentByWord( $string ) {
 		$reg = "/([\\xc0-\\xff][\\x80-\\xbf]*)/";
-		$s = self::insertSpace( $string, $reg );
-		return $s;
-	}
-
-	/**
-	 * @param string $string
-	 * @return string
-	 */
-	public function normalizeForSearch( $string ) {
-		// Double-width roman characters
-		$s = self::convertDoubleWidth( $string );
-		$s = trim( $s );
-		$s = parent::normalizeForSearch( $s );
-
-		return $s;
+		return self::insertSpace( $string, $reg );
 	}
 }

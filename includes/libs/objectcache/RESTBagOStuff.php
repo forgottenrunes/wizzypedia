@@ -5,30 +5,67 @@ use Psr\Log\LoggerInterface;
 /**
  * Interface to key-value storage behind an HTTP server.
  *
- * Uses URL of the form "baseURL/{KEY}" to store, fetch, and delete values.
+ * ### Important caveats
  *
- * E.g., when base URL is `/sessions/v1`, then the store would do:
+ * This interface is currently an incomplete BagOStuff implementation,
+ * supported only for use with MediaWiki features that accept a dedicated
+ * cache type to use for a narrow set of cache keys that share the same
+ * key expiry and replication requirements, and where the key-value server
+ * in question is statically configured with domain knowledge of said
+ * key expiry and replication requirements.
  *
- * `PUT /sessions/v1/12345758`
+ * Specifically, RESTBagOStuff has the following limitations:
  *
- * and fetch would do:
+ * - The expiry parameter is ignored in methods like `set()`.
  *
- * `GET /sessions/v1/12345758`
+ *   There is not currently an agreed protocol for sending this to a
+ *   server. This class is written for use with MediaWiki\Session\SessionManager
+ *   and Kask/Cassanda at WMF, which does not expose a customizable expiry.
  *
- * delete would do:
+ *   As such, it is not recommended to use RESTBagOStuff to back a general
+ *   purpose cache type (such as MediaWiki's main cache, or main stash).
+ *   Instead, it is only supported toMediaWiki features where a cache type can
+ *   be pointed for a narrow set of keys that naturally share the same TTL
+ *   anyway, or where the feature behaves correctly even if the logical expiry
+ *   is longer than specified (e.g. immutable keys, or value verification)
  *
- * `DELETE /sessions/v1/12345758`
+ * - Most methods are non-atomic.
+ *
+ *   The class should only be used for get, set, and delete operations.
+ *   Advanced methods like `incr()`, `add()` and `lock()` do exist but
+ *   inherit a native and best-effort implementation based on get+set.
+ *   These should not be relied upon.
+ *
+ * ### Backend requirements
+ *
+ * The HTTP server will receive requests for URLs like `{baseURL}/{KEY}`. It
+ * must implement the GET, PUT and DELETE methods.
+ *
+ * E.g., when the base URL is `/sessions/v1`, then `set()` will:
+ *
+ * `PUT /sessions/v1/mykeyhere`
+ *
+ * and `get()` would do:
+ *
+ * `GET /sessions/v1/mykeyhere`
+ *
+ * and `delete()` would do:
+ *
+ * `DELETE /sessions/v1/mykeyhere`
+ *
+ * ### Example configuration
  *
  * Minimal generic configuration:
  *
  * @code
  * $wgObjectCaches['sessions'] = array(
  *	'class' => 'RESTBagOStuff',
- *	'url' => 'http://localhost:7231/wikimedia.org/somepath/'
+ *	'url' => 'http://localhost:7231/example/'
  * );
  * @endcode
  *
- * Configuration for Kask (session storage):
+ *
+ * Configuration for [Kask](https://www.mediawiki.org/wiki/Kask) session store:
  * @code
  * $wgObjectCaches['sessions'] = array(
  *	'class' => 'RESTBagOStuff',
@@ -70,7 +107,8 @@ class RESTBagOStuff extends MediumSpecificBagOStuff {
 	private $url;
 
 	/**
-	 * @var array http parameters: readHeaders, writeHeaders, deleteHeaders, writeMethod
+	 * HTTP parameters: readHeaders, writeHeaders, deleteHeaders, writeMethod.
+	 * @var array
 	 */
 	private $httpParams;
 
@@ -92,7 +130,7 @@ class RESTBagOStuff extends MediumSpecificBagOStuff {
 	private $extendedErrorBodyFields;
 
 	public function __construct( $params ) {
-		$params['segmentationSize'] = $params['segmentationSize'] ?? INF;
+		$params['segmentationSize'] ??= INF;
 		if ( empty( $params['url'] ) ) {
 			throw new InvalidArgumentException( 'URL parameter is required' );
 		}
@@ -103,7 +141,7 @@ class RESTBagOStuff extends MediumSpecificBagOStuff {
 				'connTimeout' => $params['connTimeout'] ?? self::DEFAULT_CONN_TIMEOUT,
 				'reqTimeout' => $params['reqTimeout'] ?? self::DEFAULT_REQ_TIMEOUT,
 			];
-			foreach ( [ 'caBundlePath', 'proxy' ] as $key ) {
+			foreach ( [ 'caBundlePath', 'proxy', 'telemetry' ] as $key ) {
 				if ( isset( $params[$key] ) ) {
 					$clientParams[$key] = $params[$key];
 				}
@@ -147,7 +185,7 @@ class RESTBagOStuff extends MediumSpecificBagOStuff {
 
 		$value = false;
 		$valueSize = false;
-		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->client->run( $req );
+		[ $rcode, , $rhdrs, $rbody, $rerr ] = $this->client->run( $req );
 		if ( $rcode === 200 && is_string( $rbody ) ) {
 			$value = $this->decodeBody( $rbody );
 			$valueSize = strlen( $rbody );
@@ -156,7 +194,8 @@ class RESTBagOStuff extends MediumSpecificBagOStuff {
 				$casToken = $rbody;
 			}
 		} elseif ( $rcode === 0 || ( $rcode >= 400 && $rcode != 404 ) ) {
-			$this->handleError( "Failed to fetch $key", $rcode, $rerr, $rhdrs, $rbody );
+			$this->handleError( 'Failed to fetch {cacheKey}', $rcode, $rerr, $rhdrs, $rbody,
+				[ 'cacheKey' => $key ] );
 		}
 
 		$this->updateOpStats( self::METRIC_OP_GET, [ $key => [ 0, $valueSize ] ] );
@@ -165,8 +204,6 @@ class RESTBagOStuff extends MediumSpecificBagOStuff {
 	}
 
 	protected function doSet( $key, $value, $exptime = 0, $flags = 0 ) {
-		// @TODO: respect WRITE_SYNC (e.g. EACH_QUORUM)
-		// @TODO: respect $exptime
 		$req = [
 			'method' => $this->httpParams['writeMethod'],
 			'url' => $this->url . rawurlencode( $key ),
@@ -174,10 +211,11 @@ class RESTBagOStuff extends MediumSpecificBagOStuff {
 			'headers' => $this->httpParams['writeHeaders'],
 		];
 
-		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->client->run( $req );
+		[ $rcode, , $rhdrs, $rbody, $rerr ] = $this->client->run( $req );
 		$res = ( $rcode === 200 || $rcode === 201 || $rcode === 204 );
 		if ( !$res ) {
-			$this->handleError( "Failed to store $key", $rcode, $rerr, $rhdrs, $rbody );
+			$this->handleError( 'Failed to store {cacheKey}', $rcode, $rerr, $rhdrs, $rbody,
+				[ 'cacheKey' => $key ] );
 		}
 
 		$this->updateOpStats( self::METRIC_OP_SET, [ $key => [ strlen( $rbody ), 0 ] ] );
@@ -186,26 +224,27 @@ class RESTBagOStuff extends MediumSpecificBagOStuff {
 	}
 
 	protected function doAdd( $key, $value, $exptime = 0, $flags = 0 ) {
-		// @TODO: make this atomic
+		// NOTE: This is non-atomic
 		if ( $this->get( $key ) === false ) {
 			return $this->set( $key, $value, $exptime, $flags );
 		}
 
-		return false; // key already set
+		// key already set
+		return false;
 	}
 
 	protected function doDelete( $key, $flags = 0 ) {
-		// @TODO: respect WRITE_SYNC (e.g. EACH_QUORUM)
 		$req = [
 			'method' => 'DELETE',
 			'url' => $this->url . rawurlencode( $key ),
 			'headers' => $this->httpParams['deleteHeaders'],
 		];
 
-		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $this->client->run( $req );
+		[ $rcode, , $rhdrs, $rbody, $rerr ] = $this->client->run( $req );
 		$res = in_array( $rcode, [ 200, 204, 205, 404, 410 ] );
 		if ( !$res ) {
-			$this->handleError( "Failed to delete $key", $rcode, $rerr, $rhdrs, $rbody );
+			$this->handleError( 'Failed to delete {cacheKey}', $rcode, $rerr, $rhdrs, $rbody,
+				[ 'cacheKey' => $key ] );
 		}
 
 		$this->updateOpStats( self::METRIC_OP_DELETE, [ $key ] );
@@ -213,27 +252,8 @@ class RESTBagOStuff extends MediumSpecificBagOStuff {
 		return $res;
 	}
 
-	public function incr( $key, $value = 1, $flags = 0 ) {
-		return $this->doIncr( $key, $value, $flags );
-	}
-
-	public function decr( $key, $value = 1, $flags = 0 ) {
-		return $this->doIncr( $key, -$value, $flags );
-	}
-
-	private function doIncr( $key, $value = 1, $flags = 0 ) {
-		// @TODO: make this atomic and respect existing key expiration
-		$n = $this->get( $key, self::READ_LATEST );
-		if ( $this->isInteger( $n ) ) { // key exists?
-			$n = max( $n + (int)$value, 0 );
-			return $this->set( $key, $n ) ? $n : false;
-		}
-
-		return false;
-	}
-
 	protected function doIncrWithInit( $key, $exptime, $step, $init, $flags ) {
-		// @TODO: make this atomic and respect existing key expiration
+		// NOTE: This is non-atomic
 		$curValue = $this->doGet( $key );
 		if ( $curValue === false ) {
 			$newValue = $this->doSet( $key, $init, $exptime ) ? $init : false;
@@ -247,14 +267,6 @@ class RESTBagOStuff extends MediumSpecificBagOStuff {
 		return $newValue;
 	}
 
-	public function makeKeyInternal( $keyspace, $components ) {
-		return $this->genericKeyFromComponents( $keyspace, ...$components );
-	}
-
-	protected function convertGenericKey( $key ) {
-		return $key; // short-circuit; already uses "generic" keys
-	}
-
 	/**
 	 * Processes the response body.
 	 *
@@ -266,7 +278,7 @@ class RESTBagOStuff extends MediumSpecificBagOStuff {
 		if ( count( $pieces ) !== 3 || $pieces[0] !== $this->serializationType ) {
 			return false;
 		}
-		list( , $hmac, $serialized ) = $pieces;
+		[ , $hmac, $serialized ] = $pieces;
 		if ( $this->hmacKey !== '' ) {
 			$checkHmac = hash_hmac( 'sha256', $serialized, $this->hmacKey, true );
 			if ( !hash_equals( $checkHmac, base64_decode( $hmac ) ) ) {
@@ -327,18 +339,20 @@ class RESTBagOStuff extends MediumSpecificBagOStuff {
 
 	/**
 	 * Handle storage error
+	 *
 	 * @param string $msg Error message
 	 * @param int $rcode Error code from client
 	 * @param string $rerr Error message from client
 	 * @param array $rhdrs Response headers
 	 * @param string $rbody Error body from client (if any)
+	 * @param array $context Error context for PSR-3 logging
 	 */
-	protected function handleError( $msg, $rcode, $rerr, $rhdrs, $rbody ) {
+	protected function handleError( $msg, $rcode, $rerr, $rhdrs, $rbody, $context = [] ) {
 		$message = "$msg : ({code}) {error}";
 		$context = [
 			'code' => $rcode,
 			'error' => $rerr
-		];
+		] + $context;
 
 		if ( $this->extendedErrorBodyFields !== [] ) {
 			$body = $this->decodeBody( $rbody );

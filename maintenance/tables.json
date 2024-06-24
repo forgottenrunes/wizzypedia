@@ -156,7 +156,7 @@
 			},
 			{
 				"name": "comment_text",
-				"comment": "Text comment summarizing the change. This text is shown in the history and other changes lists, rendered in a subset of wiki markup by Linker::formatComment(). Size limits are enforced at the application level, and should take care to crop UTF-8 strings appropriately.",
+				"comment": "Text comment summarizing the change. This text is shown in the history and other changes lists, rendered in a subset of wiki markup by MediaWiki\\CommentFormatter\\CommentFormatter::format(). Size limits are enforced at the application level, and should take care to crop UTF-8 strings appropriately.",
 				"type": "blob",
 				"options": { "length": 65535, "notnull": true }
 			},
@@ -520,6 +520,12 @@
 				"type": "integer",
 				"comment": "Namespace for pl_from page",
 				"options": { "notnull": true, "default": 0 }
+			},
+			{
+				"name": "pl_target_id",
+				"type": "bigint",
+				"comment": "Foreign key to linktarget.lt_id",
+				"options": { "notnull": false, "unsigned": true }
 			}
 		],
 		"indexes": [
@@ -532,6 +538,18 @@
 			{
 				"name": "pl_backlinks_namespace",
 				"columns": [ "pl_from_namespace", "pl_namespace", "pl_title", "pl_from" ],
+				"comment": "Index for Special:Whatlinkshere with namespace filter",
+				"unique": false
+			},
+			{
+				"name": "pl_target_id",
+				"columns": [ "pl_target_id", "pl_from" ],
+				"comment": "Reverse index, for Special:Whatlinkshere",
+				"unique": false
+			},
+			{
+				"name": "pl_backlinks_namespace_target_id",
+				"columns": [ "pl_from_namespace", "pl_target_id", "pl_from" ],
 				"comment": "Index for Special:Whatlinkshere with namespace filter",
 				"unique": false
 			}
@@ -555,35 +573,13 @@
 				"options": { "notnull": true, "default": 0 }
 			},
 			{
-				"name": "tl_namespace",
-				"type": "integer",
-				"options": { "notnull": true, "default": 0 }
-			},
-			{
-				"name": "tl_title",
-				"type": "binary",
-				"options": { "notnull": true, "length": 255, "default": "" }
-			},
-			{
 				"name": "tl_target_id",
 				"type": "bigint",
 				"comment": "Foreign key to linktarget.lt_id",
-				"options": { "notnull": false, "unsigned": true, "default": null }
+				"options": { "notnull": true, "unsigned": true }
 			}
 		],
 		"indexes": [
-			{
-				"name": "tl_namespace",
-				"columns": [ "tl_namespace", "tl_title", "tl_from" ],
-				"comment": "Reverse index, for Special:Whatlinkshere",
-				"unique": false
-			},
-			{
-				"name": "tl_backlinks_namespace",
-				"columns": [ "tl_from_namespace", "tl_namespace", "tl_title", "tl_from" ],
-				"comment": "Index for Special:Whatlinkshere with namespace filter",
-				"unique": false
-			},
 			{
 				"name": "tl_target_id",
 				"columns": [ "tl_target_id", "tl_from" ],
@@ -597,7 +593,7 @@
 				"unique": false
 			}
 		],
-		"pk": [ "tl_from", "tl_namespace", "tl_title" ]
+		"pk": [ "tl_from", "tl_target_id" ]
 	},
 	{
 		"name": "imagelinks",
@@ -827,7 +823,7 @@
 				"name": "ir_ipb_id",
 				"comment": "The ipb_id from ipblocks",
 				"type": "integer",
-				"options": { "notnull": true }
+				"options": { "notnull": true, "unsigned": true }
 			},
 			{
 				"name": "ir_type",
@@ -837,7 +833,7 @@
 			},
 			{
 				"name": "ir_value",
-				"comment": "The restriction id that corresponds to the type. Typically a Page ID or a Namespace ID.",
+				"comment": "The restriction id that corresponds to the type: page ID, namespace ID or BlockActionInfo ID.",
 				"type": "integer",
 				"options": { "notnull": true, "unsigned": true }
 			}
@@ -1307,30 +1303,21 @@
 				"options": { "unsigned": true, "notnull": true, "default": 0 }
 			},
 			{
-				"name": "el_to",
-				"type": "blob",
-				"comment": "The external link",
-				"options": { "length": 65530, "notnull": true }
-			},
-			{
-				"name": "el_index",
-				"type": "blob",
-				"comment": "In the case of HTTP URLs, this is the URL with any username or password removed, and with the labels in the hostname reversed and converted to lower case which will allow faster searching for all pages with WHERE clause. Note: If PHP's intl extension is enabled/disabled, maintenance/refreshExternallinksIndex.php needs to be run to refresh this field",
-				"options": { "length": 65530, "notnull": true }
-			},
-			{
-				"name": "el_index_60",
+				"name": "el_to_domain_index",
 				"type": "binary",
-				"comment": "'el_index' truncated to 60 bytes to allow for sortable queries that aren't supported by a partial index",
-				"options": { "notnull": true, "length": 60 }
+				"comment": "Indexable domain",
+				"options": { "notnull": true, "length": 255, "default": "" }
+			},
+			{
+				"name": "el_to_path",
+				"type": "blob",
+				"comment": "Path to the external link without considering the domain",
+				"options": { "length": 65530, "notnull": false }
 			}
 		],
 		"indexes": [
-			{ "name": "el_from", "columns": [ "el_from", "el_to" ], "unique": false, "options": { "lengths": [ null, 40 ] } },
-			{ "name": "el_to", "columns": [ "el_to", "el_from" ], "unique": false, "options": { "lengths": [ 60, null ] } },
-			{ "name": "el_index", "columns": [ "el_index" ], "unique": false, "options": { "lengths": [ 60 ] } },
-			{ "name": "el_index_60", "columns": [ "el_index_60", "el_id" ], "unique": false },
-			{ "name": "el_from_index_60", "columns": [ "el_from", "el_index_60", "el_id" ], "unique": false }
+			{ "name": "el_from", "columns": [ "el_from" ], "unique": false },
+			{ "name": "el_to_domain_index_to_path", "columns": [ "el_to_domain_index", "el_to_path" ], "unique": false, "options": { "lengths": [ null, 60 ] } }
 		],
 		"pk": [ "el_id" ]
 	},
@@ -1362,64 +1349,6 @@
 			{ "name": "ipc_hex_time", "columns": [ "ipc_hex", "ipc_rev_timestamp" ], "unique": false }
 		],
 		"pk": [ "ipc_rev_id" ]
-	},
-	{
-		"name": "revision_comment_temp",
-		"comment": "Temporary table to avoid blocking on an alter of revision. On large wikis like the English Wikipedia, altering the revision table is a months-long process. This table is being created to avoid such an alter, and will be merged back into revision in the future",
-		"columns": [
-			{
-				"name": "revcomment_rev",
-				"comment": "Key to rev_id",
-				"type": "integer",
-				"options": { "unsigned": true, "notnull": true }
-			},
-			{
-				"name": "revcomment_comment_id",
-				"comment": "Key to comment_id",
-				"type": "bigint",
-				"options": { "unsigned": true, "notnull": true }
-			}
-		],
-		"indexes": [
-			{ "name": "revcomment_rev", "columns": [ "revcomment_rev" ], "unique": true }
-		],
-		"pk": [ "revcomment_rev", "revcomment_comment_id" ]
-	},
-	{
-		"name": "revision_actor_temp",
-		"comment": "Temporary table to avoid blocking on an alter of revision. On large wikis like the English Wikipedia, altering the revision table is a months-long process. This table is being created to avoid such an alter, and will be merged back into revision in the future",
-		"columns": [
-			{
-				"name": "revactor_rev",
-				"comment": "Key to rev_id",
-				"type": "integer",
-				"options": { "unsigned": true, "notnull": true }
-			},
-			{
-				"name": "revactor_actor",
-				"comment": "Key to actor_id",
-				"type": "bigint",
-				"options": { "unsigned": true, "notnull": true }
-			},
-			{
-				"name": "revactor_timestamp",
-				"comment": "Copy field from revision for indexes",
-				"type": "mwtimestamp",
-				"options": { "notnull": true }
-			},
-			{
-				"name": "revactor_page",
-				"comment": "Copy field from revision for indexes",
-				"type": "integer",
-				"options": { "unsigned": true, "notnull": true }
-			}
-		],
-		"indexes": [
-			{ "name": "revactor_rev", "columns": [ "revactor_rev" ], "unique": true },
-			{ "name": "actor_timestamp", "columns": [ "revactor_actor", "revactor_timestamp" ], "unique": false },
-			{ "name": "page_actor_timestamp", "columns": [ "revactor_page", "revactor_actor", "revactor_timestamp" ], "unique": false }
-		],
-		"pk": [ "revactor_rev", "revactor_actor" ]
 	},
 	{
 		"name": "page_props",
@@ -1866,7 +1795,7 @@
 			{
 				"name": "us_size",
 				"comment": "file size in bytes",
-				"type": "integer",
+				"type": "bigint",
 				"options": {
 					"unsigned": true,
 					"notnull": true
@@ -2033,7 +1962,7 @@
 			},
 			{
 				"name": "fa_size",
-				"type": "integer",
+				"type": "bigint",
 				"options": {
 					"unsigned": true,
 					"notnull": false,
@@ -2261,7 +2190,7 @@
 			},
 			{
 				"name": "oi_size",
-				"type": "integer",
+				"type": "bigint",
 				"options": {
 					"unsigned": true,
 					"notnull": true,
@@ -2463,7 +2392,8 @@
 				"type": "integer",
 				"options": {
 					"autoincrement": true,
-					"notnull": true
+					"notnull": true,
+					"unsigned": true
 				}
 			},
 			{
@@ -2523,7 +2453,7 @@
 			},
 			{
 				"name": "ipb_anon_only",
-				"comment": "If set to 1, block applies only to logged-out users",
+				"comment": "If set to 1, block applies only to logged-out users and temporary users.",
 				"type": "mwtinyint",
 				"options": {
 					"notnull": true,
@@ -2612,10 +2542,11 @@
 			},
 			{
 				"name": "ipb_parent_block_id",
-				"comment": "ID of the block that caused this block to exist. Autoblocks set this to the original block so that the original block being deleted also deletes the autoblocks",
+				"comment": "ID of the block that caused this block to exist. Autoblocks set this to the original block so that the original block being deleted also deletes the autoblocks. Due to a bug this could be 0, which should be handled as null.",
 				"type": "integer",
 				"options": {
 					"notnull": false,
+					"unsigned": true,
 					"default": null
 				}
 			},
@@ -2706,7 +2637,7 @@
 			{
 				"name": "img_size",
 				"comment": "File size in bytes.",
-				"type": "integer",
+				"type": "bigint",
 				"options": {
 					"unsigned": true,
 					"notnull": true,
@@ -3248,7 +3179,7 @@
 			},
 			{
 				"name": "ar_rev_id",
-				"comment": "Copied from rev_id. @since 1.5 Entries from 1.4 will be NULL here. When restoring archive rows from before 1.5, a new rev_id is created.",
+				"comment": "Copied from rev_id.",
 				"type": "integer",
 				"options": {
 					"unsigned": true,
@@ -3358,12 +3289,6 @@
 				"comment": "The rest of the title, as text. Spaces are transformed into underscores in title storage.",
 				"type": "binary",
 				"options": { "notnull": true, "length": 255 }
-			},
-			{
-				"name": "page_restrictions",
-				"comment": "Comma-separated set of permission keys indicating who can move or edit the page.",
-				"type": "blob",
-				"options": { "notnull": false, "length": 255 }
 			},
 			{
 				"name": "page_is_redirect",
@@ -3545,7 +3470,7 @@
 				"name": "user_editcount",
 				"comment": "Count of edits and edit-like actions. Not intended to be an accurate copy of 'COUNT(*) WHERE rev_actor refers to a user's actor_id'. May contain NULL for old accounts if batch-update scripts haven't been run, as well as listing deleted edits and other myriad ways it could be out of sync. Meant primarily for heuristic checks to give an impression of whether the account has been used much.",
 				"type": "integer",
-				"options": { "notnull": false }
+				"options": { "notnull": false, "unsigned": true }
 			},
 			{
 				"name": "user_password_expires",
@@ -3557,6 +3482,16 @@
 						"allowInfinite": true
 					}
 				}
+			},
+			{
+				"name": "user_is_temp",
+				"comment": "A boolean value representing whether the user is a temporary user. Zero if any type of user other than a temporary user. This exists to allow temporary users to be identified from the database only, by external applications.",
+				"type": "mwtinyint",
+				"options": {
+					"notnull": true,
+					"length": 1,
+					"default": 0
+				}
 			}
 		],
 		"indexes": [
@@ -3565,6 +3500,26 @@
 			{ "name": "user_email", "columns": [ "user_email" ], "unique": false, "options": { "lengths": [ 50, null, null ] } }
 		],
 		"pk": [ "user_id" ]
+	},
+	{
+		"name": "user_autocreate_serial",
+		"comment": "Table for sequential name generation for auto-created temporary users",
+		"columns": [
+			{
+				"name": "uas_shard",
+				"comment": "The segment of ID space, ID mod N, referred to by this row",
+				"type": "integer",
+				"options": { "unsigned": true, "notnull": true }
+			},
+			{
+				"name": "uas_value",
+				"comment": "The maximum allocated ID value",
+				"type": "integer",
+				"options": { "unsigned": true, "notnull": true }
+			}
+		],
+		"indexes": [],
+		"pk": [ "uas_shard" ]
 	},
 	{
 		"name": "revision",

@@ -1,5 +1,8 @@
 <?php
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\Title\Title;
+
 /**
  * @group ContentHandler
  * @group Database
@@ -9,30 +12,6 @@ class JavaScriptContentTest extends TextContentTest {
 
 	public function newContent( $text ) {
 		return new JavaScriptContent( $text );
-	}
-
-	public static function dataGetParserOutput() {
-		return [
-			[
-				'MediaWiki:Test.js',
-				null,
-				"hello <world>\n",
-				"<pre class=\"mw-code mw-js\" dir=\"ltr\">\nhello &lt;world>\n\n</pre>"
-			],
-			[
-				'MediaWiki:Test.js',
-				null,
-				"hello(); // [[world]]\n",
-				"<pre class=\"mw-code mw-js\" dir=\"ltr\">\nhello(); // [[world]]\n\n</pre>",
-				[
-					'Links' => [
-						[ 'World' => 0 ]
-					]
-				]
-			],
-
-			// TODO: more...?
-		];
 	}
 
 	// XXX: Unused function
@@ -208,13 +187,13 @@ class JavaScriptContentTest extends TextContentTest {
 	 * @dataProvider provideUpdateRedirect
 	 */
 	public function testUpdateRedirect( $oldText, $expectedText ) {
-		$this->setMwGlobals( [
-			'wgServer' => '//example.org',
-			'wgScriptPath' => '/w',
-			'wgScript' => '/w/index.php',
-			'wgResourceBasePath' => '/w',
+		$this->overrideConfigValues( [
+			MainConfigNames::Server => '//example.org',
+			MainConfigNames::ScriptPath => '/w',
+			MainConfigNames::Script => '/w/index.php',
+			MainConfigNames::ResourceBasePath => '/w',
 		] );
-		$target = Title::newFromText( "testUpdateRedirect_target" );
+		$target = Title::makeTitle( NS_MAIN, 'TestUpdateRedirect_target' );
 
 		$content = new JavaScriptContent( $oldText );
 		$newContent = $content->updateRedirect( $target );
@@ -268,11 +247,11 @@ class JavaScriptContentTest extends TextContentTest {
 	 * @dataProvider provideGetRedirectTarget
 	 */
 	public function testGetRedirectTarget( $title, $text ) {
-		$this->setMwGlobals( [
-			'wgServer' => '//example.org',
-			'wgScriptPath' => '/w',
-			'wgScript' => '/w/index.php',
-			'wgResourceBasePath' => '/w',
+		$this->overrideConfigValues( [
+			MainConfigNames::Server => '//example.org',
+			MainConfigNames::ScriptPath => '/w',
+			MainConfigNames::Script => '/w/index.php',
+			MainConfigNames::ResourceBasePath => '/w',
 		] );
 		$content = new JavaScriptContent( $text );
 		$target = $content->getRedirectTarget();

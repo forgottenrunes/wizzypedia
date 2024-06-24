@@ -11,10 +11,11 @@ use MediaWiki\Config\ServiceOptions;
 use MediaWiki\Extension\AbuseFilter\Variables\VariableHolder;
 use MediaWiki\Extension\AbuseFilter\Variables\VariablesBlobStore;
 use MediaWiki\Extension\AbuseFilter\Variables\VariablesManager;
-use Title;
+use MediaWiki\Title\Title;
+use MediaWiki\User\UserIdentityValue;
 use User;
 use Wikimedia\Rdbms\IDatabase;
-use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\LBFactory;
 
 class AbuseLogger {
 	public const CONSTRUCTOR_OPTIONS = [
@@ -42,8 +43,8 @@ class AbuseLogger {
 	private $varManager;
 	/** @var EditRevUpdater */
 	private $editRevUpdater;
-	/** @var ILoadBalancer */
-	private $loadBalancer;
+	/** @var LBFactory */
+	private $lbFactory;
 	/** @var ServiceOptions */
 	private $options;
 	/** @var string */
@@ -57,7 +58,7 @@ class AbuseLogger {
 	 * @param VariablesBlobStore $varBlobStore
 	 * @param VariablesManager $varManager
 	 * @param EditRevUpdater $editRevUpdater
-	 * @param ILoadBalancer $loadBalancer
+	 * @param LBFactory $lbFactory
 	 * @param ServiceOptions $options
 	 * @param string $wikiID
 	 * @param string $requestIP
@@ -71,7 +72,7 @@ class AbuseLogger {
 		VariablesBlobStore $varBlobStore,
 		VariablesManager $varManager,
 		EditRevUpdater $editRevUpdater,
-		ILoadBalancer $loadBalancer,
+		LBFactory $lbFactory,
 		ServiceOptions $options,
 		string $wikiID,
 		string $requestIP,
@@ -87,7 +88,7 @@ class AbuseLogger {
 		$this->varBlobStore = $varBlobStore;
 		$this->varManager = $varManager;
 		$this->editRevUpdater = $editRevUpdater;
-		$this->loadBalancer = $loadBalancer;
+		$this->lbFactory = $lbFactory;
 		$options->assertRequiredOptions( self::CONSTRUCTOR_OPTIONS );
 		$this->options = $options;
 		$this->wikiID = $wikiID;
@@ -106,7 +107,7 @@ class AbuseLogger {
 	 * @phan-return array{local:int[],global:int[]}
 	 */
 	public function addLogEntries( array $actionsTaken ): array {
-		$dbw = $this->loadBalancer->getConnectionRef( DB_PRIMARY );
+		$dbw = $this->lbFactory->getPrimaryDatabase();
 		$logTemplate = $this->buildLogTemplate();
 		$centralLogTemplate = [
 			'afl_wiki' => $this->wikiID,
@@ -177,7 +178,7 @@ class AbuseLogger {
 		$logTemplate = [
 			'afl_user' => $user->getId(),
 			'afl_user_text' => $user->getName(),
-			'afl_timestamp' => $this->loadBalancer->getConnectionRef( DB_REPLICA )->timestamp(),
+			'afl_timestamp' => $this->lbFactory->getReplicaDatabase()->timestamp(),
 			'afl_namespace' => $this->title->getNamespace(),
 			'afl_title' => $this->title->getDBkey(),
 			'afl_action' => $this->action,
@@ -188,6 +189,31 @@ class AbuseLogger {
 			$logTemplate['afl_user_text'] = $this->vars->getComputedVariable( 'accountname' )->toString();
 		}
 		return $logTemplate;
+	}
+
+	/**
+	 * @param array $data
+	 * @return ManualLogEntry
+	 */
+	private function newLocalLogEntryFromData( array $data ): ManualLogEntry {
+		// Give grep a chance to find the usages:
+		// logentry-abusefilter-hit
+		$entry = new ManualLogEntry( 'abusefilter', 'hit' );
+		$user = new UserIdentityValue( $data['afl_user'], $data['afl_user_text'] );
+		$entry->setPerformer( $user );
+		$entry->setTarget( $this->title );
+		$filterName = GlobalNameUtils::buildGlobalName(
+			$data['afl_filter_id'],
+			$data['afl_global'] === 1
+		);
+		// Additional info
+		$entry->setParameters( [
+			'action' => $data['afl_action'],
+			'filter' => $filterName,
+			'actions' => $data['afl_actions'],
+			'log' => $data['afl_id'],
+		] );
+		return $entry;
 	}
 
 	/**
@@ -203,25 +229,6 @@ class AbuseLogger {
 			$data['afl_var_dump'] = $varDump;
 			$dbw->insert( 'abuse_filter_log', $data, __METHOD__ );
 			$loggedIDs[] = $data['afl_id'] = $dbw->insertId();
-			// Give grep a chance to find the usages:
-			// logentry-abusefilter-hit
-			$entry = new ManualLogEntry( 'abusefilter', 'hit' );
-			// Construct a user object
-			$user = User::newFromId( $data['afl_user'] );
-			$user->setName( $data['afl_user_text'] );
-			$entry->setPerformer( $user );
-			$entry->setTarget( $this->title );
-			$filterName = GlobalNameUtils::buildGlobalName(
-				$data['afl_filter_id'],
-				$data['afl_global'] === 1
-			);
-			// Additional info
-			$entry->setParameters( [
-				'action' => $data['afl_action'],
-				'filter' => $filterName,
-				'actions' => $data['afl_actions'],
-				'log' => $data['afl_id'],
-			] );
 
 			// Send data to CheckUser if installed and we
 			// aren't already sending a notification to recentchanges
@@ -230,6 +237,16 @@ class AbuseLogger {
 			) {
 				global $wgCheckUserLogAdditionalRights;
 				$wgCheckUserLogAdditionalRights[] = 'abusefilter-view';
+				$entry = $this->newLocalLogEntryFromData( $data );
+				$user = $entry->getPerformerIdentity();
+				// Invert the hack from ::buildLogTemplate because CheckUser attempts
+				// to assign an actor id to the non-existing user
+				if (
+					( $this->action === 'createaccount' || $this->action === 'autocreateaccount' )
+					&& !$user->getId()
+				) {
+					$entry->setPerformer( new UserIdentityValue( 0, $this->requestIP ) );
+				}
 				$rc = $entry->getRecentChange();
 				Hooks::updateCheckUserData( $rc );
 			}
@@ -243,6 +260,7 @@ class AbuseLogger {
 				) {
 					continue;
 				}
+				$entry = $this->newLocalLogEntryFromData( $data );
 				$this->publishEntry( $dbw, $entry );
 			}
 		}

@@ -3,8 +3,11 @@
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Permissions\Authority;
 use MediaWiki\Permissions\PermissionStatus;
+use MediaWiki\Permissions\RateLimiter;
+use MediaWiki\Status\Status;
 use MediaWiki\Tests\Unit\MockServiceDependenciesTrait;
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
+use MediaWiki\Title\Title;
 
 /**
  * TODO convert to a pure unit test
@@ -101,10 +104,7 @@ class ContentModelChangeTest extends MediaWikiIntegrationTestCase {
 			__METHOD__ . ' comment',
 			false
 		);
-		$this->assertSame(
-			'invalid-content-data',
-			$status->getErrors()[0]['message']
-		);
+		$this->assertStatusError( 'invalid-json-data', $status );
 	}
 
 	/**
@@ -149,7 +149,7 @@ class ContentModelChangeTest extends MediaWikiIntegrationTestCase {
 		);
 	}
 
-	public function provideTestEditFilterMergedContent() {
+	public static function provideTestEditFilterMergedContent() {
 		return [
 			[ 'DannyS712 objects to this change!', 'DannyS712 objects to this change!' ],
 			[ false, 'hookaborted' ]
@@ -209,7 +209,7 @@ class ContentModelChangeTest extends MediaWikiIntegrationTestCase {
 	 */
 	public function testNoDirectEditing() {
 		$title = Title::newFromText( 'Dummy:NoDirectEditing' );
-		$wikipage = WikiPage::factory( $title );
+		$wikipage = $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( $title );
 
 		$dummyContent = ContentHandler::getForModelID( 'testing' )->makeEmptyContent();
 		$wikipage->doUserEditContent(
@@ -282,7 +282,7 @@ class ContentModelChangeTest extends MediaWikiIntegrationTestCase {
 			PageIdentity $page,
 			PermissionStatus $status
 		) use ( $currentContentModel, $newContentModel ) {
-			$title = Title::castFromPageIdentity( $page );
+			$title = Title::newFromPageIdentity( $page );
 			if ( $permission === 'editcontentmodel' && $title->hasContentModel( $currentContentModel ) ) {
 				$status->fatal( 'no edit old content model' );
 				return false;
@@ -329,27 +329,30 @@ class ContentModelChangeTest extends MediaWikiIntegrationTestCase {
 	 * @covers ContentModelChange::doContentModelChange
 	 */
 	public function testCheckPermissionsThrottle() {
-		$mock = $this->getMockBuilder( User::class )
-			->onlyMethods( [ 'pingLimiter' ] )
-			->getMock();
-		$mock->expects( $this->once() )
-			->method( 'pingLimiter' )
-			->with( 'editcontentmodel' )
-			->willReturn( true );
+		$user = $this->getTestUser()->getUser();
+
+		$limiter = $this->createNoOpMock( RateLimiter::class, [ 'limit', 'isLimitable' ] );
+		$limiter->method( 'isLimitable' )->willReturn( true );
+		$limiter->method( 'limit' )
+			->willReturnCallback( function ( $user, $action, $incr ) {
+				if ( $action === 'editcontentmodel' ) {
+					$this->assertSame( 1, $incr );
+					return true;
+				}
+				return false;
+			} );
+
+		$this->setService( 'RateLimiter', $limiter );
 
 		$change = $this->newContentModelChange(
-			$mock,
+			$user,
 			$this->getNonexistingTestPage( 'NonExistingPage' ),
 			'text'
 		);
 
-		$context = new RequestContext();
-		$comment = 'comment';
-		$bot = true;
-
-		$this->expectException( ThrottledError::class );
-
-		$change->doContentModelChange( $context, $comment, $bot );
+		$status = $change->authorizeChange();
+		$this->assertFalse( $status->isOK() );
+		$this->assertTrue( $status->isRateLimitExceeded() );
 	}
 
 }

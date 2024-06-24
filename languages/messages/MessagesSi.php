@@ -1,10 +1,8 @@
 <?php
 /** Sinhala (සිංහල)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Asiri wiki
  * @author Budhajeewa

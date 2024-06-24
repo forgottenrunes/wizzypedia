@@ -23,9 +23,15 @@
  * @since 1.19
  */
 
+use MediaWiki\Html\Html;
+use MediaWiki\Linker\Linker;
 use MediaWiki\Linker\LinkRenderer;
 use MediaWiki\Linker\LinkTarget;
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 use MediaWiki\User\UserIdentity;
 
 /**
@@ -53,7 +59,8 @@ class LogFormatter {
 	 * @return LogFormatter
 	 */
 	public static function newFromEntry( LogEntry $entry ) {
-		$logActionsHandlers = MediaWikiServices::getInstance()->getMainConfig()->get( 'LogActionsHandlers' );
+		$logActionsHandlers = MediaWikiServices::getInstance()->getMainConfig()
+			->get( MainConfigNames::LogActionsHandlers );
 		$fulltype = $entry->getFullType();
 		$wildcard = $entry->getType() . '/*';
 		$handler = $logActionsHandlers[$fulltype] ?? $logActionsHandlers[$wildcard] ?? '';
@@ -170,7 +177,7 @@ class LogFormatter {
 	public function canViewLogType() {
 		// If the user doesn't have the right permission to view the specific
 		// log type, return false
-		$logRestrictions = $this->context->getConfig()->get( 'LogRestrictions' );
+		$logRestrictions = $this->context->getConfig()->get( MainConfigNames::LogRestrictions );
 		$type = $this->entry->getType();
 		return !isset( $logRestrictions[$type] )
 			|| $this->context->getAuthority()->isAllowed( $logRestrictions[$type] );
@@ -184,7 +191,7 @@ class LogFormatter {
 	protected function canView( $field ) {
 		if ( $this->audience == self::FOR_THIS_USER ) {
 			return LogEventsList::userCanBitfield(
-				$this->entry->getDeleted(), $field, $this->context->getUser() ) &&
+				$this->entry->getDeleted(), $field, $this->context->getAuthority() ) &&
 				self::canViewLogType();
 		} else {
 			return !$this->entry->isDeleted( $field ) && self::canViewLogType();
@@ -444,14 +451,11 @@ class LogFormatter {
 			// case 'suppress' --private log -- aaron  (so we know who to blame in a few years :-D)
 			// default:
 		}
-		if ( $text === null ) {
-			$text = $this->getPlainActionText();
-		}
 
 		$this->plaintext = false;
 		$this->irctext = false;
 
-		return $text;
+		return $text ?? $this->getPlainActionText();
 	}
 
 	/**
@@ -539,7 +543,7 @@ class LogFormatter {
 			if ( strpos( $key, ':' ) === false ) {
 				continue;
 			}
-			list( $index, $type, ) = explode( ':', $key, 3 );
+			[ $index, $type, ] = explode( ':', $key, 3 );
 			if ( ctype_digit( $index ) ) {
 				$params[(int)$index - 1] = $this->formatParameterValue( $type, $value );
 			}
@@ -563,14 +567,21 @@ class LogFormatter {
 	}
 
 	/**
-	 * Formats parameters intented for action message from
-	 * array of all parameters. There are three hardcoded
-	 * parameters (array is zero-indexed, this list not):
-	 *  - 1: user name with premade link
-	 *  - 2: usable for gender magic function
-	 *  - 3: target page with premade link
+	 * Formats parameters intended for action message from array of all parameters.
+	 * There are three hardcoded parameters:
+	 *  - $1: user name with premade link
+	 *  - $2: usable for gender magic function
+	 *  - $3: target page with premade link
+	 * More parameters might be present, depending on what code created the log
+	 * entry.
+	 *
+	 * The parameters are returned as a non-associative array that can be passed to
+	 * Message::params(), so $logFormatter->getMessageParameters()[0] is the $1 parameter
+	 * in the message and so on.
+	 *
 	 * @stable to override
 	 * @return array
+	 * @see ManualLogEntry::setParameters() for how parameters are determined.
 	 */
 	protected function getMessageParameters() {
 		if ( isset( $this->parsedParameters ) ) {
@@ -725,7 +736,8 @@ class LogFormatter {
 	 */
 	public function getComment() {
 		if ( $this->canView( LogPage::DELETED_COMMENT ) ) {
-			$comment = Linker::commentBlock( $this->entry->getComment() );
+			$comment = MediaWikiServices::getInstance()->getCommentFormatter()
+				->formatBlock( $this->entry->getComment() );
 			// No hard coded spaces thanx
 			$element = ltrim( $comment );
 			if ( $this->entry->isDeleted( LogPage::DELETED_COMMENT ) ) {
@@ -749,10 +761,7 @@ class LogFormatter {
 			return $this->msg( $message )->text();
 		}
 
-		$content = $this->msg( $message )->escaped();
-		$attribs = [ 'class' => 'history-deleted' ];
-
-		return Html::rawElement( 'span', $attribs, $content );
+		return $this->styleRestrictedElement( $this->msg( $message )->escaped() );
 	}
 
 	/**
@@ -764,20 +773,12 @@ class LogFormatter {
 		if ( $this->plaintext ) {
 			return $content;
 		}
-		$attribs = [ 'class' => 'history-deleted' ];
+		$attribs = [ 'class' => [ 'history-deleted' ] ];
+		if ( $this->entry->isDeleted( LogPage::DELETED_RESTRICTED ) ) {
+			$attribs['class'][] = 'mw-history-suppressed';
+		}
 
 		return Html::rawElement( 'span', $attribs, $content );
-	}
-
-	/**
-	 * Helper method for styling restricted element.
-	 * @deprecated since 1.37, use ::styleRestrictedElement instead
-	 * @param string $content
-	 * @return string HTML or wiki text
-	 */
-	protected function styleRestricedElement( $content ) {
-		wfDeprecated( __METHOD__, '1.37' );
-		return $this->styleRestrictedElement( $content );
 	}
 
 	/**
@@ -805,7 +806,7 @@ class LogFormatter {
 				$user->getName()
 			);
 			if ( $this->linkFlood ) {
-				$editCount = $user->isRegistered()
+				$editCount = $user->getId()
 					? MediaWikiServices::getInstance()->getUserEditTracker()->getUserEditCount( $user )
 					: null;
 
@@ -905,7 +906,7 @@ class LogFormatter {
 				break;
 
 			case 'number':
-				if ( ctype_digit( $value ) || is_int( $value ) ) {
+				if ( is_int( $value ) || ctype_digit( (string)$value ) ) {
 					$value = (int)$value;
 				} else {
 					$value = (float)$value;

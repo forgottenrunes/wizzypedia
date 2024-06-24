@@ -1,7 +1,5 @@
 <?php
 /**
- * Builder class for the EditResult object.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,13 +16,12 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- *
- * @author Ostrzyciel
  */
 
 namespace MediaWiki\Storage;
 
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\RevisionStore;
 use Wikimedia\Assert\Assert;
@@ -34,11 +31,12 @@ use Wikimedia\Assert\Assert;
  *
  * @internal Only for use by PageUpdater
  * @since 1.35
+ * @author Ostrzyciel
  */
 class EditResultBuilder {
 
 	public const CONSTRUCTOR_OPTIONS = [
-		'ManualRevertSearchRadius',
+		MainConfigNames::ManualRevertSearchRadius,
 	];
 
 	/**
@@ -57,7 +55,7 @@ class EditResultBuilder {
 	/** @var bool */
 	private $isNew = false;
 
-	/** @var int|bool */
+	/** @var int|false */
 	private $originalRevisionId = false;
 
 	/** @var RevisionRecord|null */
@@ -193,7 +191,7 @@ class EditResultBuilder {
 	}
 
 	/**
-	 * @param RevisionRecord|int|bool|null $originalRevision
+	 * @param RevisionRecord|int|false|null $originalRevision
 	 *   RevisionRecord or revision ID for the original revision.
 	 *   False or null to unset.
 	 */
@@ -215,7 +213,7 @@ class EditResultBuilder {
 	 * If successful, mutates the builder accordingly.
 	 */
 	private function detectManualRevert() {
-		$searchRadius = $this->options->get( 'ManualRevertSearchRadius' );
+		$searchRadius = $this->options->get( MainConfigNames::ManualRevertSearchRadius );
 		if ( !$searchRadius ||
 			// we already marked this as a revert
 			$this->revertMethod !== null ||

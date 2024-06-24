@@ -265,6 +265,7 @@ class CommentFormatter {
 			} else {
 				$key = $i;
 			}
+			// @phan-suppress-next-line PhanTypeMismatchDimAssignment getId does not return null here
 			$outputs[$key] = $this->preprocessRevComment(
 				$parser, $authority, $rev, $samePage, $isPublic, $useParentheses );
 		}
@@ -399,7 +400,7 @@ class CommentFormatter {
 			$block = " <span class=\"comment\">" . wfMessage( 'rev-deleted-comment' )->escaped() . "</span>";
 		}
 		if ( $revRecord->isDeleted( RevisionRecord::DELETED_COMMENT ) ) {
-			$class = \Linker::getRevisionDeletedClass( $revRecord );
+			$class = \MediaWiki\Linker\Linker::getRevisionDeletedClass( $revRecord );
 			return " <span class=\"$class comment\">$block</span>";
 		}
 		return $block;

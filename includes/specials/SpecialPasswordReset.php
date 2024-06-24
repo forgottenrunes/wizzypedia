@@ -21,6 +21,17 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use ErrorPageError;
+use HTMLForm;
+use MediaWiki\MainConfigNames;
+use MediaWiki\SpecialPage\FormSpecialPage;
+use MediaWiki\Status\Status;
+use MediaWiki\User\PasswordReset;
+use MediaWiki\User\User;
+use ThrottledError;
+
 /**
  * Special page for requesting a password reset email.
  *
@@ -80,7 +91,7 @@ class SpecialPasswordReset extends FormSpecialPage {
 	}
 
 	protected function getFormFields() {
-		$resetRoutes = $this->getConfig()->get( 'PasswordResetRoutes' );
+		$resetRoutes = $this->getConfig()->get( MainConfigNames::PasswordResetRoutes );
 		$a = [];
 		if ( isset( $resetRoutes['username'] ) && $resetRoutes['username'] ) {
 			$a['Username'] = [
@@ -109,7 +120,7 @@ class SpecialPasswordReset extends FormSpecialPage {
 	}
 
 	public function alterForm( HTMLForm $form ) {
-		$resetRoutes = $this->getConfig()->get( 'PasswordResetRoutes' );
+		$resetRoutes = $this->getConfig()->get( MainConfigNames::PasswordResetRoutes );
 
 		$form->setSubmitDestructive();
 
@@ -125,7 +136,7 @@ class SpecialPasswordReset extends FormSpecialPage {
 
 		$message = ( $i > 1 ) ? 'passwordreset-text-many' : 'passwordreset-text-one';
 
-		$form->setHeaderText( $this->msg( $message, $i )->parseAsBlock() );
+		$form->setHeaderHtml( $this->msg( $message, $i )->parseAsBlock() );
 		$form->setSubmitTextMsg( 'mailmypassword' );
 	}
 
@@ -134,8 +145,6 @@ class SpecialPasswordReset extends FormSpecialPage {
 	 * userCanExecute(), and if the data array contains 'Username', etc, then Username
 	 * resets are allowed.
 	 * @param array $data
-	 * @throws MWException
-	 * @throws ThrottledError|PermissionsError
 	 * @return Status
 	 */
 	public function onSubmit( array $data ) {
@@ -163,7 +172,7 @@ class SpecialPasswordReset extends FormSpecialPage {
 		// Information messages.
 		$output->addWikiMsg( 'passwordreset-success' );
 		$output->addWikiMsg( 'passwordreset-success-details-generic',
-			$this->getConfig()->get( 'PasswordReminderResendTime' ) );
+			$this->getConfig()->get( MainConfigNames::PasswordReminderResendTime ) );
 
 		// Confirmation of what the user has just submitted.
 		$info = "\n";
@@ -195,6 +204,12 @@ class SpecialPasswordReset extends FormSpecialPage {
 	}
 
 	protected function getGroupName() {
-		return 'users';
+		return 'login';
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialPasswordReset::class, 'SpecialPasswordReset' );

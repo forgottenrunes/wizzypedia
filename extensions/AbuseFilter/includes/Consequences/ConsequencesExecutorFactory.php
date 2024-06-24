@@ -3,11 +3,11 @@
 namespace MediaWiki\Extension\AbuseFilter\Consequences;
 
 use MediaWiki\Config\ServiceOptions;
+use MediaWiki\Extension\AbuseFilter\ActionSpecifier;
 use MediaWiki\Extension\AbuseFilter\FilterLookup;
 use MediaWiki\Extension\AbuseFilter\Variables\VariableHolder;
+use MediaWiki\User\UserIdentityUtils;
 use Psr\Log\LoggerInterface;
-use Title;
-use User;
 
 class ConsequencesExecutorFactory {
 	public const SERVICE_NAME = 'AbuseFilterConsequencesExecutorFactory';
@@ -22,6 +22,8 @@ class ConsequencesExecutorFactory {
 	private $filterLookup;
 	/** @var LoggerInterface */
 	private $logger;
+	/** @var UserIdentityUtils */
+	private $userIdentityUtils;
 	/** @var ServiceOptions */
 	private $options;
 
@@ -31,6 +33,7 @@ class ConsequencesExecutorFactory {
 	 * @param ConsequencesRegistry $consRegistry
 	 * @param FilterLookup $filterLookup
 	 * @param LoggerInterface $logger
+	 * @param UserIdentityUtils $userIdentityUtils
 	 * @param ServiceOptions $options
 	 */
 	public function __construct(
@@ -39,6 +42,7 @@ class ConsequencesExecutorFactory {
 		ConsequencesRegistry $consRegistry,
 		FilterLookup $filterLookup,
 		LoggerInterface $logger,
+		UserIdentityUtils $userIdentityUtils,
 		ServiceOptions $options
 	) {
 		$this->consLookup = $consLookup;
@@ -46,26 +50,26 @@ class ConsequencesExecutorFactory {
 		$this->consRegistry = $consRegistry;
 		$this->filterLookup = $filterLookup;
 		$this->logger = $logger;
+		$this->userIdentityUtils = $userIdentityUtils;
 		$options->assertRequiredOptions( ConsequencesExecutor::CONSTRUCTOR_OPTIONS );
 		$this->options = $options;
 	}
 
 	/**
-	 * @param User $user
-	 * @param Title $title
+	 * @param ActionSpecifier $specifier
 	 * @param VariableHolder $vars
 	 * @return ConsequencesExecutor
 	 */
-	public function newExecutor( User $user, Title $title, VariableHolder $vars ): ConsequencesExecutor {
+	public function newExecutor( ActionSpecifier $specifier, VariableHolder $vars ): ConsequencesExecutor {
 		return new ConsequencesExecutor(
 			$this->consLookup,
 			$this->consFactory,
 			$this->consRegistry,
 			$this->filterLookup,
 			$this->logger,
+			$this->userIdentityUtils,
 			$this->options,
-			$user,
-			$title,
+			$specifier,
 			$vars
 		);
 	}

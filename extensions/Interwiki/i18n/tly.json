@@ -1,8 +1,12 @@
 {
 	"@metadata": {
 		"authors": [
-			"Patriot Kur"
+			"Patriot Kor",
+			"Patriot Kur",
+			"Гусейн"
 		]
 	},
-	"interwiki_edit": "Dəqiş karde"
+	"interwiki_0": "ne",
+	"interwiki_edit": "Sərost bykə",
+	"interwiki_addbutton": "Əlovə"
 }

@@ -20,6 +20,9 @@
  * @file
  */
 
+use MediaWiki\Title\Title;
+use Wikimedia\ParamValidator\ParamValidator;
+
 /**
  * @ingroup API
  */
@@ -105,6 +108,7 @@ class ApiFileRevert extends ApiBase {
 
 		// Check if the archivename is valid for this file
 		$this->archiveName = $this->params['archivename'];
+		// @phan-suppress-next-line PhanTypeMismatchArgumentNullable T240141
 		$oldFile = $localRepo->newFromArchiveName( $title, $this->archiveName );
 		if ( !$oldFile->exists() ) {
 			$this->dieWithError( 'filerevert-badversion' );
@@ -122,15 +126,15 @@ class ApiFileRevert extends ApiBase {
 	public function getAllowedParams() {
 		return [
 			'filename' => [
-				ApiBase::PARAM_TYPE => 'string',
-				ApiBase::PARAM_REQUIRED => true,
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_REQUIRED => true,
 			],
 			'comment' => [
-				ApiBase::PARAM_DFLT => '',
+				ParamValidator::PARAM_DEFAULT => '',
 			],
 			'archivename' => [
-				ApiBase::PARAM_TYPE => 'string',
-				ApiBase::PARAM_REQUIRED => true,
+				ParamValidator::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_REQUIRED => true,
 			],
 		];
 	}

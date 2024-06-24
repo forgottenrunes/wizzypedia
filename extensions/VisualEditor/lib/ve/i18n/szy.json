@@ -7,7 +7,6 @@
 		]
 	},
 	"visualeditor": "palakuliten ku aazihen sakawaw-kalumyiti-sakaluk",
-	"visualeditor-aliencontextitem-title": "kasacacay",
 	"visualeditor-aliennode-tooltip": "ahicanaca, tina yinsu wiza satu micaliw yuensma-mima muse mikawaway-kalumyiti ayza.",
 	"visualeditor-align-widget-center": "iteban",
 	"visualeditor-align-widget-default": "pataayaw tu kawaw",
@@ -45,7 +44,6 @@
 	"visualeditor-clipboard-paste-special": "u sulit-dada’ a kese pazepitan",
 	"visualeditor-command-dialog-cancel": "edeben / palawpes misumad",
 	"visualeditor-command-dialog-confirm": "malucekay tu sumad",
-	"visualeditor-commentinspector-edit": "buhci tu kamu nu mikawaway-kalumyiti",
 	"visualeditor-commentinspector-tooltip": "pacunus sakacaay kapawan",
 	"visualeditor-content-select-all": "haminen ku pili’",
 	"visualeditor-contextitemwidget-label-remove": "misipu",
@@ -69,7 +67,6 @@
 	"visualeditor-dialog-table-title": "sapat nu sulit a susin",
 	"visualeditor-diff-no-changes": "inayi’ misumad",
 	"visualeditor-find-and-replace-diacritic": "caay pipil’ tatebanan bacu",
-	"visualeditor-find-and-replace-diacritic-unavailable": "tina saazihay-sakaluk caay midama camel han ku miasipay a ngiha’ tatebanan-nisulitan kilim",
 	"visualeditor-find-and-replace-done": "malahecitu",
 	"visualeditor-find-and-replace-find-text": "mikilim",
 	"visualeditor-find-and-replace-invalid-regex": "la’cusay a tatungusay pakatineng sakaluk",

@@ -1,4 +1,9 @@
 <?php
+
+use MediaWiki\Linker\LinkTarget;
+use MediaWiki\Linker\LinkTargetLookup;
+use MediaWiki\MediaWikiServices;
+
 /**
  * Displays an interface to let users recreate data via the Cargo
  * extension.
@@ -104,7 +109,7 @@ class SpecialCargoRecreateData extends UnlistedSpecialPage {
 		}
 
 		$ct = SpecialPage::getTitleFor( 'CargoTables' );
-		$viewTableURL = $ct->getInternalURL() . '/' . $this->mTableName;
+		$viewTableURL = $ct->getLocalURL() . '/' . $this->mTableName;
 
 		// Store all the necesssary data on the page.
 		$text = Html::element( 'div', [
@@ -160,15 +165,21 @@ class SpecialCargoRecreateData extends UnlistedSpecialPage {
 		return true;
 	}
 
-	public function getNumPagesThatCallTemplate( $dbw, $templateTitle ) {
+	public function getNumPagesThatCallTemplate( $dbw, LinkTarget $templateTitle ) {
+		$conds = [ "tl_from=page_id" ];
+		if ( method_exists( LinkTargetLookup::class, 'getLinkTargetId' ) ) {
+			// MW 1.38+
+			$linkTargetLookup = MediaWikiServices::getInstance()->getLinkTargetLookup();
+			$conds['tl_target_id'] = $linkTargetLookup->getLinkTargetId( $templateTitle );
+		} else {
+			$conds['tl_namespace'] = $templateTitle->getNamespace();
+			$conds['tl_title'] = $templateTitle->getDBkey();
+		}
+
 		$res = $dbw->select(
 			[ 'page', 'templatelinks' ],
 			'COUNT(*) AS total',
-			[
-				"tl_from=page_id",
-				"tl_namespace" => $templateTitle->getNamespace(),
-				"tl_title" => $templateTitle->getDBkey()
-			],
+			$conds,
 			__METHOD__,
 			[]
 		);

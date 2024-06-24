@@ -24,8 +24,6 @@
  * @author Katie Filbert < aude.wiki@gmail.com >
  */
 
-use MediaWiki\MediaWikiServices;
-
 require_once __DIR__ . '/Maintenance.php';
 
 class PopulateInterwiki extends Maintenance {
@@ -71,7 +69,7 @@ TEXT
 	}
 
 	/**
-	 * @return array[]|bool The 'interwikimap' sub-array or false on failure.
+	 * @return array[]|false The 'interwikimap' sub-array or false on failure.
 	 */
 	protected function fetchLinks() {
 		$url = wfArrayToCgi( [
@@ -82,11 +80,11 @@ TEXT
 			'format' => 'json'
 		] );
 
-		if ( !empty( $this->source ) ) {
+		if ( $this->source ) {
 			$url = rtrim( $this->source, '?' ) . '?' . $url;
 		}
 
-		$json = MediaWikiServices::getInstance()->getHttpRequestFactory()->get( $url, [], __METHOD__ );
+		$json = $this->getServiceContainer()->getHttpRequestFactory()->get( $url, [], __METHOD__ );
 		$data = json_decode( $json, true );
 
 		if ( is_array( $data ) ) {
@@ -106,12 +104,11 @@ TEXT
 		$dbw = $this->getDB( DB_PRIMARY );
 
 		if ( !$force ) {
-			$row = $dbw->selectRow(
-				'updatelog',
-				'1',
-				[ 'ul_key' => 'populate interwiki' ],
-				__METHOD__
-			);
+			$row = $dbw->newSelectQueryBuilder()
+				->select( '1' )
+				->from( 'updatelog' )
+				->where( [ 'ul_key' => 'populate interwiki' ] )
+				->caller( __METHOD__ )->fetchRow();
 
 			if ( $row ) {
 				$this->output( "Interwiki table already populated.  Use php " .
@@ -121,16 +118,15 @@ TEXT
 			}
 		}
 
-		$lookup = MediaWikiServices::getInstance()->getInterwikiLookup();
+		$lookup = $this->getServiceContainer()->getInterwikiLookup();
 		foreach ( $data as $d ) {
 			$prefix = $d['prefix'];
 
-			$row = $dbw->selectRow(
-				'interwiki',
-				'1',
-				[ 'iw_prefix' => $prefix ],
-				__METHOD__
-			);
+			$row = $dbw->newSelectQueryBuilder()
+				->select( '1' )
+				->from( 'interwiki' )
+				->where( [ 'iw_prefix' => $prefix ] )
+				->caller( __METHOD__ )->fetchRow();
 
 			if ( !$row ) {
 				$dbw->insert(
@@ -138,7 +134,9 @@ TEXT
 					[
 						'iw_prefix' => $prefix,
 						'iw_url' => $d['url'],
-						'iw_local' => 1
+						'iw_local' => 1,
+						'iw_api' => '',
+						'iw_wikiid' => '',
 					],
 					__METHOD__,
 					[ 'IGNORE' ]

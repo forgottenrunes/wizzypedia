@@ -1,5 +1,41 @@
 # Changelog
 
+## 2.5.1 (2023-10-06)
+
+* Fix source map output for multi-line templates. (Tim Starling) [T348280](https://phabricator.wikimedia.org/T348280)
+
+## 2.5.0 (2023-08-11)
+
+Added:
+
+* bin: Add `css-remap` command. (Timo Tijhof)
+* IdentityMinifierState and JavaScriptMinifier::createIdentityMinifier(). (Tim Starling)
+* MinifierState::ensureNewline()
+* IndexMap class, for generating a combined source map
+
+## 2.4.0 (2023-03-20)
+
+Added:
+
+* JavaScriptMinifier: Add ES2016 syntax support. (Siddharth VP) [T277675](https://phabricator.wikimedia.org/T277675)
+
+Changed:
+
+* package: Require `ext-fileinfo` in composer.json. (Sam Reed)
+
+## 2.3.0 (2022-04-19)
+
+Added:
+
+* JavaScriptMinifier: Add support for source maps. (Tim Starling) [T47514](https://phabricator.wikimedia.org/T47514)
+   Use via the `createMinifier()` and `createSourceMapState()` methods,
+   see `/tests/data/sourcemap/combine.php` for an example.
+* bin: Add `jsmap-web` and `jsmap-raw` commands. (Tim Starling)
+
+Fixed:
+
+* JavaScriptMinifier: Fix handling of property on dotless number literal. (Timo Tijhof) [T303827](https://phabricator.wikimedia.org/T303827)
+
 ## 2.2.6 (2021-11-18)
 
 Fixed:
@@ -22,7 +58,7 @@ Fixed:
 
 Fixed:
 
-*  JavaScriptMinifer: Fix handling of `.delete` as object property. (Roan Kattouw) [T283244](https://phabricator.wikimedia.org/T283244)
+* JavaScriptMinifer: Fix handling of `.delete` as object property. (Roan Kattouw) [T283244](https://phabricator.wikimedia.org/T283244)
 
 ## 2.2.2 (2021-05-07)
 

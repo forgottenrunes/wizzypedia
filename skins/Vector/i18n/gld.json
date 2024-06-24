@@ -1,10 +1,13 @@
 {
 	"@metadata": {
 		"authors": [
+			"Amire80",
 			"RFScott"
 		]
 	},
-	"vector-language-button-label": "{{PLURAL:$1 хэсэ}}",
+	"vector-languages": "Хэсэсэл",
+	"vector-language-button-label": "{{PLURAL:$1|$1 хэсэ}}",
+	"vector-no-language-button-label": "Гучи хэсэ",
 	"vector-action-addsection": "Темава аӈгойни",
 	"vector-action-delete": "Нангалаори",
 	"vector-action-move": "Энэвэмбури",
@@ -13,5 +16,7 @@
 	"vector-view-edit": "Калаори",
 	"vector-view-history": "Дюлэ дурун",
 	"vector-view-view": "Холаори",
-	"vector-more-actions": "Гучи"
+	"vector-more-actions": "Гучи",
+	"vector-page-tools-label": "Дебой дяка",
+	"vector-unpin-element-label": "дасиори"
 }

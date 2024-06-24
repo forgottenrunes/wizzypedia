@@ -21,7 +21,13 @@
 
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\Language\RawMessage;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Output\OutputPage;
+use MediaWiki\Permissions\Authority;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 
 /**
  * @defgroup Actions Actions
@@ -43,16 +49,6 @@ use MediaWiki\MediaWikiServices;
 abstract class Action implements MessageLocalizer {
 
 	/**
-	 * Page on which we're performing the action
-	 * @since 1.17
-	 * @deprecated since 1.35, use {@link getArticle()} ?? {@link getWikiPage()}. Must be removed.
-	 * @internal
-	 *
-	 * @var WikiPage|Article|ImagePage|CategoryPage|Page
-	 */
-	protected $page;
-
-	/**
 	 * @var Article
 	 * @since 1.35
 	 */
@@ -72,6 +68,11 @@ abstract class Action implements MessageLocalizer {
 	 */
 	protected $fields;
 
+	/** @var HookContainer|null */
+	private $hookContainer;
+	/** @var HookRunner|null */
+	private $hookRunner;
+
 	/**
 	 * Get an appropriate Action subclass for the given action
 	 * @since 1.17
@@ -79,7 +80,7 @@ abstract class Action implements MessageLocalizer {
 	 * @param string $action
 	 * @param Article $article
 	 * @param IContextSource|null $context Falls back to article's context
-	 * @return Action|bool|null False if the action is disabled, null
+	 * @return Action|false|null False if the action is disabled, null
 	 *     if it is not recognised
 	 */
 	final public static function factory(
@@ -87,13 +88,9 @@ abstract class Action implements MessageLocalizer {
 		Article $article,
 		IContextSource $context = null
 	) {
-		if ( $context === null ) {
-			$context = $article->getContext();
-		}
-
 		return MediaWikiServices::getInstance()
 			->getActionFactory()
-			->getAction( $action, $article, $context );
+			->getAction( $action, $article, $context ?? $article->getContext() );
 	}
 
 	/**
@@ -106,25 +103,8 @@ abstract class Action implements MessageLocalizer {
 	 * @return string Action name
 	 */
 	final public static function getActionName( IContextSource $context ) {
-		return MediaWikiServices::getInstance()
-			->getActionFactory()
-			->getActionName( $context );
-	}
-
-	/**
-	 * Check if a given action is recognised, even if it's disabled
-	 *
-	 * @since 1.17
-	 * @deprecated since 1.38 use (bool)ActionFactory::getAction()
-	 *
-	 * @param string $name Name of an action
-	 * @return bool
-	 */
-	final public static function exists( string $name ): bool {
-		wfDeprecated( __METHOD__, '1.38' );
-		return MediaWikiServices::getInstance()
-			->getActionFactory()
-			->actionExists( $name );
+		// Optimisation: Reuse/prime the cached value of RequestContext
+		return $context->getActionName();
 	}
 
 	/**
@@ -168,6 +148,16 @@ abstract class Action implements MessageLocalizer {
 	 */
 	final public function getUser() {
 		return $this->getContext()->getUser();
+	}
+
+	/**
+	 * Shortcut to get the Authority executing this instance
+	 *
+	 * @return Authority
+	 * @since 1.39
+	 */
+	final public function getAuthority(): Authority {
+		return $this->getContext()->getAuthority();
 	}
 
 	/**
@@ -233,12 +223,25 @@ abstract class Action implements MessageLocalizer {
 	}
 
 	/**
+	 * @since 1.40
+	 * @internal For use by ActionFactory
+	 * @param HookContainer $hookContainer
+	 */
+	public function setHookContainer( HookContainer $hookContainer ) {
+		$this->hookContainer = $hookContainer;
+		$this->hookRunner = new HookRunner( $hookContainer );
+	}
+
+	/**
 	 * @since 1.35
 	 * @internal since 1.37
 	 * @return HookContainer
 	 */
 	protected function getHookContainer() {
-		return MediaWikiServices::getInstance()->getHookContainer();
+		if ( !$this->hookContainer ) {
+			$this->hookContainer = MediaWikiServices::getInstance()->getHookContainer();
+		}
+		return $this->hookContainer;
 	}
 
 	/**
@@ -248,7 +251,10 @@ abstract class Action implements MessageLocalizer {
 	 * @return HookRunner
 	 */
 	protected function getHookRunner() {
-		return new HookRunner( $this->getHookContainer() );
+		if ( !$this->hookRunner ) {
+			$this->hookRunner = new HookRunner( $this->getHookContainer() );
+		}
+		return $this->hookRunner;
 	}
 
 	/**
@@ -256,47 +262,12 @@ abstract class Action implements MessageLocalizer {
 	 *
 	 * @stable to call
 	 *
-	 * @param Article|WikiPage|Page $page
-	 * 	Calling with anything other then Article is deprecated since 1.35
-	 * @param IContextSource|null $context
+	 * @param Article $article
+	 * @param IContextSource $context
 	 */
-	public function __construct(
-		Page $page,
-		IContextSource $context = null
-	) {
-		if ( $context === null ) {
-			wfWarn( __METHOD__ . ' called without providing a Context object.' );
-		}
-
-		$this->page = $page;// @todo remove b/c
-		$this->article = self::convertPageToArticle( $page, $context, __METHOD__ );
+	public function __construct( Article $article, IContextSource $context ) {
+		$this->article = $article;
 		$this->context = $context;
-	}
-
-	private static function convertPageToArticle(
-		Page $page,
-		?IContextSource $context,
-		string $method
-	): Article {
-		if ( $page instanceof Article ) {
-			return $page;
-		}
-
-		if ( !$page instanceof WikiPage ) {
-			throw new LogicException(
-				$method . ' called with unknown Page: ' . get_class( $page )
-			);
-		}
-
-		wfDeprecated(
-			$method . ' with: ' . get_class( $page ),
-			'1.35'
-		);
-
-		return Article::newFromWikiPage(
-			$page,
-			$context ?? RequestContext::getMain()
-		);
 	}
 
 	/**
@@ -310,6 +281,10 @@ abstract class Action implements MessageLocalizer {
 	/**
 	 * Get the permission required to perform this action.  Often, but not always,
 	 * the same as the action name
+	 *
+	 * Implementations of this methods must always return the same value, regardless
+	 * of parameters passed to the constructor or system state.
+	 *
 	 * @since 1.17
 	 * @stable to override
 	 *
@@ -321,6 +296,10 @@ abstract class Action implements MessageLocalizer {
 
 	/**
 	 * Indicates whether this action requires read rights
+	 *
+	 * Implementations of this methods must always return the same value, regardless
+	 * of parameters passed to the constructor or system state.
+	 *
 	 * @since 1.38
 	 * @stable to override
 	 * @return bool
@@ -379,6 +358,10 @@ abstract class Action implements MessageLocalizer {
 
 	/**
 	 * Whether this action requires the wiki not to be locked
+	 *
+	 * Implementations of this methods must always return the same value, regardless
+	 * of parameters passed to the constructor or system state.
+	 *
 	 * @since 1.17
 	 * @stable to override
 	 *
@@ -389,7 +372,11 @@ abstract class Action implements MessageLocalizer {
 	}
 
 	/**
-	 * Whether this action can still be executed by a blocked user
+	 * Whether this action can still be executed by a blocked user.
+	 *
+	 * Implementations of this methods must always return the same value, regardless
+	 * of parameters passed to the constructor or system state.
+	 *
 	 * @since 1.17
 	 * @stable to override
 	 *
@@ -408,26 +395,34 @@ abstract class Action implements MessageLocalizer {
 	protected function setHeaders() {
 		$out = $this->getOutput();
 		$out->setRobotPolicy( 'noindex,nofollow' );
-		$out->setPageTitle( $this->getPageTitle() );
+		$title = $this->getPageTitle();
+		if ( is_string( $title ) ) {
+			// T343849: deprecated
+			wfDeprecated( 'string return from Action::getPageTitle()', '1.41' );
+			$title = ( new RawMessage( '$1' ) )->rawParams( $title );
+		}
+		$out->setPageTitleMsg( $title );
 		$out->setSubtitle( $this->getDescription() );
 		$out->setArticleRelated( true );
 	}
 
 	/**
-	 * Returns the name that goes in the \<h1\> page title
+	 * Returns the name that goes in the `<h1>` page title.
+	 *
+	 * Since 1.41, returning a string from this method has been deprecated.
 	 *
 	 * @stable to override
-	 * @return string
+	 * @return string|Message
 	 */
 	protected function getPageTitle() {
-		return $this->getTitle()->getPrefixedText();
+		return ( new RawMessage( '$1' ) )->plaintextParams( $this->getTitle()->getPrefixedText() );
 	}
 
 	/**
-	 * Returns the description that goes below the \<h1\> tag
+	 * Returns the description that goes below the `<h1>` element.
+	 *
 	 * @since 1.17
 	 * @stable to override
-	 *
 	 * @return string HTML
 	 */
 	protected function getDescription() {

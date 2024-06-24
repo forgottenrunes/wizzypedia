@@ -12,14 +12,14 @@
  pf.SpreadsheetComboBoxInput = function( config ) {
 	this.config = config || {};
 	OO.ui.ComboBoxInputWidget.call( this, config );
-	this.$input.focus( () => {
+	this.$input.focus( function() {
 		this.setValues();
-	});
-	this.$input.keyup( (event) => {
+	}.bind(this));
+	this.$input.keyup( function(event) {
 		if (event.keyCode !== 38 && event.keyCode !== 40 && event.keyCode !== 37 && event.keyCode !== 39) {
 			this.setValues();
 		}
-	});
+	}.bind(this));
 }
 OO.inheritClass( pf.SpreadsheetComboBoxInput, OO.ui.ComboBoxInputWidget );
 /**
@@ -37,7 +37,7 @@ pf.SpreadsheetComboBoxInput.prototype.setValues = function() {
 	// editor and hence we get "No Matches found" so we can
 	// simply remove that space.
 	if ( curValue[0] == ' ' ) {
-		curValue = curValue.substring(1);
+		curValue = curValue.slice(1);
 	}
 	if ( data_type == 'external data' ) { // External Data Autocompletion
 		var	wgPageFormsEDSettings = mw.config.get( 'wgPageFormsEDSettings' ),
@@ -48,7 +48,7 @@ pf.SpreadsheetComboBoxInput.prototype.setValues = function() {
 			data.title = edgValues[ wgPageFormsEDSettings[ name ].title ];
 			if ( data.title !== undefined && data.title !== null ) {
 				var i = 0;
-				data.title.forEach( function () {
+				data.title.forEach( function() {
 					var wgPageFormsAutocompleteOnAllChars = mw.config.get( 'wgPageFormsAutocompleteOnAllChars' );
 					if ( wgPageFormsAutocompleteOnAllChars ) {
 						var valueFilter = self.getConditionForAutocompleteOnAllChars( data.title[i], curValue.toLowerCase() )
@@ -105,7 +105,7 @@ pf.SpreadsheetComboBoxInput.prototype.setValues = function() {
 		$.ajax( {
 			url: my_server,
 			dataType: 'json',
-			success: function ( data ) {
+			success: function( data ) {
 				if ( data.pfautocomplete !== undefined ) {
 					data = data.pfautocomplete;
 					if ( data.length == 0 ) {
@@ -128,32 +128,32 @@ pf.SpreadsheetComboBoxInput.prototype.setValues = function() {
 /**
  *
  * @param {string} suggestion
- * @returns HtmlSnippet
+ * @return HtmlSnippet
  */
-pf.SpreadsheetComboBoxInput.prototype.highlightText = function ( suggestion ) {
+pf.SpreadsheetComboBoxInput.prototype.highlightText = function( suggestion ) {
 	var searchTerm = this.getValue();
 	if ( searchTerm[0] == ' ' ) {
-		searchTerm = searchTerm.substring(1);
+		searchTerm = searchTerm.slice(1);
 	}
-    var searchRegexp = new RegExp("(?![^&;]+;)(?!<[^<>]*)(" +
-        searchTerm.replace(/([\^\$\(\)\[\]\{\}\*\.\+\?\|\\])/gi, "\\$1") +
-        ")(?![^<>]*>)(?![^&;]+;)", "gi");
-    var itemLabel = suggestion;
-    var loc = itemLabel.search(searchRegexp);
-    var t;
-    if (loc >= 0) {
-        t = itemLabel.substr(0, loc) +
-            '<strong>' + itemLabel.substr(loc, searchTerm.length) + '</strong>' +
-            itemLabel.substr(loc + searchTerm.length);
-    } else {
-        t = itemLabel;
-    }
-    return new OO.ui.HtmlSnippet(t);
+	var searchRegexp = new RegExp("(?![^&;]+;)(?!<[^<>]*)(" +
+		searchTerm.replace(/([\^\$\(\)\[\]\{\}\*\.\+\?\|\\])/gi, "\\$1") +
+			")(?![^<>]*>)(?![^&;]+;)", "gi");
+	var itemLabel = suggestion;
+	var loc = itemLabel.search(searchRegexp);
+	var t;
+	if (loc >= 0) {
+		t = itemLabel.slice(0, Math.max(0, loc)) +
+			'<strong>' + itemLabel.substr(loc, searchTerm.length) + '</strong>' +
+		itemLabel.slice(loc + searchTerm.length);
+	} else {
+		t = itemLabel;
+	}
+	return new OO.ui.HtmlSnippet(t);
 };
 /**
  * Provides an option with "No Matches" label
  *
- * @returns {object}
+ * @return {Object}
  */
 pf.SpreadsheetComboBoxInput.prototype.getNoMatchesOption = function() {
 	return {
@@ -167,7 +167,7 @@ pf.SpreadsheetComboBoxInput.prototype.getNoMatchesOption = function() {
  *
  * @param {string} string
  * @param {string} curValue
- * @returns {boolean}
+ * @return {boolean}
  */
 pf.SpreadsheetComboBoxInput.prototype.checkIfAnyWordStartsWithInputValue = function( string, curValue ) {
 	var regex = new RegExp('\\b' + curValue.toLowerCase());
@@ -178,7 +178,7 @@ pf.SpreadsheetComboBoxInput.prototype.checkIfAnyWordStartsWithInputValue = funct
  *
  * @param {string} string
  * @param {string} curValue
- * @returns {boolean}
+ * @return {boolean}
  */
 pf.SpreadsheetComboBoxInput.prototype.getConditionForAutocompleteOnAllChars = function(string, curValue) {
 	return string.toLowerCase().includes(curValue.toLowerCase())
@@ -189,7 +189,7 @@ pf.SpreadsheetComboBoxInput.prototype.getConditionForAutocompleteOnAllChars = fu
  *
  * @param {integer} data_y
  * @param {string} dep_on_field
- * @returns {object} dep_field_opts
+ * @return {Object} dep_field_opts
  */
 pf.SpreadsheetComboBoxInput.prototype.getDependentFieldOpts = function( data_y, dep_on_field ) {
 	var dep_field_opts = {};

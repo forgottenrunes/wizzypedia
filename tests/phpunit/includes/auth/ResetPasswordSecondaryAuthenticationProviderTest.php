@@ -2,9 +2,13 @@
 
 namespace MediaWiki\Auth;
 
+use MediaWiki\Config\HashConfig;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Tests\Unit\Auth\AuthenticationProviderTestTrait;
+use MediaWiki\Tests\Unit\DummyServicesTrait;
+use MediaWiki\User\BotPasswordStore;
+use MediaWiki\User\User;
 use MediaWiki\User\UserNameUtils;
-use Psr\Container\ContainerInterface;
 use Wikimedia\TestingAccessWrapper;
 
 /**
@@ -13,6 +17,7 @@ use Wikimedia\TestingAccessWrapper;
  */
 class ResetPasswordSecondaryAuthenticationProviderTest extends \MediaWikiIntegrationTestCase {
 	use AuthenticationProviderTestTrait;
+	use DummyServicesTrait;
 
 	/**
 	 * @dataProvider provideGetAuthenticationRequests
@@ -36,8 +41,8 @@ class ResetPasswordSecondaryAuthenticationProviderTest extends \MediaWikiIntegra
 	}
 
 	public function testBasics() {
-		$user = \User::newFromName( 'UTSysop' );
-		$user2 = new \User;
+		$user = $this->createMock( User::class );
+		$user2 = new User;
 		$obj = new \stdClass;
 		$reqs = [ new \stdClass ];
 
@@ -60,7 +65,8 @@ class ResetPasswordSecondaryAuthenticationProviderTest extends \MediaWikiIntegra
 	}
 
 	public function testTryReset() {
-		$user = \User::newFromName( 'UTSysop' );
+		$username = 'TestTryReset';
+		$user = User::newFromName( $username );
 
 		$provider = $this->getMockBuilder(
 			ResetPasswordSecondaryAuthenticationProvider::class
@@ -70,17 +76,17 @@ class ResetPasswordSecondaryAuthenticationProviderTest extends \MediaWikiIntegra
 			] )
 			->getMock();
 		$provider->method( 'providerAllowsAuthenticationDataChange' )
-			->will( $this->returnCallback( function ( $req ) {
-				$this->assertSame( 'UTSysop', $req->username );
+			->willReturnCallback( function ( $req ) use ( $username ) {
+				$this->assertSame( $username, $req->username );
 				return $req->allow;
-			} ) );
+			} );
 		$provider->method( 'providerChangeAuthenticationData' )
-			->will( $this->returnCallback( function ( $req ) {
-				$this->assertSame( 'UTSysop', $req->username );
+			->willReturnCallback( function ( $req ) use ( $username ) {
+				$this->assertSame( $username, $req->username );
 				$req->done = true;
-			} ) );
-		$config = new \HashConfig( [
-			'AuthManagerConfig' => [
+			} );
+		$config = new HashConfig( [
+			MainConfigNames::AuthManagerConfig => [
 				'preauth' => [],
 				'primaryauth' => [],
 				'secondaryauth' => [
@@ -91,23 +97,19 @@ class ResetPasswordSecondaryAuthenticationProviderTest extends \MediaWikiIntegra
 			],
 		] );
 		$mwServices = $this->getServiceContainer();
-		$services = $this->createNoOpAbstractMock( ContainerInterface::class );
-		$objectFactory = new \Wikimedia\ObjectFactory\ObjectFactory( $services );
-		$hookContainer = $this->createHookContainer();
-		$userNameUtils = $this->createNoOpMock( UserNameUtils::class );
 		$manager = new AuthManager(
-			new \FauxRequest,
+			new \MediaWiki\Request\FauxRequest,
 			$config,
-			$objectFactory,
-			$hookContainer,
+			$this->getDummyObjectFactory(),
+			$this->createHookContainer(),
 			$mwServices->getReadOnlyMode(),
-			$userNameUtils,
+			$this->createNoOpMock( UserNameUtils::class ),
 			$mwServices->getBlockManager(),
 			$mwServices->getWatchlistManager(),
 			$mwServices->getDBLoadBalancer(),
 			$mwServices->getContentLanguage(),
 			$mwServices->getLanguageConverterFactory(),
-			$mwServices->getBotPasswordStore(),
+			$this->createMock( BotPasswordStore::class ),
 			$mwServices->getUserFactory(),
 			$mwServices->getUserIdentityLookup(),
 			$mwServices->getUserOptionsManager()

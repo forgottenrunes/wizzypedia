@@ -3,12 +3,9 @@
 /**
  * Block media items
  */
-figure[ typeof~='mw:Image' ],
-figure[ typeof~='mw:Video' ],
-figure[ typeof~='mw:Audio' ],
-figure[ typeof~='mw:Image/Frameless' ],
-figure[ typeof~='mw:Video/Frameless' ],
-figure[ typeof~='mw:Audio/Frameless' ] {
+
+figure[ typeof~='mw:File' ],
+figure[ typeof~='mw:File/Frameless' ] {
 	margin: 0;  // Maybe belongs in element.css for figure
 
 	> a {
@@ -57,17 +54,12 @@ figure[ typeof~='mw:Audio/Frameless' ] {
 	}
 }
 
-figure[ typeof~='mw:Image/Thumb' ],
-figure[ typeof~='mw:Video/Thumb' ],
-figure[ typeof~='mw:Audio/Thumb' ],
-figure[ typeof~='mw:Image/Frame' ],
-figure[ typeof~='mw:Video/Frame' ],
-figure[ typeof~='mw:Audio/Frame' ] {
-	margin: 0;  // Maybe belongs in element.css for figure
-	margin-bottom: @margin-bottom-thumb;
+figure[ typeof~='mw:File/Thumb' ],
+figure[ typeof~='mw:File/Frame' ] {
 	display: table;
 	text-align: center;
 	border-collapse: collapse;
+	line-height: 0;
 
 	> a {
 		// The addition of the class is needed for higher specificity
@@ -76,6 +68,12 @@ figure[ typeof~='mw:Audio/Frame' ] {
 			border: 0;
 		}
 	}
+
+	// Default where page content language is not set
+	// Allow to flip
+	margin: @margin-tright;
+	clear: right;
+	float: right;
 
 	// Defaults for page content language
 
@@ -135,17 +133,18 @@ figure[ typeof~='mw:Audio/Frame' ] {
 		float: none;
 	}
 
-	> *:first-child {
-		> audio,
-		> img,
-		> video {
+	> :not( figcaption ) {
+		.mw-file-element {
 			margin: 3px;
 		}
-		/* Broken media get a span instead */
-		> span {
+
+		/**
+		 * Broken media get a span instead.
+		 */
+		.mw-broken-media {
 			display: inline-block;
-			/* The extra horizontal margin here is to make up for the lack of a border */
-			margin: 3px 4px;
+			line-height: 1.6em;
+			word-break: break-word;  // Same as in the figcaption
 			/* This is hardcoded in Linker::makeThumbLink2 for broken media */
 			width: 180px;
 			/* Styles the text of broken media */
@@ -180,6 +179,12 @@ figure[ typeof~='mw:Audio/Frame' ] {
 		 */
 		word-break: break-word;
 
+		// Default where page content language is not set
+		// Allow to flip
+		text-align: left;
+
+		// Defaults for page content language
+
 		.mw-content-ltr & {
 			/* @noflip */
 			text-align: left;
@@ -195,66 +200,47 @@ figure[ typeof~='mw:Audio/Frame' ] {
 	}
 }
 
+// Remove bogus padding from framed images without captions
+figure[ typeof~='mw:File/Frame' ] > figcaption:empty {
+	padding-bottom: 0;
+}
+
+// However, it's still necessary for thumbs because the magnifying icon is present
+figure[ typeof~='mw:File/Thumb' ] > figcaption:empty {
+	padding-bottom: 3px;
+}
+
 /**
  * Inline media items
  */
-*:first-child {
-	> audio,
-	> img,
-	> video {
-		.mw-valign-middle > & {
-			vertical-align: middle;
-		}
-
-		.mw-valign-baseline > & {
-			vertical-align: baseline;
-		}
-
-		.mw-valign-sub > & {
-			vertical-align: sub;
-		}
-
-		.mw-valign-super > & {
-			vertical-align: super;
-		}
-
-		.mw-valign-top > & {
-			vertical-align: top;
-		}
-
-		.mw-valign-text-top > & {
-			vertical-align: text-top;
-		}
-
-		.mw-valign-bottom > & {
-			vertical-align: bottom;
-		}
-
-		.mw-valign-text-bottom > & {
-			vertical-align: text-bottom;
-		}
-	}
+.mw-valign-middle .mw-file-element {
+	vertical-align: middle;
 }
 
-/* stylelint-disable selector-class-pattern */
+.mw-valign-baseline .mw-file-element {
+	vertical-align: baseline;
+}
 
-/**
- * Avoid the need to calculate paddings individually
- * https://stackoverflow.com/a/7310398
- *
- * FIXME: This would be better in mediawiki.page.gallery.styles,
- * but let's wait until wgParserEnableLegacyMediaDOM is removed
- */
-.mw-gallery-traditional .gallerybox > .thumb {
-	&:before {
-		content: '';
-		vertical-align: middle;
-		display: inline-block;
-		height: 100%;
-	}
+.mw-valign-sub .mw-file-element {
+	vertical-align: sub;
+}
 
-	> * {
-		vertical-align: middle;
-		display: inline-block;
-	}
+.mw-valign-super .mw-file-element {
+	vertical-align: super;
+}
+
+.mw-valign-top .mw-file-element {
+	vertical-align: top;
+}
+
+.mw-valign-text-top .mw-file-element {
+	vertical-align: text-top;
+}
+
+.mw-valign-bottom .mw-file-element {
+	vertical-align: bottom;
+}
+
+.mw-valign-text-bottom .mw-file-element {
+	vertical-align: text-bottom;
 }

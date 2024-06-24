@@ -20,9 +20,9 @@
 
 namespace MediaWiki\EditPage\Constraint;
 
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 use StatusValue;
-use Title;
-use User;
 
 /**
  * Verify user doesn't exceed rate limits

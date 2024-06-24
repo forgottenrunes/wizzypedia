@@ -17,10 +17,12 @@
  *
  * @file
  */
+
 use MediaWiki\Logger\Spi as LoggerSpi;
 use MediaWiki\Parser\RevisionOutputCache;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\RevisionRenderer;
+use MediaWiki\Status\Status;
 
 /**
  * PoolWorkArticleView for an old revision of a page, using a simple cache.
@@ -28,7 +30,6 @@ use MediaWiki\Revision\RevisionRenderer;
  * @internal
  */
 class PoolWorkArticleViewOld extends PoolWorkArticleView {
-
 	/** @var RevisionOutputCache */
 	private $cache;
 
@@ -56,20 +57,30 @@ class PoolWorkArticleViewOld extends PoolWorkArticleView {
 	}
 
 	/**
-	 * @param ParserOutput $output
-	 * @param string $cacheTime
+	 * @return Status
 	 */
-	protected function saveInCache( ParserOutput $output, string $cacheTime ) {
-		$this->cache->save( $output, $this->revision, $this->parserOptions, $cacheTime );
+	public function doWork() {
+		// Reduce effects of race conditions for slow parses (T48014)
+		$cacheTime = wfTimestampNow();
+
+		$status = $this->renderRevision();
+		/** @var ParserOutput|null $output */
+		$output = $status->getValue();
+
+		if ( $output && $output->isCacheable() ) {
+			$this->cache->save( $output, $this->revision, $this->parserOptions, $cacheTime );
+		}
+
+		return $status;
 	}
 
 	/**
-	 * @return bool
+	 * @return Status|false
 	 */
 	public function getCachedWork() {
-		$this->parserOutput = $this->cache->get( $this->revision, $this->parserOptions );
+		$parserOutput = $this->cache->get( $this->revision, $this->parserOptions );
 
-		return (bool)$this->parserOutput;
+		return $parserOutput ? Status::newGood( $parserOutput ) : false;
 	}
 
 }

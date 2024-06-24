@@ -18,9 +18,13 @@
  * @file
  */
 
+use MediaWiki\CommentStore\CommentStoreComment;
 use MediaWiki\HookContainer\ProtectedHookAccessorTrait;
+use MediaWiki\Html\Html;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\PageIdentity;
+use MediaWiki\Status\Status;
+use MediaWiki\Title\ForeignTitle;
 
 /**
  * Reporting callback
@@ -44,7 +48,7 @@ class ImportReporter extends ContextSource {
 	 * @param string $interwiki
 	 * @param string|bool $reason
 	 */
-	public function __construct( $importer, $upload, $interwiki, $reason = false ) {
+	public function __construct( $importer, $upload, $interwiki, $reason = "" ) {
 		$this->mOriginalPageOutCallback =
 			$importer->setPageOutCallback( [ $this, 'reportPage' ] );
 		$this->mOriginalLogCallback =
@@ -52,7 +56,7 @@ class ImportReporter extends ContextSource {
 		$importer->setNoticeCallback( [ $this, 'reportNotice' ] );
 		$this->mIsUpload = $upload;
 		$this->mInterwiki = $interwiki;
-		$this->reason = $reason;
+		$this->reason = is_string( $reason ) ? $reason : "";
 	}
 
 	/**
@@ -69,13 +73,13 @@ class ImportReporter extends ContextSource {
 		$this->getOutput()->addHTML( "<ul>\n" );
 	}
 
-	private function reportNotice( $msg, array $params ) {
+	public function reportNotice( $msg, array $params ) {
 		$this->getOutput()->addHTML(
 			Html::element( 'li', [], $this->msg( $msg, $params )->text() )
 		);
 	}
 
-	private function reportLogItem( ...$args ) {
+	public function reportLogItem( ...$args ) {
 		$this->mLogItemCount++;
 		if ( is_callable( $this->mOriginalLogCallback ) ) {
 			call_user_func_array( $this->mOriginalLogCallback, $args );
@@ -107,10 +111,10 @@ class ImportReporter extends ContextSource {
 			// in RTL wikis in case the page title is LTR
 			$this->getOutput()->addHTML(
 				"<li>" . $linkRenderer->makeLink( $pageIdentity ) . " " .
-					"<bdi>" .
-					$this->msg( 'import-revision-count' )->numParams( $successCount )->escaped() .
-					"</bdi>" .
-					"</li>\n"
+				"<bdi>" .
+				$this->msg( 'import-revision-count' )->numParams( $successCount )->escaped() .
+				"</bdi>" .
+				"</li>\n"
 			);
 
 			$logParams = [ '4:number:count' => $successCount ];
@@ -170,6 +174,7 @@ class ImportReporter extends ContextSource {
 			$logEntry->setPerformer( $this->getUser() );
 			$logEntry->setParameters( $logParams );
 			// Make sure the null revision will be tagged as well
+			// @phan-suppress-next-line PhanTypeMismatchArgumentNullable T303637
 			$logEntry->setAssociatedRevId( $nullRevId );
 			if ( count( $this->logTags ) ) {
 				$logEntry->addTags( $this->logTags );

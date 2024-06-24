@@ -3,10 +3,10 @@
 namespace MediaWiki\Hook;
 
 use MediaWiki;
-use OutputPage;
-use Title;
-use User;
-use WebRequest;
+use MediaWiki\Output\OutputPage;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.

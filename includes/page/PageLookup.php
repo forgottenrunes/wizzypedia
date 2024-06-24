@@ -7,9 +7,12 @@ use InvalidArgumentException;
 use MediaWiki\Linker\LinkTarget;
 
 /**
- * Service interface for looking up information about wiki pages
+ * Service for looking up information about wiki pages.
+ *
+ * Default implementation is PageStore.
  *
  * @since 1.36
+ * @ingroup Page
  */
 interface PageLookup extends IDBAccessObject {
 

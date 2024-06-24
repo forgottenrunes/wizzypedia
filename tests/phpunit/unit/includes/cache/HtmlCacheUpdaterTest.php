@@ -1,5 +1,7 @@
 <?php
 
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleFactory;
 use PHPUnit\Framework\MockObject\MockObject;
 
 /**
@@ -15,9 +17,9 @@ class HtmlCacheUpdaterTest extends MediaWikiUnitTestCase {
 			0, false, 86400 );
 		$title = $this->createMock( Title::class );
 		$title->method( 'canExist' )->willReturn( true );
-		$title->method( 'getInternalURL' )->will( $this->returnCallback( static function ( $query = '' ) {
+		$title->method( 'getInternalURL' )->willReturnCallback( static function ( $query = '' ) {
 			return 'https://test/?title=Example' . ( $query !== '' ? "&$query" : '' );
-		} ) );
+		} );
 
 		$this->assertEquals(
 			[
@@ -37,9 +39,9 @@ class HtmlCacheUpdaterTest extends MediaWikiUnitTestCase {
 
 		$title = $this->createMock( Title::class );
 		$title->method( 'canExist' )->willReturn( true );
-		$title->method( 'getInternalURL' )->will( $this->returnCallback( static function ( $query = '' ) {
+		$title->method( 'getInternalURL' )->willReturnCallback( static function ( $query = '' ) {
 			return 'https://test/?title=User:Example/foo.js' . ( $query !== '' ? "&$query" : '' );
-		} ) );
+		} );
 		$title->method( 'isUserJsConfigPage' )->willReturn( true );
 		$this->assertEquals(
 			[
@@ -53,9 +55,9 @@ class HtmlCacheUpdaterTest extends MediaWikiUnitTestCase {
 
 		$title = $this->createMock( Title::class );
 		$title->method( 'canExist' )->willReturn( true );
-		$title->method( 'getInternalURL' )->will( $this->returnCallback( static function ( $query = '' ) {
+		$title->method( 'getInternalURL' )->willReturnCallback( static function ( $query = '' ) {
 			return 'https://test/?title=MediaWiki:Example.js' . ( $query !== '' ? "&$query" : '' );
-		} ) );
+		} );
 		$title->method( 'isSiteJsConfigPage' )->willReturn( true );
 		$this->assertEquals(
 			[
@@ -72,9 +74,9 @@ class HtmlCacheUpdaterTest extends MediaWikiUnitTestCase {
 	 * @return MockObject|TitleFactory
 	 */
 	private function createTitleFactory() {
-		$factory = $this->createNoOpMock( TitleFactory::class, [ 'castFromPageReference' ] );
+		$factory = $this->createNoOpMock( TitleFactory::class, [ 'newFromPageReference' ] );
 
-		$factory->method( 'castFromPageReference' )->willReturnArgument( 0 );
+		$factory->method( 'newFromPageReference' )->willReturnArgument( 0 );
 
 		return $factory;
 	}

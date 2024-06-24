@@ -1,8 +1,5 @@
 <?php
-
 /**
- * Old Church Slavonic (Ѩзыкъ словѣньскъ) specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -19,47 +16,42 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 
 /**
  * Old Church Slavonic (Ѩзыкъ словѣньскъ)
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class LanguageCu extends Language {
-	/**
-	 * Convert from the nominative form of a noun to some other case
-	 * Invoked with {{grammar:case|word}}
-	 *
-	 * @param string $word
-	 * @param string $case
-	 * @return string
-	 */
 	public function convertGrammar( $word, $case ) {
-		$grammarForms = MediaWikiServices::getInstance()->getMainConfig()->get( 'GrammarForms' );
+		$grammarForms =
+			MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::GrammarForms );
 
 		if ( isset( $grammarForms['сu'][$case][$word] ) ) {
 			return $grammarForms['сu'][$case][$word];
 		}
 
 		# These rules are not perfect, but they are currently only used for
-		# site names so it doesn't matter if they are wrong sometimes. Just add
-		# a special case for your site name if necessary.
+		# site names, so it doesn't matter if they are wrong sometimes.
+		# Just add a special case for your site name if necessary.
 
 		# join and array_slice instead mb_substr
 		$ar = [];
 		preg_match_all( '/./us', $word, $ar );
-		if ( !preg_match( "/[a-zA-Z_]/us", $word ) ) {
+		if ( !preg_match( "/[a-zA-Z_]/u", $word ) ) {
 			switch ( $case ) {
 				case 'genitive': # родительный падеж
-					if ( ( implode( '', array_slice( $ar[0], -4 ) ) == 'вики' )
-						|| ( implode( '', array_slice( $ar[0], -4 ) ) == 'Вики' )
-					) {
-					} elseif ( implode( '', array_slice( $ar[0], -2 ) ) == 'ї' ) {
-						$word = implode( '', array_slice( $ar[0], 0, -2 ) ) . 'їѩ';
+					// if ( ( implode( '', array_slice( $ar[0], -4 ) ) == 'вики' )
+					//	|| ( implode( '', array_slice( $ar[0], -4 ) ) == 'Вики' )
+					// ) {
+					// }
+
+					if ( implode( '', array_slice( $ar[0], -2 ) ) == 'ї' ) {
+						return implode( '', array_slice( $ar[0], 0, -2 ) ) . 'їѩ';
 					}
 					break;
 				case 'accusative': # винительный падеж

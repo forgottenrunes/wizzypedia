@@ -19,7 +19,12 @@
  * @ingroup Testing
  */
 
+use MediaWiki\Parser\Sanitizer;
 use MediaWiki\Shell\Shell;
+use MediaWiki\Tests\AnsiTermColorer;
+use MediaWiki\Tests\DummyTermColorer;
+use Wikimedia\Parsoid\ParserTests\Test as ParserTest;
+use Wikimedia\Parsoid\ParserTests\TestMode as ParserTestMode;
 
 /**
  * This is a TestRecorder responsible for printing information about progress,
@@ -27,16 +32,27 @@ use MediaWiki\Shell\Shell;
  * frontend.
  */
 class ParserTestPrinter extends TestRecorder {
+	/** @var int */
 	private $total;
+	/** @var int */
 	private $success;
+	/** @var int */
 	private $skipped;
+	/** @var AnsiTermColorer|DummyTermColorer */
 	private $term;
+	/** @var bool */
 	private $showDiffs;
+	/** @var bool */
 	private $showProgress;
+	/** @var bool */
 	private $showFailure;
+	/** @var bool */
 	private $showOutput;
+	/** @var bool */
 	private $useDwdiff;
+	/** @var bool */
 	private $markWhitespace;
+	/** @var string */
 	private $xmlError;
 
 	public function __construct( $term, $options ) {
@@ -63,38 +79,43 @@ class ParserTestPrinter extends TestRecorder {
 		$this->skipped = 0;
 	}
 
-	public function startTest( $test ) {
+	public function startTest( ParserTest $test, ParserTestMode $mode ) {
 		if ( $this->showProgress ) {
-			$this->showTesting( $test['desc'] );
+			$fake = new ParserTestResult( $test, $mode, '', '' );
+			$this->showTesting( $fake->getDescription() );
 		}
 	}
 
-	private function showTesting( $desc ) {
-		print "Running test $desc... ";
+	/**
+	 * @param string $desc Test description
+	 */
+	private function showTesting( string $desc ) {
+		self::print( "Running test $desc... " );
 	}
 
 	/**
 	 * Show "Reading tests from ..."
 	 *
 	 * @param string $path
+	 * @param-taint $path none
 	 */
-	public function startSuite( $path ) {
+	public function startSuite( string $path ) {
 		print $this->term->color( 1 ) .
 			"Running parser tests from \"$path\"..." .
 			$this->term->reset() .
 			"\n";
 	}
 
-	public function endSuite( $path ) {
+	public function endSuite( string $path ) {
 		print "\n";
 	}
 
-	public function record( $test, ParserTestResult $result ) {
+	public function record( ParserTestResult $result ): void {
 		$this->total++;
 		$this->success += ( $result->isSuccess() ? 1 : 0 );
 
 		if ( $result->isSuccess() ) {
-			$this->showSuccess( $result );
+			$this->showSuccess();
 		} else {
 			$this->showFailure( $result );
 		}
@@ -102,13 +123,22 @@ class ParserTestPrinter extends TestRecorder {
 
 	/**
 	 * Print a happy success message.
-	 *
-	 * @param ParserTestResult $testResult
 	 */
-	private function showSuccess( ParserTestResult $testResult ) {
+	private function showSuccess(): void {
 		if ( $this->showProgress ) {
 			print $this->term->color( '1;32' ) . 'PASSED' . $this->term->reset() . "\n";
 		}
+	}
+
+	/**
+	 * Helper function to ensure the phan SecurityCheckPlugin does not register
+	 * false "XSS" positives on parser test output, as this is a CLI tool.
+	 *
+	 * @param string $str Output string
+	 * @param-taint $str none
+	 */
+	private static function print( string $str ) {
+		print $str;
 	}
 
 	/**
@@ -116,9 +146,8 @@ class ParserTestPrinter extends TestRecorder {
 	 * about what went wrong if so configured.
 	 *
 	 * @param ParserTestResult $testResult
-	 * @return bool
 	 */
-	private function showFailure( ParserTestResult $testResult ) {
+	private function showFailure( ParserTestResult $testResult ): void {
 		if ( $this->showFailure ) {
 			if ( !$this->showProgress ) {
 				# In quiet mode we didn't show the 'Testing' message before the
@@ -128,22 +157,20 @@ class ParserTestPrinter extends TestRecorder {
 
 			print $this->term->color( '31' ) . 'FAILED!' . $this->term->reset() . "\n";
 
-			print "{$testResult->test['file']}:{$testResult->test['line']}\n";
+			print "{$testResult->test->filename}:{$testResult->test->lineNumStart}\n";
 
 			if ( $this->showOutput ) {
-				print "--- Expected ---\n{$testResult->expected}\n";
-				print "--- Actual ---\n{$testResult->actual}\n";
+				self::print( "--- Expected ---\n{$testResult->expected}\n" );
+				self::print( "--- Actual ---\n{$testResult->actual}\n" );
 			}
 
 			if ( $this->showDiffs ) {
-				print $this->quickDiff( $testResult->expected, $testResult->actual );
+				self::print( $this->quickDiff( $testResult->expected, $testResult->actual ) );
 				if ( !$this->wellFormed( $testResult->actual ) ) {
-					print "XML error: $this->xmlError\n";
+					self::print( "XML error: $this->xmlError\n" );
 				}
 			}
 		}
-
-		return false;
 	}
 
 	/**
@@ -221,8 +248,8 @@ class ParserTestPrinter extends TestRecorder {
 	private function colorDiff( $text ) {
 		return preg_replace(
 			[ '/^(-.*)$/m', '/^(\+.*)$/m' ],
-			[ $this->term->color( 34 ) . '$1' . $this->term->reset(),
-				$this->term->color( 31 ) . '$1' . $this->term->reset() ],
+			[ $this->term->color( '34' ) . '$1' . $this->term->reset(),
+				$this->term->color( '31' ) . '$1' . $this->term->reset() ],
 			$text );
 	}
 
@@ -236,7 +263,7 @@ class ParserTestPrinter extends TestRecorder {
 		$parser = xml_parser_create( "UTF-8" );
 
 		# case folding violates XML standard, turn it off
-		xml_parser_set_option( $parser, XML_OPTION_CASE_FOLDING, false );
+		xml_parser_set_option( $parser, XML_OPTION_CASE_FOLDING, 0 );
 
 		if ( !xml_parse( $parser, $html, true ) ) {
 			$err = xml_error_string( xml_get_error_code( $parser ) );
@@ -257,23 +284,23 @@ class ParserTestPrinter extends TestRecorder {
 		$start = max( 0, $position - 10 );
 		$before = $position - $start;
 		$fragment = '...' .
-			$this->term->color( 34 ) .
+			$this->term->color( '34' ) .
 			substr( $text, $start, $before ) .
-			$this->term->color( 0 ) .
-			$this->term->color( 31 ) .
-			$this->term->color( 1 ) .
+			$this->term->color( '0' ) .
+			$this->term->color( '31' ) .
+			$this->term->color( '1' ) .
 			substr( $text, $position, 1 ) .
-			$this->term->color( 0 ) .
-			$this->term->color( 34 ) .
+			$this->term->color( '0' ) .
+			$this->term->color( '34' ) .
 			substr( $text, $position + 1, 9 ) .
-			$this->term->color( 0 ) .
+			$this->term->color( '0' ) .
 			'...';
 		$display = str_replace( "\n", ' ', $fragment );
 		$caret = '   ' .
 			str_repeat( ' ', $before ) .
-			$this->term->color( 31 ) .
+			$this->term->color( '31' ) .
 			'^' .
-			$this->term->color( 0 );
+			$this->term->color( '0' );
 
 		return "$display\n$caret";
 	}
@@ -282,16 +309,17 @@ class ParserTestPrinter extends TestRecorder {
 	 * Show a warning to the user
 	 * @param string $message
 	 */
-	public function warning( $message ) {
+	public function warning( string $message ) {
 		echo "$message\n";
 	}
 
 	/**
 	 * Mark a test skipped
-	 * @param string $test
+	 * @param ParserTest $test
+	 * @param ParserTestMode $mode
 	 * @param string $subtest
 	 */
-	public function skipped( $test, $subtest ) {
+	public function skipped( ParserTest $test, ParserTestMode $mode, string $subtest ) {
 		if ( $this->showProgress ) {
 			print $this->term->color( '1;33' ) . 'SKIPPED' . $this->term->reset() . "\n";
 		}
@@ -302,23 +330,28 @@ class ParserTestPrinter extends TestRecorder {
 		if ( $this->total > 0 ) {
 			$this->reportPercentage( $this->success, $this->total );
 		} else {
-			print $this->term->color( 31 ) . "No tests found." . $this->term->reset() . "\n";
+			print $this->term->color( '31' ) . "No tests found." . $this->term->reset() . "\n";
 		}
 	}
 
+	/**
+	 * @param int $success Number of passed tests
+	 * @param int $total Number of total tests
+	 * @return bool True if and only if all tests passed
+	 */
 	private function reportPercentage( $success, $total ) {
 		$ratio = wfPercent( 100 * $success / $total );
-		print $this->term->color( 1 ) . "Passed $success of $total tests ($ratio)";
+		self::print( $this->term->color( '1' ) . "Passed $success of $total tests ($ratio)" );
 		if ( $this->skipped ) {
-			print ", skipped {$this->skipped}";
+			self::print( ", skipped {$this->skipped}" );
 		}
 		print "... ";
 
 		if ( $success == $total ) {
-			print $this->term->color( 32 ) . "ALL TESTS PASSED!";
+			print $this->term->color( '32' ) . "ALL TESTS PASSED!";
 		} else {
 			$failed = $total - $success;
-			print $this->term->color( 31 ) . "$failed tests failed!";
+			self::print( $this->term->color( '31' ) . "$failed tests failed!" );
 		}
 
 		print $this->term->reset() . "\n";

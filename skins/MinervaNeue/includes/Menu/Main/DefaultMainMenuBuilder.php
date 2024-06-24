@@ -20,12 +20,11 @@
 
 namespace MediaWiki\Minerva\Menu\Main;
 
-use Hooks;
+use MediaWiki\MediaWikiServices;
 use MediaWiki\Minerva\Menu\Definitions;
 use MediaWiki\Minerva\Menu\Entries\SingleMenuEntry;
 use MediaWiki\Minerva\Menu\Group;
 use MediaWiki\User\UserIdentity;
-use MWException;
 
 /**
  * Used to build default (available for everyone by default) main menu
@@ -91,10 +90,25 @@ final class DefaultMainMenuBuilder implements IMainMenuBuilder {
 
 	/**
 	 * @inheritDoc
-	 * @throws MWException
 	 */
 	public function getSiteLinks(): Group {
 		return BuilderUtil::getSiteLinks( $this->definitions );
+	}
+
+	/**
+	 * Builds the anonymous settings group.
+	 *
+	 * @inheritDoc
+	 */
+	public function getSettingsGroup(): Group {
+		$group = new Group( 'pt-preferences' );
+		// Show settings group for anon and temp users
+		$userIdentityUtils = MediaWikiServices::getInstance()->getUserIdentityUtils();
+		$isTemp = $userIdentityUtils->isTemp( $this->user );
+		if ( $this->showMobileOptions && ( !$this->user->isRegistered() || $isTemp ) ) {
+			$this->definitions->insertMobileOptionsItem( $group );
+		}
+		return $group;
 	}
 
 	/**
@@ -106,27 +120,23 @@ final class DefaultMainMenuBuilder implements IMainMenuBuilder {
 	 */
 	public function getPersonalToolsGroup( array $personalTools ): Group {
 		$group = new Group( 'p-personal' );
+		$excludeKeyList = [ 'betafeatures', 'mytalk', 'sandbox' ];
 
-		// special casing for now to support Extension:GrowthExperiments
-		$userpage = $personalTools[ 'userpage' ] ?? null;
-
-		// Check if it exists. In future Extension:GrowthExperiments can unset
-		// this and replace it with homepage key.
-		if ( $userpage ) {
-			$this->definitions->insertAuthMenuItem( $group );
+		// For anonymous users exclude all links except login.
+		if ( !$this->user->isRegistered() ) {
+			$excludeKeyList = array_diff(
+				array_keys( $personalTools ),
+				[ 'login' ]
+			);
 		}
-
-		// Note `homepage` is reserved for Extension:GrowthExperiments usage
-		$include = [ 'homepage', 'login', 'watchlist',
-			'mycontris', 'preferences', 'logout' ];
-		$trackingKeyOverrides = [
-			'watchlist' => 'unStar',
-			'mycontris' => 'contributions',
-		];
-
-		foreach ( $include as $key ) {
-			$item = $personalTools[ $key ] ?? null;
-			if ( $item ) {
+		$userIdentityUtils = MediaWikiServices::getInstance()->getUserIdentityUtils();
+		$isTemp = $userIdentityUtils->isTemp( $this->user );
+		if ( $isTemp ) {
+			$excludeKeyList[] = 'mycontris';
+		}
+		foreach ( $personalTools as $key => $item ) {
+			$href = $item['href'] ?? null;
+			if ( $href && !in_array( $key, $excludeKeyList ) ) {
 				// Substitute preference if $showMobileOptions is set.
 				if ( $this->showMobileOptions && $key === 'preferences' ) {
 					$this->definitions->insertMobileOptionsItem( $group );
@@ -135,22 +145,16 @@ final class DefaultMainMenuBuilder implements IMainMenuBuilder {
 					$entry = SingleMenuEntry::create(
 						$key,
 						$item['text'],
-						$item['href'],
+						$href,
 						$item['class'] ?? '',
 						$icon
 					);
 
-					// override tracking key where key mismatch
-					if ( array_key_exists( $key, $trackingKeyOverrides ) ) {
-						$entry->trackClicks( $trackingKeyOverrides[ $key ] );
-					}
+					$entry->trackClicks( $key );
 					$group->insertEntry( $entry );
 				}
 			}
 		}
-
-		// Allow other extensions to add or override tools
-		Hooks::run( 'MobileMenu', [ 'personal', &$group ], '1.38' );
 		return $group;
 	}
 }

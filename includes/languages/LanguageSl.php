@@ -1,8 +1,5 @@
 <?php
-
 /**
- * Slovenian (Slovenščina) specific code.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -19,30 +16,26 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Language
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 
 /**
  * Slovenian (Slovenščina)
  *
- * @ingroup Language
+ * @ingroup Languages
  */
 class LanguageSl extends Language {
-	# Convert from the nominative form of a noun to some other case
-	# Invoked with {{GRAMMAR:case|word}}
 
 	/**
 	 * Cases: rodilnik, dajalnik, tožilnik, mestnik, orodnik
 	 *
-	 * @param string $word
-	 * @param string $case
-	 *
-	 * @return string
+	 * @inheritDoc
 	 */
 	public function convertGrammar( $word, $case ) {
-		$grammarForms = MediaWikiServices::getInstance()->getMainConfig()->get( 'GrammarForms' );
+		$grammarForms =
+			MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::GrammarForms );
 		if ( isset( $grammarForms['sl'][$case][$word] ) ) {
 			return $grammarForms['sl'][$case][$word];
 		}
@@ -51,6 +44,7 @@ class LanguageSl extends Language {
 			case 'mestnik': # locative
 				$word = 'o ' . $word;
 				break;
+
 			case 'orodnik': # instrumental
 				$word = 'z ' . $word;
 				break;

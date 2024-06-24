@@ -1,10 +1,23 @@
 # Release History
 
-## Remex 3.0.1 (2021-11-19)
+## RemexHtml x.x.x (not yet released)
+
+## RemexHtml 4.0.0 (2023-02-24)
+* Drop PHP 7.2 and PHP 7.3 support.
+* Update PHPUnit dependency.
+
+## RemexHtml 3.0.3 (2022-12-21)
+* Workaround PHP bug which decodes entities when setting attribute values.
+  (T324408, https://github.com/php/php-src/pull/10132 )
+
+## RemexHtml 3.0.2 (2022-06-27)
+* Specify return types to make PHP 8.1 happy.
+
+## RemexHtml 3.0.1 (2021-11-19)
 * Fix duplicate sourceLength output for <tr></table>.
 * In DOMBuilder, catch invalid character errors from createAttribute.
 
-## Remex 3.0.0 (2021-10-25)
+## RemexHtml 3.0.0 (2021-10-25)
 * Removed the RemexHtml\ namespace aliases.
 * Added Attributes::clone()
 * Added Dispatcher::flushTableText().

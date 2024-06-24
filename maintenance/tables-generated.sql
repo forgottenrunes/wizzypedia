@@ -158,10 +158,16 @@ CREATE TABLE /*_*/pagelinks (
   pl_namespace INT DEFAULT 0 NOT NULL,
   pl_title VARBINARY(255) DEFAULT '' NOT NULL,
   pl_from_namespace INT DEFAULT 0 NOT NULL,
+  pl_target_id BIGINT UNSIGNED DEFAULT NULL,
   INDEX pl_namespace (pl_namespace, pl_title, pl_from),
   INDEX pl_backlinks_namespace (
     pl_from_namespace, pl_namespace,
     pl_title, pl_from
+  ),
+  INDEX pl_target_id (pl_target_id, pl_from),
+  INDEX pl_backlinks_namespace_target_id (
+    pl_from_namespace, pl_target_id,
+    pl_from
   ),
   PRIMARY KEY(pl_from, pl_namespace, pl_title)
 ) /*$wgDBTableOptions*/;
@@ -169,21 +175,14 @@ CREATE TABLE /*_*/pagelinks (
 
 CREATE TABLE /*_*/templatelinks (
   tl_from INT UNSIGNED DEFAULT 0 NOT NULL,
-  tl_namespace INT DEFAULT 0 NOT NULL,
-  tl_title VARBINARY(255) DEFAULT '' NOT NULL,
+  tl_target_id BIGINT UNSIGNED NOT NULL,
   tl_from_namespace INT DEFAULT 0 NOT NULL,
-  tl_target_id BIGINT UNSIGNED DEFAULT NULL,
-  INDEX tl_namespace (tl_namespace, tl_title, tl_from),
-  INDEX tl_backlinks_namespace (
-    tl_from_namespace, tl_namespace,
-    tl_title, tl_from
-  ),
   INDEX tl_target_id (tl_target_id, tl_from),
   INDEX tl_backlinks_namespace_target_id (
     tl_from_namespace, tl_target_id,
     tl_from
   ),
-  PRIMARY KEY(tl_from, tl_namespace, tl_title)
+  PRIMARY KEY(tl_from, tl_target_id)
 ) /*$wgDBTableOptions*/;
 
 
@@ -251,7 +250,7 @@ CREATE TABLE /*_*/change_tag_def (
 
 
 CREATE TABLE /*_*/ipblocks_restrictions (
-  ir_ipb_id INT NOT NULL,
+  ir_ipb_id INT UNSIGNED NOT NULL,
   ir_type TINYINT(4) NOT NULL,
   ir_value INT UNSIGNED NOT NULL,
   INDEX ir_type_value (ir_type, ir_value),
@@ -392,22 +391,13 @@ CREATE TABLE /*_*/protected_titles (
 CREATE TABLE /*_*/externallinks (
   el_id INT UNSIGNED AUTO_INCREMENT NOT NULL,
   el_from INT UNSIGNED DEFAULT 0 NOT NULL,
-  el_to BLOB NOT NULL,
-  el_index BLOB NOT NULL,
-  el_index_60 VARBINARY(60) NOT NULL,
-  INDEX el_from (
-    el_from,
-    el_to(40)
+  el_to_domain_index VARBINARY(255) DEFAULT '' NOT NULL,
+  el_to_path BLOB DEFAULT NULL,
+  INDEX el_from (el_from),
+  INDEX el_to_domain_index_to_path (
+    el_to_domain_index,
+    el_to_path(60)
   ),
-  INDEX el_to (
-    el_to(60),
-    el_from
-  ),
-  INDEX el_index (
-    el_index(60)
-  ),
-  INDEX el_index_60 (el_index_60, el_id),
-  INDEX el_from_index_60 (el_from, el_index_60, el_id),
   PRIMARY KEY(el_id)
 ) /*$wgDBTableOptions*/;
 
@@ -419,32 +409,6 @@ CREATE TABLE /*_*/ip_changes (
   INDEX ipc_rev_timestamp (ipc_rev_timestamp),
   INDEX ipc_hex_time (ipc_hex, ipc_rev_timestamp),
   PRIMARY KEY(ipc_rev_id)
-) /*$wgDBTableOptions*/;
-
-
-CREATE TABLE /*_*/revision_comment_temp (
-  revcomment_rev INT UNSIGNED NOT NULL,
-  revcomment_comment_id BIGINT UNSIGNED NOT NULL,
-  UNIQUE INDEX revcomment_rev (revcomment_rev),
-  PRIMARY KEY(
-    revcomment_rev, revcomment_comment_id
-  )
-) /*$wgDBTableOptions*/;
-
-
-CREATE TABLE /*_*/revision_actor_temp (
-  revactor_rev INT UNSIGNED NOT NULL,
-  revactor_actor BIGINT UNSIGNED NOT NULL,
-  revactor_timestamp BINARY(14) NOT NULL,
-  revactor_page INT UNSIGNED NOT NULL,
-  UNIQUE INDEX revactor_rev (revactor_rev),
-  INDEX actor_timestamp (
-    revactor_actor, revactor_timestamp
-  ),
-  INDEX page_actor_timestamp (
-    revactor_page, revactor_actor, revactor_timestamp
-  ),
-  PRIMARY KEY(revactor_rev, revactor_actor)
 ) /*$wgDBTableOptions*/;
 
 
@@ -560,7 +524,7 @@ CREATE TABLE /*_*/uploadstash (
   us_status VARCHAR(50) NOT NULL,
   us_chunk_inx INT UNSIGNED DEFAULT NULL,
   us_props BLOB DEFAULT NULL,
-  us_size INT UNSIGNED NOT NULL,
+  us_size BIGINT UNSIGNED NOT NULL,
   us_sha1 VARCHAR(31) NOT NULL,
   us_mime VARCHAR(255) DEFAULT NULL,
   us_media_type ENUM(
@@ -588,7 +552,7 @@ CREATE TABLE /*_*/filearchive (
   fa_deleted_user INT DEFAULT NULL,
   fa_deleted_timestamp BINARY(14) DEFAULT NULL,
   fa_deleted_reason_id BIGINT UNSIGNED NOT NULL,
-  fa_size INT UNSIGNED DEFAULT 0,
+  fa_size BIGINT UNSIGNED DEFAULT 0,
   fa_width INT DEFAULT 0,
   fa_height INT DEFAULT 0,
   fa_metadata MEDIUMBLOB DEFAULT NULL,
@@ -634,7 +598,7 @@ CREATE TABLE /*_*/text (
 CREATE TABLE /*_*/oldimage (
   oi_name VARBINARY(255) DEFAULT '' NOT NULL,
   oi_archive_name VARBINARY(255) DEFAULT '' NOT NULL,
-  oi_size INT UNSIGNED DEFAULT 0 NOT NULL,
+  oi_size BIGINT UNSIGNED DEFAULT 0 NOT NULL,
   oi_width INT DEFAULT 0 NOT NULL,
   oi_height INT DEFAULT 0 NOT NULL,
   oi_bits INT DEFAULT 0 NOT NULL,
@@ -681,7 +645,7 @@ CREATE TABLE /*_*/objectcache (
 
 
 CREATE TABLE /*_*/ipblocks (
-  ipb_id INT AUTO_INCREMENT NOT NULL,
+  ipb_id INT UNSIGNED AUTO_INCREMENT NOT NULL,
   ipb_address TINYBLOB NOT NULL,
   ipb_user INT UNSIGNED DEFAULT 0 NOT NULL,
   ipb_by_actor BIGINT UNSIGNED NOT NULL,
@@ -697,7 +661,7 @@ CREATE TABLE /*_*/ipblocks (
   ipb_deleted TINYINT(1) DEFAULT 0 NOT NULL,
   ipb_block_email TINYINT(1) DEFAULT 0 NOT NULL,
   ipb_allow_usertalk TINYINT(1) DEFAULT 0 NOT NULL,
-  ipb_parent_block_id INT DEFAULT NULL,
+  ipb_parent_block_id INT UNSIGNED DEFAULT NULL,
   ipb_sitewide TINYINT(1) DEFAULT 1 NOT NULL,
   UNIQUE INDEX ipb_address_unique (
     ipb_address(255),
@@ -718,7 +682,7 @@ CREATE TABLE /*_*/ipblocks (
 
 CREATE TABLE /*_*/image (
   img_name VARBINARY(255) DEFAULT '' NOT NULL,
-  img_size INT UNSIGNED DEFAULT 0 NOT NULL,
+  img_size BIGINT UNSIGNED DEFAULT 0 NOT NULL,
   img_width INT DEFAULT 0 NOT NULL,
   img_height INT DEFAULT 0 NOT NULL,
   img_metadata MEDIUMBLOB NOT NULL,
@@ -823,7 +787,6 @@ CREATE TABLE /*_*/page (
   page_id INT UNSIGNED AUTO_INCREMENT NOT NULL,
   page_namespace INT NOT NULL,
   page_title VARBINARY(255) NOT NULL,
-  page_restrictions TINYBLOB DEFAULT NULL,
   page_is_redirect TINYINT UNSIGNED DEFAULT 0 NOT NULL,
   page_is_new TINYINT UNSIGNED DEFAULT 0 NOT NULL,
   page_random DOUBLE PRECISION UNSIGNED NOT NULL,
@@ -858,14 +821,22 @@ CREATE TABLE /*_*/user (
   user_email_token BINARY(32) DEFAULT NULL,
   user_email_token_expires BINARY(14) DEFAULT NULL,
   user_registration BINARY(14) DEFAULT NULL,
-  user_editcount INT DEFAULT NULL,
+  user_editcount INT UNSIGNED DEFAULT NULL,
   user_password_expires VARBINARY(14) DEFAULT NULL,
+  user_is_temp TINYINT(1) DEFAULT 0 NOT NULL,
   UNIQUE INDEX user_name (user_name),
   INDEX user_email_token (user_email_token),
   INDEX user_email (
     user_email(50)
   ),
   PRIMARY KEY(user_id)
+) /*$wgDBTableOptions*/;
+
+
+CREATE TABLE /*_*/user_autocreate_serial (
+  uas_shard INT UNSIGNED NOT NULL,
+  uas_value INT UNSIGNED NOT NULL,
+  PRIMARY KEY(uas_shard)
 ) /*$wgDBTableOptions*/;
 
 

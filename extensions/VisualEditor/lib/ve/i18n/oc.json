@@ -9,7 +9,6 @@
 		]
 	},
 	"visualeditor": "EditorVisual",
-	"visualeditor-aliencontextitem-title": "Element",
 	"visualeditor-aliennode-tooltip": "O planhèm, aqueste element pòt pas èsser modificat qu’en mòde font pel moment.",
 	"visualeditor-align-desc-center": "Centrat",
 	"visualeditor-align-widget-center": "Centrat",
@@ -32,7 +31,6 @@
 	"visualeditor-clipboard-cut": "Talhar",
 	"visualeditor-clipboard-paste": "Pegar",
 	"visualeditor-clipboard-paste-special": "Pegar coma tèxte brut",
-	"visualeditor-commentinspector-edit": "Modificar lo comentari",
 	"visualeditor-commentinspector-title": "Comentari",
 	"visualeditor-commentinspector-tooltip": "Comentari",
 	"visualeditor-content-select-all": "Seleccionar tot",

@@ -262,7 +262,7 @@ interface WatchedItemStoreInterface {
 	);
 
 	/**
-	 * Reset all watchlist notificaton timestamps for a user using the job queue
+	 * Reset all watchlist notification timestamps for a user using the job queue
 	 *
 	 * @since 1.31
 	 *
@@ -347,6 +347,8 @@ interface WatchedItemStoreInterface {
 	 * @since 1.31
 	 *
 	 * @param UserIdentity $user
+	 * @return bool True on success, false if {@see clearUserWatchedItemsUsingJobQueue} must be used
+	 *  instead
 	 */
 	public function clearUserWatchedItems( UserIdentity $user );
 

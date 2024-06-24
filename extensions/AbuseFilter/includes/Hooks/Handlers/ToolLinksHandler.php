@@ -7,8 +7,8 @@ use MediaWiki\Extension\AbuseFilter\AbuseFilterPermissionManager;
 use MediaWiki\Extension\AbuseFilter\Special\SpecialAbuseLog;
 use MediaWiki\Linker\LinkRenderer;
 use MediaWiki\Linker\LinkTarget;
+use MediaWiki\Title\Title;
 use SpecialPage;
-use Title;
 use TitleValue;
 use Wikimedia\IPUtils;
 
@@ -37,7 +37,7 @@ class ToolLinksHandler implements
 	 */
 	public function onContributionsToolLinks( $id, Title $nt, array &$tools, SpecialPage $sp ) {
 		$username = $nt->getText();
-		if ( $this->afPermManager->canViewAbuseLog( $sp->getUser() )
+		if ( $this->afPermManager->canViewAbuseLog( $sp->getAuthority() )
 			&& !IPUtils::isValidRange( $username )
 		) {
 			$linkRenderer = $sp->getLinkRenderer();
@@ -45,7 +45,7 @@ class ToolLinksHandler implements
 				$this->getSpecialPageTitle(),
 				$sp->msg( 'abusefilter-log-linkoncontribs' )->text(),
 				[ 'title' => $sp->msg( 'abusefilter-log-linkoncontribs-text',
-					$username )->text() ],
+					$username )->text(), 'class' => 'mw-contributions-link-abuse-log' ],
 				[ 'wpSearchUser' => $username ]
 			);
 		}
@@ -57,7 +57,7 @@ class ToolLinksHandler implements
 	 * @param string[] &$links
 	 */
 	public function onHistoryPageToolLinks( IContextSource $context, LinkRenderer $linkRenderer, array &$links ) {
-		if ( $this->afPermManager->canViewAbuseLog( $context->getUser() ) ) {
+		if ( $this->afPermManager->canViewAbuseLog( $context->getAuthority() ) ) {
 			$links[] = $linkRenderer->makeLink(
 				$this->getSpecialPageTitle(),
 				$context->msg( 'abusefilter-log-linkonhistory' )->text(),
@@ -73,7 +73,7 @@ class ToolLinksHandler implements
 	 * @param string[] &$links
 	 */
 	public function onUndeletePageToolLinks( IContextSource $context, LinkRenderer $linkRenderer, array &$links ) {
-		$show = $this->afPermManager->canViewAbuseLog( $context->getUser() );
+		$show = $this->afPermManager->canViewAbuseLog( $context->getAuthority() );
 		$action = $context->getRequest()->getVal( 'action', 'view' );
 
 		// For 'history action', the link would be added by HistoryPageToolLinks hook.

@@ -33,6 +33,39 @@
 		}() );
 
 	/**
+	 * Helper function to mark the automatic message functionality in
+	 * the autoMsg and autoSafeMsg functions as deprecated.
+	 *
+	 * @param {string} property
+	 * @param {string} key
+	 */
+	function deprecateAutoMsg( property, key ) {
+		var searchParam = mw.config.get( 'wgSearchType' ) === 'CirrusSearch' ?
+			'insource:/' + property + 'Msg: \'' + key + '\'/' :
+			property + 'Msg: ' + key;
+		var searchUri = mw.config.get( 'wgServer' ) +
+			mw.util.getUrl(
+				'Special:Search',
+				{ search: searchParam, ns2: 1, ns8: 1 }
+			);
+		if ( searchUri.slice( 0, 2 ) === '//' ) {
+			searchUri = location.protocol + searchUri;
+		}
+
+		var messageMethod;
+		if ( property === 'html' || property === 'text' || property === 'title' ) {
+			messageMethod = 'mw.message( ' + JSON.stringify( key ) + ' ).parse()';
+		} else {
+			messageMethod = 'mw.msg( ' + JSON.stringify( key ) + ' )';
+		}
+		var deprecationMsg = mw.log.makeDeprecated(
+			'wikiEditor_autoMsg',
+			'WikiEditor: Use `' + property + ': ' + messageMethod + '` instead of `' + property + 'Msg: ' + JSON.stringify( key ) + '`.\nSearch: ' + searchUri
+		);
+		deprecationMsg();
+	}
+
+	/**
 	 * Global static object for wikiEditor that provides generally useful functionality to all modules and contexts.
 	 */
 	$.wikiEditor = {
@@ -90,6 +123,8 @@
 		 *        special need instead?
 		 * FIXME: Also, this is ludicrously complex. Just use mw.message().text() directly.
 		 *
+		 * @deprecated Since v0.5.4. Use mw.message() directly instead of <key>Msg
+		 *
 		 * @param {Object} object Object to extract messages from
 		 * @param {string} property String of name of property which contains the message. This should be the base name of the
 		 * property, which means that in the case of the object { this: 'that', fooMsg: 'bar' }, passing property as 'this'
@@ -112,8 +147,10 @@
 			} else if ( property + 'Msg' in object ) {
 				var p = object[ property + 'Msg' ];
 				if ( Array.isArray( p ) && p.length >= 2 ) {
+					deprecateAutoMsg( property, p[ 0 ] );
 					return mw.message.apply( mw.message, p ).text();
 				} else {
+					deprecateAutoMsg( property, p );
 					// eslint-disable-next-line mediawiki/msg-doc
 					return mw.message( p ).text();
 				}
@@ -126,6 +163,8 @@
 		 * Provides a way to extract messages from objects. Wraps a mw.message( ... ).escaped() call.
 		 *
 		 * FIXME: This is ludicrously complex. Just use mw.message().escaped() directly.
+		 *
+		 * @deprecated Since v0.5.4. Use mw.message() directly instead of <key>Msg
 		 *
 		 * @param {Object} object Object to extract messages from
 		 * @param {string} property String of name of property which contains the message. This should be the base name of the
@@ -149,8 +188,10 @@
 			} else if ( property + 'Msg' in object ) {
 				var p = object[ property + 'Msg' ];
 				if ( Array.isArray( p ) && p.length >= 2 ) {
+					deprecateAutoMsg( property, p[ 0 ] );
 					return mw.message.apply( mw.message, p ).escaped();
 				} else {
+					deprecateAutoMsg( property, p );
 					// eslint-disable-next-line mediawiki/msg-doc
 					return mw.message( p ).escaped();
 				}
@@ -222,7 +263,7 @@
 		// where we left off
 		var context = $( this ).data( 'wikiEditor-context' );
 		// On first call, we need to set things up, but on all following calls we can skip right to the API handling
-		if ( !context || typeof context === 'undefined' ) {
+		if ( !context ) {
 
 			// Star filling the context with useful data - any jQuery selections, as usual should be named with a preceding $
 			context = {
@@ -315,13 +356,9 @@
 				 */
 				trigger: function ( name, event ) {
 					// Event is an optional argument, but from here on out, at least the type field should be dependable
-					if ( typeof event === 'undefined' ) {
-						event = { type: 'custom' };
-					}
+					event = event || { type: 'custom' };
 					// Ensure there's a place for extra information to live
-					if ( typeof event.data === 'undefined' ) {
-						event.data = {};
-					}
+					event.data = event.data || {};
 
 					// Allow filtering to occur
 					if ( name in context.evt ) {
@@ -329,7 +366,7 @@
 							return false;
 						}
 					}
-					var returnFromModules = null; // they return null by default
+					var returnFromModules = true;
 					// Pass the event around to all modules activated on this context
 
 					for ( var module in context.modules ) {
@@ -341,19 +378,11 @@
 							var ret = $.wikiEditor.modules[ module ].evt[ name ]( context, event );
 							if ( ret !== null ) {
 								// if 1 returns false, the end result is false
-								if ( returnFromModules === null ) {
-									returnFromModules = ret;
-								} else {
-									returnFromModules = returnFromModules && ret;
-								}
+								returnFromModules = returnFromModules && ret;
 							}
 						}
 					}
-					if ( returnFromModules !== null ) {
-						return returnFromModules;
-					} else {
-						return true;
-					}
+					return returnFromModules;
 				},
 
 				/**
@@ -418,7 +447,7 @@
 					}
 					// Automatically add the previously not-needed wikitext tab
 					if ( !context.$tabs.children().length ) {
-						addTab( { name: 'wikitext', titleMsg: 'wikieditor-wikitext-tab' } );
+						addTab( { name: 'wikitext', title: mw.message( 'wikieditor-wikitext-tab' ).parse() } );
 					}
 					// Add the tab for the view we were actually asked to add
 					addTab( options );
@@ -484,13 +513,13 @@
 			context.$ui = context.$textarea.parent().parent().parent().parent().parent();
 			context.$wikitext = context.$textarea.parent().parent().parent().parent();
 			// Add in tab and button containers
-			context.$wikitext
-				.before(
-					$( '<div>' ).addClass( 'wikiEditor-ui-controls' )
-						.append( $( '<div>' ).addClass( 'wikiEditor-ui-tabs' ).hide() )
-						.append( $( '<div>' ).addClass( 'wikiEditor-ui-buttons' ) )
-				)
-				.before( $( '<div>' ).addClass( 'wikiEditor-ui-clear' ) );
+			context.$wikitext.before(
+				$( '<div>' ).addClass( 'wikiEditor-ui-controls' ).append(
+					$( '<div>' ).addClass( 'wikiEditor-ui-tabs' ).hide(),
+					$( '<div>' ).addClass( 'wikiEditor-ui-buttons' )
+				),
+				$( '<div>' ).addClass( 'wikiEditor-ui-clear' )
+			);
 			// Get references to some of the newly created containers
 			context.$controls = context.$ui.find( '.wikiEditor-ui-buttons' ).hide();
 			context.$buttons = context.$ui.find( '.wikiEditor-ui-buttons' );
@@ -498,8 +527,10 @@
 			// Clear all floating after the UI
 			context.$ui.after( $( '<div>' ).addClass( 'wikiEditor-ui-clear' ) );
 			// Attach a right container
-			context.$wikitext.append( $( '<div>' ).addClass( 'wikiEditor-ui-right' ) );
-			context.$wikitext.append( $( '<div>' ).addClass( 'wikiEditor-ui-clear' ) );
+			context.$wikitext.append(
+				$( '<div>' ).addClass( 'wikiEditor-ui-right' ),
+				$( '<div>' ).addClass( 'wikiEditor-ui-clear' )
+			);
 			// Attach a top container to the left pane
 			context.$wikitext.find( '.wikiEditor-ui-left' ).prepend( $( '<div>' ).addClass( 'wikiEditor-ui-top' ) );
 			// Setup the initial view
@@ -544,7 +575,7 @@
 			// Handle API calls
 			var callArg = args.shift();
 			if ( callArg in context.api ) {
-				context.api[ callArg ]( context, typeof args[ 0 ] === 'undefined' ? {} : args[ 0 ] );
+				context.api[ callArg ]( context, args[ 0 ] || {} );
 			}
 		}
 

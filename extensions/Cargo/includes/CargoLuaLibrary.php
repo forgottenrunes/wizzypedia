@@ -26,51 +26,23 @@ class CargoLuaLibrary extends Scribunto_LuaLibraryBase {
 	 *
 	 * @param string $tables
 	 * @param string $fields
-	 * @param array $args
+	 * @param array|null $args
 	 * @return array[]
 	 * @throws MWException
 	 * @throws Scribunto_LuaError
 	 */
-	public function cargoQuery( $tables, $fields, array $args ): array {
+	public function cargoQuery( $tables, $fields, $args ): array {
 		$this->checkType( 'query', 1, $tables, 'string' );
 		$this->checkType( 'query', 2, $fields, 'string' );
 		$this->checkTypeOptional( 'query', 3, $args, 'table', [] );
 
-		if ( isset( $args['where'] ) ) {
-			$where = $args['where'];
-		} else {
-			$where = null;
-		}
-		if ( isset( $args['join'] ) ) {
-			$join = $args['join'];
-		} else {
-			$join = null;
-		}
-		if ( isset( $args['groupBy'] ) ) {
-			$groupBy = $args['groupBy'];
-		} else {
-			$groupBy = null;
-		}
-		if ( isset( $args['having'] ) ) {
-			$having = $args['having'];
-		} else {
-			$having = null;
-		}
-		if ( isset( $args['orderBy'] ) ) {
-			$orderBy = $args['orderBy'];
-		} else {
-			$orderBy = null;
-		}
-		if ( isset( $args['limit'] ) ) {
-			$limit = $args['limit'];
-		} else {
-			$limit = null;
-		}
-		if ( isset( $args['offset'] ) ) {
-			$offset = $args['offset'];
-		} else {
-			$offset = null;
-		}
+		$where = $args['where'] ?? null;
+		$join = $args['join'] ?? null;
+		$groupBy = $args['groupBy'] ?? null;
+		$having = $args['having'] ?? null;
+		$orderBy = $args['orderBy'] ?? null;
+		$limit = $args['limit'] ?? null;
+		$offset = $args['offset'] ?? null;
 
 		try {
 			$query = CargoSQLQuery::newFromValues( $tables, $fields, $where, $join,
@@ -91,7 +63,10 @@ class CargoLuaLibrary extends Scribunto_LuaLibraryBase {
 			foreach ( $fieldArray as $fieldString ) {
 				$alias = $query->getAliasForFieldString( $fieldString );
 				if ( !isset( $row[$alias] ) ) {
-					continue;
+					if ( !$GLOBALS["wgCargoLegacyNullLuaFieldsAsEmptyString"] ) {
+						continue;
+					}
+					$row[$alias] = "";
 				}
 				$nameArray = CargoUtils::smartSplit( '=', $fieldString );
 				$name = $nameArray[ count( $nameArray ) - 1 ];

@@ -8,9 +8,7 @@ use Wikimedia\Parsoid\Parsoid;
 use Wikimedia\Parsoid\Utils\ContentUtils;
 use Wikimedia\Parsoid\Utils\DOMCompat;
 use Wikimedia\Parsoid\Wt2Html\DOMPostProcessor;
-
 use Wikimedia\Parsoid\Wt2Html\PP\Handlers\CleanUp;
-
 use Wikimedia\Parsoid\Wt2Html\PP\Processors\Normalize;
 
 class DOMPostProcessorTest extends \PHPUnit\Framework\TestCase {
@@ -55,7 +53,8 @@ class DOMPostProcessorTest extends \PHPUnit\Framework\TestCase {
 				false,
 				[
 					[
-						'Processor' => Normalize::class
+						'Processor' => Normalize::class,
+						'skipNested' => false
 					]
 				],
 				"<p>hi</p><p></p><p>ho</p>",
@@ -67,6 +66,7 @@ class DOMPostProcessorTest extends \PHPUnit\Framework\TestCase {
 					[
 						'name' => 'CleanUp-handleEmptyElts',
 						'shortcut' => 'cleanup',
+						'skipNested' => false,
 						'isTraverser' => true,
 						'handlers' => [
 							[

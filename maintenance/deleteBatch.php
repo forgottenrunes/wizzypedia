@@ -28,7 +28,9 @@
  * @ingroup Maintenance
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\StubObject\StubGlobalUser;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 
 require_once __DIR__ . '/Maintenance.php';
 
@@ -42,9 +44,9 @@ class DeleteBatch extends Maintenance {
 	public function __construct() {
 		parent::__construct();
 		$this->addDescription( 'Deletes a batch of pages' );
-		$this->addOption( 'u', "User to perform deletion", false, true );
-		$this->addOption( 'r', "Reason to delete page", false, true );
-		$this->addOption( 'i', "Interval to sleep between deletions" );
+		$this->addOption( 'u', 'User to perform deletion', false, true );
+		$this->addOption( 'r', 'Reason to delete page', false, true );
+		$this->addOption( 'i', 'Interval to sleep (in seconds) between deletions' );
 		$this->addArg( 'listfile', 'File with titles to delete, separated by newlines. ' .
 			'If not given, stdin will be used.', false );
 	}
@@ -80,10 +82,10 @@ class DeleteBatch extends Maintenance {
 			$this->fatalError( "Unable to read file, exiting" );
 		}
 
-		$services = MediaWikiServices::getInstance();
-		$lbFactory = $services->getDBLoadBalancerFactory();
+		$services = $this->getServiceContainer();
 		$wikiPageFactory = $services->getWikiPageFactory();
 		$repoGroup = $services->getRepoGroup();
+		$delPageFactory = $services->getDeletePageFactory();
 
 		# Handle each entry
 		for ( $linenum = 1; !feof( $file ); $linenum++ ) {
@@ -111,18 +113,11 @@ class DeleteBatch extends Maintenance {
 				}
 			}
 			$page = $wikiPageFactory->newFromTitle( $title );
-			$error = '';
-			$status = $page->doDeleteArticleReal(
-				$reason,
-				$user,
-				false,
-				null,
-				$error,
-				null,
-				[],
-				'delete',
-				true
-			);
+			$delPage = $delPageFactory->newDeletePage( $page, $user );
+			$status = $delPage
+				->forceImmediate( true )
+				->deleteUnsafe( $reason );
+
 			if ( $status->isOK() ) {
 				$this->output( " Deleted!\n" );
 			} else {
@@ -132,7 +127,7 @@ class DeleteBatch extends Maintenance {
 			if ( $interval ) {
 				sleep( $interval );
 			}
-			$lbFactory->waitForReplication();
+			$this->waitForReplication();
 		}
 	}
 }

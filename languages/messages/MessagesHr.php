@@ -1,11 +1,8 @@
 <?php
 /** Croatian (hrvatski)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
- *
+ * @ingroup Languages
  */
 
 $namespaceNames = [
@@ -97,6 +94,7 @@ $specialPageAliases = [
 	'Randomredirect'            => [ 'Slučajno_preusmjeravanje' ],
 	'Recentchanges'             => [ 'Nedavne_promjene' ],
 	'Recentchangeslinked'       => [ 'Povezane_promjene' ],
+	'Renameuser'                => [ 'Preimenuj_suradnika' ],
 	'Revisiondelete'            => [ 'Brisanje_izmjene' ],
 	'Search'                    => [ 'Traži' ],
 	'Shortpages'                => [ 'Kratke_stranice' ],

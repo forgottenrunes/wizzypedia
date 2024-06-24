@@ -1,5 +1,9 @@
 <?php
 
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
+use MediaWiki\Utils\MWTimestamp;
+
 /**
  * @covers EnhancedChangesList
  *
@@ -26,12 +30,6 @@ class EnhancedChangesListTest extends MediaWikiLangTestCase {
 		$styleModules = $enhancedChangesList->getOutput()->getModuleStyles();
 
 		$this->assertContains(
-			'mediawiki.icon',
-			$styleModules,
-			'has mediawiki.icon'
-		);
-
-		$this->assertContains(
 			'mediawiki.special.changeslist',
 			$styleModules,
 			'has mediawiki.special.changeslist'
@@ -42,15 +40,6 @@ class EnhancedChangesListTest extends MediaWikiLangTestCase {
 			$styleModules,
 			'has mediawiki.special.changeslist.enhanced'
 		);
-	}
-
-	public function testBeginRecentChangesList_jsModules() {
-		$enhancedChangesList = $this->newEnhancedChangesList();
-		$enhancedChangesList->beginRecentChangesList();
-
-		$modules = $enhancedChangesList->getOutput()->getModules();
-
-		$this->assertContains( 'jquery.makeCollapsible', $modules, 'has jquery.makeCollapsible' );
 	}
 
 	public function testBeginRecentChangesList_html() {
@@ -83,7 +72,7 @@ class EnhancedChangesListTest extends MediaWikiLangTestCase {
 			->onlyMethods( [ 'getTitle' ] )
 			->getMock();
 		$mockContext->method( 'getTitle' )
-			->willReturn( Title::newFromText( 'Expected Context Title' ) );
+			->willReturn( Title::makeTitle( NS_MAIN, 'Expected Context Title' ) );
 
 		// One group of two lines
 		$enhancedChangesList = $this->newEnhancedChangesList();
@@ -116,10 +105,10 @@ class EnhancedChangesListTest extends MediaWikiLangTestCase {
 
 		$html = $enhancedChangesList->endRecentChangesList();
 
-		$this->assertRegExp( '/Hello world prefix/', $html );
+		$this->assertMatchesRegularExpression( '/Hello world prefix/', $html );
 
 		// Test EnhancedChangesListModifyLineData hook was run
-		$this->assertRegExp( '/This is a minor edit/', $html );
+		$this->assertMatchesRegularExpression( '/This is a minor edit/', $html );
 
 		// Two separate lines
 		$enhancedChangesList->beginRecentChangesList();
@@ -132,7 +121,7 @@ class EnhancedChangesListTest extends MediaWikiLangTestCase {
 		$html = $enhancedChangesList->endRecentChangesList();
 
 		// Test EnhancedChangesListModifyBlockLineData hook was run
-		$this->assertRegExp( '/This edit was performed by a bot/', $html );
+		$this->assertMatchesRegularExpression( '/This edit was performed by a bot/', $html );
 
 		preg_match_all( '/Hello world prefix/', $html, $matches );
 		$this->assertCount( 2, $matches[0] );
@@ -163,7 +152,7 @@ class EnhancedChangesListTest extends MediaWikiLangTestCase {
 		$enhancedChangesList->recentChangesLine( $recentChange, false );
 
 		$html = $enhancedChangesList->endRecentChangesList();
-		$this->assertRegExp(
+		$this->assertMatchesRegularExpression(
 			'/data-mw-revid="5" data-mw-ts="20131103092153" class="[^"]*mw-enhanced-rc[^"]*"/',
 			$html
 		);
@@ -228,14 +217,14 @@ class EnhancedChangesListTest extends MediaWikiLangTestCase {
 	 * @return RecentChange
 	 */
 	private function getCategorizationChange( $timestamp, $thisId, $lastId ) {
-		$wikiPage = new WikiPage( Title::newFromText( 'Testpage' ) );
+		$wikiPage = $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( Title::makeTitle( NS_MAIN, 'Testpage' ) );
 		$wikiPage->doUserEditContent(
 			new WikitextContent( 'Some random text' ),
 			$this->getTestSysop()->getUser(),
 			'page created'
 		);
 
-		$wikiPage = new WikiPage( Title::newFromText( 'Category:Foo' ) );
+		$wikiPage = $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( Title::makeTitle( NS_CATEGORY, 'Foo' ) );
 		$wikiPage->doUserEditContent(
 			new WikitextContent( 'Some random text' ),
 			$this->getTestSysop()->getUser(),

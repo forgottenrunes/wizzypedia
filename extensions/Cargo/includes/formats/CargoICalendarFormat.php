@@ -109,9 +109,9 @@ class CargoICalendarFormat extends CargoDeferredFormat {
 		$title = Title::newFromText( $result[$nameField] );
 		// Only re-query the Page if its ID or modification date are not included in the original query.
 		if ( !isset( $result['_pageID'] ) || !isset( $result['_modificationDate'] ) ) {
-			$page = WikiPage::factory( $title );
+			$page = CargoUtils::makeWikiPage( $title );
 		}
-		$pageId = isset( $result['_pageID'] ) ? $result['_pageID'] : $page->getId();
+		$pageId = $result['_pageID'] ?? $page->getId();
 		$permalink = SpecialPage::getTitleFor( 'Redirect', 'page/' . $pageId, $result['_ID'] ?? '' );
 		$uid = $permalink->getCanonicalURL();
 		// Page values are stored in the wiki's timezone.
@@ -171,8 +171,15 @@ class CargoICalendarFormat extends CargoDeferredFormat {
 		$lang = CargoUtils::getContentLang()->getHtmlCode();
 		// Make sure the language conforms to RFC5646.
 		$langProp = '';
-		if ( Language::isWellFormedLanguageTag( $lang ) ) {
-			$langProp = ";LANGUAGE=$lang";
+		if ( method_exists( LanguageCode::class, 'isWellFormedLanguageTag' ) ) {
+			// MediaWiki 1.39+
+			if ( LanguageCode::isWellFormedLanguageTag( $lang ) ) {
+				$langProp = ";LANGUAGE=$lang";
+			}
+		} else {
+			if ( Language::isWellFormedLanguageTag( $lang ) ) {
+				$langProp = ";LANGUAGE=$lang";
+			}
 		}
 		return $this->wrap( "$prop$langProp:" . $this->esc( $str ) );
 	}

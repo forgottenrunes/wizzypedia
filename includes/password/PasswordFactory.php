@@ -22,6 +22,10 @@
 
 declare( strict_types = 1 );
 
+use MediaWiki\Config\Config;
+use MediaWiki\MainConfigNames;
+use Wikimedia\ObjectFactory\ObjectFactory;
+
 /**
  * Factory class for creating and checking Password objects
  *
@@ -105,17 +109,19 @@ final class PasswordFactory {
 
 	/**
 	 * @deprecated since 1.32 Initialize settings using the constructor
+	 *   Emitting deprecation warnings since 1.41.
 	 *
 	 * Initialize the internal static variables using the global variables
 	 *
 	 * @param Config $config Configuration object to load data from
 	 */
 	public function init( Config $config ): void {
-		foreach ( $config->get( 'PasswordConfig' ) as $type => $options ) {
+		wfDeprecated( __METHOD__, '1.32' );
+		foreach ( $config->get( MainConfigNames::PasswordConfig ) as $type => $options ) {
 			$this->register( $type, $options );
 		}
 
-		$this->setDefaultType( $config->get( 'PasswordDefault' ) );
+		$this->setDefaultType( $config->get( MainConfigNames::PasswordDefault ) );
 	}
 
 	/**
@@ -128,7 +134,7 @@ final class PasswordFactory {
 	}
 
 	/**
-	 * Create a new Hash object from an existing string hash
+	 * Create a new Password object from an existing string hash
 	 *
 	 * Parse the type of a hash and create a new hash object based on the parsed type.
 	 * Pass the raw hash to the constructor of the new object. Use InvalidPassword type
@@ -146,34 +152,44 @@ final class PasswordFactory {
 		}
 
 		$type = substr( $hash, 1, strpos( $hash, ':', 1 ) - 1 );
-		if ( !isset( $this->types[$type] ) ) {
-			throw new PasswordError( "Unrecognized password hash type $type." );
-		}
-
-		$config = $this->types[$type];
-
-		return new $config['class']( $this, $config, $hash );
+		return $this->newFromTypeAndHash( $type, $hash );
 	}
 
 	/**
-	 * Make a new default password of the given type.
+	 * Create a new Password object of the given type.
 	 *
 	 * @param string $type Existing type
 	 * @return Password
-	 * @throws PasswordError If hash is invalid or type is not recognized
+	 * @throws PasswordError If type is not recognized
 	 */
 	public function newFromType( string $type ): Password {
+		return $this->newFromTypeAndHash( $type, null );
+	}
+
+	/**
+	 * Create a new Password object of the given type, optionally with an existing string hash.
+	 *
+	 * @param string $type Existing type
+	 * @param string|null $hash Existing hash
+	 * @return Password
+	 * @throws PasswordError If hash is invalid or type is not recognized
+	 */
+	private function newFromTypeAndHash( string $type, ?string $hash ): Password {
 		if ( !isset( $this->types[$type] ) ) {
 			throw new PasswordError( "Unrecognized password hash type $type." );
 		}
 
 		$config = $this->types[$type];
 
-		return new $config['class']( $this, $config );
+		// @phan-suppress-next-line PhanTypeInvalidCallableArrayKey
+		return ObjectFactory::getObjectFromSpec( $config, [
+			'extraArgs' => [ $this, $config, $hash ],
+			'assertClass' => Password::class,
+		] );
 	}
 
 	/**
-	 * Create a new Hash object from a plaintext password
+	 * Create a new Password object from a plaintext password
 	 *
 	 * If no existing object is given, make a new default object. If one is given, clone that
 	 * object. Then pass the plaintext to Password::crypt().
@@ -188,8 +204,7 @@ final class PasswordFactory {
 		}
 
 		if ( $existing === null ) {
-			$config = $this->types[$this->default];
-			$obj = new $config['class']( $this, $config );
+			$obj = $this->newFromType( $this->default );
 		} else {
 			$obj = clone $existing;
 		}

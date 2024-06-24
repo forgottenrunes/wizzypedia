@@ -23,10 +23,10 @@
 
 namespace MediaWiki\Tests\Unit;
 
+use MediaWiki\User\User;
 use MediaWikiUnitTestCase;
 use PasswordPolicyChecks;
 use PHPUnit\Framework\MockObject\MockObject;
-use User;
 
 /**
  * Split from \PasswordPolicyChecksTest integration tests
@@ -54,18 +54,13 @@ class PasswordPolicyChecksTest extends MediaWikiUnitTestCase {
 			$this->getUser(), // User
 			'password'  // password
 		);
-		$this->assertTrue( $statusOK->isGood(), 'Password is longer than minimal policy' );
+		$this->assertStatusGood( $statusOK, 'Password is longer than minimal policy' );
 		$statusShort = PasswordPolicyChecks::checkMinimalPasswordLength(
 			10, // policy value
 			$this->getUser(), // User
 			'password'  // password
 		);
-		$this->assertFalse(
-			$statusShort->isGood(),
-			'Password is shorter than minimal policy'
-		);
-		$this->assertTrue(
-			$statusShort->isOK(),
+		$this->assertStatusWarning( 'passwordtooshort', $statusShort,
 			'Password is shorter than minimal policy, not fatal'
 		);
 	}
@@ -79,18 +74,13 @@ class PasswordPolicyChecksTest extends MediaWikiUnitTestCase {
 			$this->getUser(), // User
 			'password'  // password
 		);
-		$this->assertTrue( $statusOK->isGood(), 'Password is longer than minimal policy' );
+		$this->assertStatusGood( $statusOK, 'Password is longer than minimal policy' );
 		$statusShort = PasswordPolicyChecks::checkMinimumPasswordLengthToLogin(
 			10, // policy value
 			$this->getUser(), // User
 			'password'  // password
 		);
-		$this->assertFalse(
-			$statusShort->isGood(),
-			'Password is shorter than minimum login policy'
-		);
-		$this->assertFalse(
-			$statusShort->isOK(),
+		$this->assertStatusError( 'passwordtooshort', $statusShort,
 			'Password is shorter than minimum login policy, fatal'
 		);
 	}
@@ -104,16 +94,13 @@ class PasswordPolicyChecksTest extends MediaWikiUnitTestCase {
 			$this->getUser(), // User
 			'password'  // password
 		);
-		$this->assertTrue( $statusOK->isGood(), 'Password is shorter than maximal policy' );
+		$this->assertStatusGood( $statusOK, 'Password is shorter than maximal policy' );
 		$statusLong = PasswordPolicyChecks::checkMaximalPasswordLength(
 			4, // policy value
 			$this->getUser(), // User
 			'password'  // password
 		);
-		$this->assertFalse( $statusLong->isGood(),
-			'Password is longer than maximal policy'
-		);
-		$this->assertFalse( $statusLong->isOK(),
+		$this->assertStatusError( 'passwordtoolong', $statusLong,
 			'Password is longer than maximal policy, fatal'
 		);
 	}
@@ -127,14 +114,14 @@ class PasswordPolicyChecksTest extends MediaWikiUnitTestCase {
 			$this->getUser(), // User
 			'password'  // password
 		);
-		$this->assertTrue( $statusOK->isGood(), 'Password is not a substring of username' );
+		$this->assertStatusGood( $statusOK, 'Password is not a substring of username' );
 		$statusLong = PasswordPolicyChecks::checkPasswordCannotBeSubstringInUsername(
 			1, // policy value
 			$this->getUser( '123user123' ), // User
 			'user'  // password
 		);
-		$this->assertFalse( $statusLong->isGood(), 'Password is a substring of username' );
-		$this->assertTrue( $statusLong->isOK(), 'Password is a substring of username, not fatal' );
+		$this->assertStatusWarning( 'password-substring-username-match', $statusLong,
+			'Password is a substring of username, not fatal' );
 	}
 
 	/**
@@ -154,15 +141,13 @@ class PasswordPolicyChecksTest extends MediaWikiUnitTestCase {
 		);
 
 		if ( $failureExpected ) {
-			$this->assertFalse( $status->isGood(), 'Password matches defaults list' );
-			$this->assertTrue( $status->isOK(), 'Password matches default list, not fatal' );
-			$this->assertTrue( $status->hasMessage( 'password-login-forbidden' ) );
+			$this->assertStatusWarning( 'password-login-forbidden', $status );
 		} else {
-			$this->assertTrue( $status->isGood(), 'Password is not on defaults list' );
+			$this->assertStatusGood( $status, 'Password is not on defaults list' );
 		}
 	}
 
-	public function provideCheckPasswordCannotMatchDefaults() {
+	public static function provideCheckPasswordCannotMatchDefaults() {
 		return [
 			'Unique username and password' => [ false, true, 'Unique username', 'AUniquePassword' ],
 			'Invalid combination' => [ true, true, 'Useruser1', 'Passpass1' ],
@@ -186,7 +171,7 @@ class PasswordPolicyChecksTest extends MediaWikiUnitTestCase {
 		$this->assertSame( $expected, $status->isGood() );
 	}
 
-	public function provideCommonList() {
+	public static function provideCommonList() {
 		return [
 			[ false, 'testpass' ],
 			[ false, 'password' ],

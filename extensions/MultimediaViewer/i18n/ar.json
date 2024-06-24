@@ -1,6 +1,7 @@
 {
 	"@metadata": {
 		"authors": [
+			"Asma",
 			"Claw eg",
 			"Kassem7899",
 			"Maroen1990",
@@ -23,6 +24,7 @@
 	"multimediaviewer-multiple-authors": "{{PLURAL:$1|مؤلف واحد آخر|$1 مؤلفين آخرين}}",
 	"multimediaviewer-multiple-authors-combine": "$1 و$2",
 	"multimediaviewer-metadata-error": "خطأ: تعذر تحميل بيانات الصورة(خطا: $1)",
+	"multimediaviewer-file-not-found-error": "عذرًا ، لا يمكن عرض الملف $1 لأنه غير موجود في الصفحة الحالية.",
 	"multimediaviewer-thumbnail-error": "خطأ: تعذر تحميل الملف معطل",
 	"multimediaviewer-thumbnail-error-description": "يبدو أن هناك مشكلة فنية، يمكنك $1 إذا استمرت، الخطأ: $2",
 	"multimediaviewer-thumbnail-error-retry": "إعادة المحاولة",
@@ -49,7 +51,7 @@
 	"multimediaviewer-restriction-trademarked": "هذه الصورة تتضمن محتوى قد يخضع لقوانين العلامات التجارية.",
 	"multimediaviewer-restriction-default": "قد تكون هذه الصورة مقيدة بأحكام قانونية خارج قانون حقوق النشر، انظر صفحة وصف الملف للتفاصيل.",
 	"multimediaviewer-restriction-default-and-others": "يمكن تقييد هذه الصورة بمقتضى أحكام قانونية أخرى خارج قانون حقوق النشر، انظر صفحة وصف الملف للتفاصيل.",
-	"multimediaviewer-about-mmv": "حول هذه الواجهة",
+	"multimediaviewer-about-mmv": "حول عارض الوسائط",
 	"multimediaviewer-optout-mmv": "تعطيل عارض الوسائط",
 	"multimediaviewer-optin-mmv": "مكّن عارض الوسائط",
 	"multimediaviewer-optout-pending-mmv": "يُعطّل عارض الوسائط",

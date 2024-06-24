@@ -19,9 +19,18 @@
  * @ingroup SpecialPage
  */
 
+namespace MediaWiki\Specials;
+
+use ErrorPageError;
+use HTMLForm;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Preferences\MultiUsernameFilter;
+use MediaWiki\SpecialPage\FormSpecialPage;
+use MediaWiki\User\CentralId\CentralIdLookup;
+use MediaWiki\User\User;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityLookup;
+use MediaWiki\User\UserIdentityUtils;
 use MediaWiki\User\UserOptionsManager;
 
 /**
@@ -40,29 +49,28 @@ class SpecialMute extends FormSpecialPage {
 	/** @var int */
 	private $targetCentralId;
 
-	/** @var CentralIdLookup */
-	private $centralIdLookup;
-
-	/** @var UserOptionsManager */
-	private $userOptionsManager;
-
-	/** @var UserIdentityLookup */
-	private $userIdentityLookup;
+	private CentralIdLookup $centralIdLookup;
+	private UserOptionsManager $userOptionsManager;
+	private UserIdentityLookup $userIdentityLookup;
+	private UserIdentityUtils $userIdentityUtils;
 
 	/**
 	 * @param CentralIdLookup $centralIdLookup
 	 * @param UserOptionsManager $userOptionsManager
 	 * @param UserIdentityLookup $userIdentityLookup
+	 * @param UserIdentityUtils $userIdentityUtils
 	 */
 	public function __construct(
 		CentralIdLookup $centralIdLookup,
 		UserOptionsManager $userOptionsManager,
-		UserIdentityLookup $userIdentityLookup
+		UserIdentityLookup $userIdentityLookup,
+		UserIdentityUtils $userIdentityUtils
 	) {
 		parent::__construct( self::PAGE_NAME, '', false );
 		$this->centralIdLookup = $centralIdLookup;
 		$this->userOptionsManager = $userOptionsManager;
 		$this->userIdentityLookup = $userIdentityLookup;
+		$this->userIdentityUtils = $userIdentityUtils;
 	}
 
 	/**
@@ -75,7 +83,7 @@ class SpecialMute extends FormSpecialPage {
 			'https://meta.wikimedia.org/wiki/Community_health_initiative/User_Mute_features',
 			true
 		);
-		$this->requireLogin( 'specialmute-login-required' );
+		$this->requireNamedUser( 'specialmute-login-required' );
 		$this->loadTarget( $par );
 
 		parent::execute( $par );
@@ -112,19 +120,13 @@ class SpecialMute extends FormSpecialPage {
 	 * @return bool
 	 */
 	public function onSubmit( array $data, HTMLForm $form = null ) {
-		$hookData = [];
 		foreach ( $data as $userOption => $value ) {
-			$hookData[$userOption]['before'] = $this->isTargetMuted( $userOption );
 			if ( $value ) {
 				$this->muteTarget( $userOption );
 			} else {
 				$this->unmuteTarget( $userOption );
 			}
-			$hookData[$userOption]['after'] = (bool)$value;
 		}
-
-		// NOTE: this hook is temporary
-		$this->getHookRunner()->onSpecialMuteSubmit( $hookData );
 
 		return true;
 	}
@@ -133,7 +135,7 @@ class SpecialMute extends FormSpecialPage {
 	 * @inheritDoc
 	 */
 	public function getDescription() {
-		return $this->msg( 'specialmute' )->text();
+		return $this->msg( 'specialmute' );
 	}
 
 	/**
@@ -187,7 +189,7 @@ class SpecialMute extends FormSpecialPage {
 		$target = $this->getTarget();
 		$form = parent::getForm();
 		$form->setId( 'mw-specialmute-form' );
-		$form->setHeaderText( $this->msg( 'specialmute-header', $target ? $target->getName() : '' )->parse() );
+		$form->setHeaderHtml( $this->msg( 'specialmute-header', $target ? $target->getName() : '' )->parse() );
 		$form->setSubmitTextMsg( 'specialmute-submit' );
 		$form->setSubmitID( 'save' );
 
@@ -200,22 +202,30 @@ class SpecialMute extends FormSpecialPage {
 	protected function getFormFields() {
 		$config = $this->getConfig();
 		$fields = [];
-		if (
-			$config->get( 'EnableUserEmailMuteList' ) &&
-			$config->get( 'EnableUserEmail' ) &&
-			$this->getUser()->getEmailAuthenticationTimestamp()
-		) {
-			$fields['email-blacklist'] = [
-				'type' => 'check',
-				'label-message' => [
-					'specialmute-label-mute-email',
-					$this->getTarget() ? $this->getTarget()->getName() : ''
-				],
-				'default' => $this->isTargetMuted( 'email-blacklist' ),
-			];
+
+		if ( !$config->get( MainConfigNames::EnableUserEmail ) ) {
+			throw new ErrorPageError( 'specialmute', 'specialmute-error-email-disabled' );
+		}
+
+		if ( !$config->get( MainConfigNames::EnableUserEmailMuteList ) ) {
+			throw new ErrorPageError( 'specialmute', 'specialmute-error-mutelist-disabled' );
+		}
+
+		if ( !$this->getUser()->getEmailAuthenticationTimestamp() ) {
+			throw new ErrorPageError( 'specialmute', 'specialmute-error-no-email-set' );
 		}
 
 		$target = $this->getTarget();
+
+		$fields['email-blacklist'] = [
+			'type' => 'check',
+			'label-message' => [
+				'specialmute-label-mute-email',
+				$target ? $target->getName() : ''
+			],
+			'default' => $this->isTargetMuted( 'email-blacklist' ),
+		];
+
 		$legacyUser = $target ? User::newFromIdentity( $target ) : null;
 		$this->getHookRunner()->onSpecialMuteModifyFormFields( $legacyUser, $this->getUser(), $fields );
 
@@ -234,7 +244,7 @@ class SpecialMute extends FormSpecialPage {
 		if ( $username !== null ) {
 			$target = $this->userIdentityLookup->getUserIdentityByName( $username );
 		}
-		if ( !$target || !$target->isRegistered() ) {
+		if ( !$target || !$this->userIdentityUtils->isNamed( $target ) ) {
 			throw new ErrorPageError( 'specialmute', 'specialmute-error-invalid-user' );
 		} else {
 			$this->target = $target;
@@ -252,17 +262,6 @@ class SpecialMute extends FormSpecialPage {
 	}
 
 	/**
-	 * @deprecated since 1.35, use isTargetMuted
-	 *
-	 * @param string $userOption
-	 * @return bool
-	 */
-	public function isTargetBlacklisted( $userOption ) {
-		wfDeprecated( __METHOD__, '1.35' );
-		return $this->isTargetMuted( $userOption );
-	}
-
-	/**
 	 * @param string $userOption
 	 * @return array
 	 */
@@ -275,3 +274,9 @@ class SpecialMute extends FormSpecialPage {
 		return MultiUsernameFilter::splitIds( $muteList );
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialMute::class, 'SpecialMute' );

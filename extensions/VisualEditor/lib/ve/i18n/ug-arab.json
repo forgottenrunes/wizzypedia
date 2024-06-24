@@ -7,7 +7,6 @@
 		]
 	},
 	"visualeditor": "كۆرۈنمە تەھرىرلىگۈچ",
-	"visualeditor-aliencontextitem-title": "ئېلېمېنت",
 	"visualeditor-aliennode-tooltip": "ناھايىتى ئەپسۇس، ھازىر بۇ ئېلېمېنتنى پەقەت ئەسلى كودىنى تەھرىرلەش ھالىتىدىلا ئۆزگەرتىش مۇمكىن.",
 	"visualeditor-align-widget-center": "ئوتتۇرا",
 	"visualeditor-align-widget-default": "كۆڭۈلدىكى",
@@ -31,7 +30,6 @@
 	"visualeditor-clipboard-paste": "چاپلا",
 	"visualeditor-clipboard-paste-special": "تېكىست ھالىتىدە چاپلا",
 	"visualeditor-command-dialog-confirm": "ئۆزگەرتىش جەزملە",
-	"visualeditor-commentinspector-edit": "ئىزاھات تەھرىرلە",
 	"visualeditor-commentinspector-title": "ئىزاھات",
 	"visualeditor-commentinspector-tooltip": "ئىزاھات",
 	"visualeditor-content-select-all": "ھەممىنى تاللا",

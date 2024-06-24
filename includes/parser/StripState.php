@@ -66,7 +66,7 @@ class StripState {
 	/**
 	 * Add a nowiki strip item
 	 * @param string $marker
-	 * @param string $value
+	 * @param string|Closure $value
 	 */
 	public function addNoWiki( $marker, $value ) {
 		$this->addItem( 'nowiki', $marker, $value );
@@ -74,21 +74,23 @@ class StripState {
 
 	/**
 	 * @param string $marker
-	 * @param string $value
+	 * @param string|Closure $value
 	 */
 	public function addGeneral( $marker, $value ) {
 		$this->addItem( 'general', $marker, $value );
 	}
 
 	/**
-	 * @throws MWException
 	 * @param string $type
+	 * @param-taint $type none
 	 * @param string $marker
-	 * @param string $value
+	 * @param-taint $marker none
+	 * @param string|Closure $value
+	 * @param-taint $value exec_html
 	 */
 	protected function addItem( $type, $marker, $value ) {
 		if ( !preg_match( $this->regex, $marker, $m ) ) {
-			throw new MWException( "Invalid marker: $marker" );
+			throw new InvalidArgumentException( "Invalid marker: $marker" );
 		}
 
 		$this->data[$type][$m[1]] = $value;
@@ -108,6 +110,39 @@ class StripState {
 	 */
 	public function unstripNoWiki( $text ) {
 		return $this->unstripType( 'nowiki', $text );
+	}
+
+	/**
+	 * @param string $text
+	 * @param callable $callback
+	 * @return string
+	 */
+	public function replaceNoWikis( string $text, callable $callback ): string {
+		// Shortcut
+		if ( !count( $this->data['nowiki'] ) ) {
+			return $text;
+		}
+
+		$callback = function ( $m ) use ( $callback ) {
+			$marker = $m[1];
+			if ( isset( $this->data['nowiki'][$marker] ) ) {
+				$value = $this->data['nowiki'][$marker];
+				if ( $value instanceof Closure ) {
+					$value = $value();
+				}
+
+				$this->expandSize += strlen( $value );
+				if ( $this->expandSize > $this->sizeLimit ) {
+					return $this->getLimitationWarning( 'unstrip-size', $this->sizeLimit );
+				}
+
+				return call_user_func( $callback, $value );
+			} else {
+				return $m[0];
+			}
+		};
+
+		return preg_replace_callback( $this->regex, $callback, $text );
 	}
 
 	/**
@@ -175,7 +210,7 @@ class StripState {
 	 * Get warning HTML and register a limitation warning with the parser
 	 *
 	 * @param string $type
-	 * @param int $max
+	 * @param int|string $max
 	 * @return string
 	 */
 	private function getLimitationWarning( $type, $max = '' ) {
@@ -189,7 +224,7 @@ class StripState {
 	 * Get warning HTML
 	 *
 	 * @param string $message
-	 * @param int $max
+	 * @param int|string $max
 	 * @return string
 	 */
 	private function getWarning( $message, $max = '' ) {

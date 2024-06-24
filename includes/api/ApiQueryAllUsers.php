@@ -21,9 +21,12 @@
  */
 
 use MediaWiki\Block\DatabaseBlock;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Permissions\GroupPermissionsLookup;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserGroupManager;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\IntegerDef;
 
 /**
  * Query module to enumerate all registered users.
@@ -33,17 +36,10 @@ use MediaWiki\User\UserGroupManager;
 class ApiQueryAllUsers extends ApiQueryBase {
 	use ApiQueryBlockInfoTrait;
 
-	/** @var UserFactory */
-	private $userFactory;
-
-	/** @var UserGroupManager */
-	private $userGroupManager;
-
-	/** @var GroupPermissionsLookup */
-	private $groupPermissionsLookup;
-
-	/** @var Language */
-	private $contentLanguage;
+	private UserFactory $userFactory;
+	private UserGroupManager $userGroupManager;
+	private GroupPermissionsLookup $groupPermissionsLookup;
+	private Language $contentLanguage;
 
 	/**
 	 * @param ApiQuery $query
@@ -81,7 +77,7 @@ class ApiQueryAllUsers extends ApiQueryBase {
 
 	public function execute() {
 		$params = $this->extractRequestParams();
-		$activeUserDays = $this->getConfig()->get( 'ActiveUserDays' );
+		$activeUserDays = $this->getConfig()->get( MainConfigNames::ActiveUserDays );
 
 		$db = $this->getDB();
 
@@ -183,7 +179,7 @@ class ApiQueryAllUsers extends ApiQueryBase {
 					'ug1.ug_expiry IS NULL OR ug1.ug_expiry >= ' . $db->addQuotes( $db->timestamp() )
 				], $exclude )
 			] ] );
-			$this->addWhere( 'ug1.ug_user IS NULL' );
+			$this->addWhere( [ 'ug1.ug_user' => null ] );
 		}
 
 		if ( $params['witheditsonly'] ) {
@@ -216,25 +212,19 @@ class ApiQueryAllUsers extends ApiQueryBase {
 			] ] );
 
 			// Actually count the actions using a subquery (T66505 and T66507)
-			$tables = [ 'recentchanges', 'actor' ];
-			$joins = [
-				'actor' => [ 'JOIN', 'rc_actor = actor_id' ],
-			];
 			$timestamp = $db->timestamp( (int)wfTimestamp( TS_UNIX ) - $activeUserSeconds );
+			$subqueryBuilder = $db->newSelectQueryBuilder()
+				->select( 'COUNT(*)' )
+				->from( 'recentchanges' )
+				->join( 'actor', null, 'rc_actor = actor_id' )
+				->where( [
+					'actor_user = user_id',
+					'rc_type != ' . $db->addQuotes( RC_EXTERNAL ), // no wikidata
+					'rc_log_type IS NULL OR rc_log_type != ' . $db->addQuotes( 'newusers' ),
+					$db->buildComparison( '>=', [ 'rc_timestamp' => $timestamp ] ),
+				] );
 			$this->addFields( [
-				'recentactions' => '(' . $db->selectSQLText(
-					$tables,
-					'COUNT(*)',
-					[
-						'actor_user = user_id',
-						'rc_type != ' . $db->addQuotes( RC_EXTERNAL ), // no wikidata
-						'rc_log_type IS NULL OR rc_log_type != ' . $db->addQuotes( 'newusers' ),
-						'rc_timestamp >= ' . $db->addQuotes( $timestamp ),
-					],
-					__METHOD__,
-					[],
-					$joins
-				) . ')'
+				'recentactions' => '(' . $subqueryBuilder->caller( __METHOD__ )->getSQL() . ')'
 			] );
 		}
 
@@ -371,27 +361,27 @@ class ApiQueryAllUsers extends ApiQueryBase {
 			'to' => null,
 			'prefix' => null,
 			'dir' => [
-				ApiBase::PARAM_DFLT => 'ascending',
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_DEFAULT => 'ascending',
+				ParamValidator::PARAM_TYPE => [
 					'ascending',
 					'descending'
 				],
 			],
 			'group' => [
-				ApiBase::PARAM_TYPE => $userGroups,
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => $userGroups,
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'excludegroup' => [
-				ApiBase::PARAM_TYPE => $userGroups,
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => $userGroups,
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'rights' => [
-				ApiBase::PARAM_TYPE => $this->getPermissionManager()->getAllPermissions(),
-				ApiBase::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => $this->getPermissionManager()->getAllPermissions(),
+				ParamValidator::PARAM_ISMULTI => true,
 			],
 			'prop' => [
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => [
 					'blockinfo',
 					'groups',
 					'implicitgroups',
@@ -403,18 +393,18 @@ class ApiQueryAllUsers extends ApiQueryBase {
 				ApiBase::PARAM_HELP_MSG_PER_VALUE => [],
 			],
 			'limit' => [
-				ApiBase::PARAM_DFLT => 10,
-				ApiBase::PARAM_TYPE => 'limit',
-				ApiBase::PARAM_MIN => 1,
-				ApiBase::PARAM_MAX => ApiBase::LIMIT_BIG1,
-				ApiBase::PARAM_MAX2 => ApiBase::LIMIT_BIG2
+				ParamValidator::PARAM_DEFAULT => 10,
+				ParamValidator::PARAM_TYPE => 'limit',
+				IntegerDef::PARAM_MIN => 1,
+				IntegerDef::PARAM_MAX => ApiBase::LIMIT_BIG1,
+				IntegerDef::PARAM_MAX2 => ApiBase::LIMIT_BIG2
 			],
 			'witheditsonly' => false,
 			'activeusers' => [
-				ApiBase::PARAM_DFLT => false,
+				ParamValidator::PARAM_DEFAULT => false,
 				ApiBase::PARAM_HELP_MSG => [
 					'apihelp-query+allusers-param-activeusers',
-					$this->getConfig()->get( 'ActiveUserDays' )
+					$this->getConfig()->get( MainConfigNames::ActiveUserDays )
 				],
 			],
 			'attachedwiki' => null,

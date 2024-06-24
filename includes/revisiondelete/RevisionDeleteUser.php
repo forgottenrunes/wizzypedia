@@ -23,6 +23,7 @@
 
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\Title\Title;
 use Wikimedia\Rdbms\IDatabase;
 
 /**
@@ -45,14 +46,11 @@ class RevisionDeleteUser {
 	 * @return bool True on success, false on failure (e.g. invalid user ID)
 	 */
 	private static function setUsernameBitfields( $name, $userId, $op, IDatabase $dbw = null ) {
-		$actorTableSchemaMigrationStage = MediaWikiServices::getInstance()
-			->getMainConfig()->get( 'ActorTableSchemaMigrationStage' );
-
 		if ( !$userId || ( $op !== '|' && $op !== '&' ) ) {
 			return false;
 		}
 		if ( !$dbw instanceof IDatabase ) {
-			$dbw = wfGetDB( DB_PRIMARY );
+			$dbw = MediaWikiServices::getInstance()->getDBLoadBalancerFactory()->getPrimaryDatabase();
 		}
 
 		# To suppress, we OR the current bitfields with RevisionRecord::DELETED_USER
@@ -71,91 +69,72 @@ class RevisionDeleteUser {
 		$userTitle = Title::makeTitleSafe( NS_USER, $name );
 		$userDbKey = $userTitle->getDBkey();
 
-		$actorId = $dbw->selectField( 'actor', 'actor_id', [ 'actor_name' => $name ], __METHOD__ );
+		$actorId = $dbw->newSelectQueryBuilder()
+			->select( 'actor_id' )
+			->from( 'actor' )
+			->where( [ 'actor_name' => $name ] )
+			->caller( __METHOD__ )->fetchField();
 		if ( $actorId ) {
 			# Hide name from live edits
-			# This query depends on the actor migration read stage, not the
-			# write stage, because the stage determines how we find the rows to
-			# delete. The write stage determines whether or not to write to
-			# rev_actor and revision_actor_temp which is not relevant here.
-			if ( $actorTableSchemaMigrationStage & SCHEMA_COMPAT_READ_TEMP ) {
-				$ids = $dbw->selectFieldValues(
-					'revision_actor_temp', 'revactor_rev', [ 'revactor_actor' => $actorId ], __METHOD__
-				);
-				if ( $ids ) {
-					$dbw->update(
-						'revision',
-						[ self::buildSetBitDeletedField( 'rev_deleted', $op, $delUser, $dbw ) ],
-						[ 'rev_id' => $ids ],
-						__METHOD__
-					);
-				}
-			} else /* SCHEMA_COMPAT_READ_NEW */ {
-				$dbw->update(
-					'revision',
-					[ self::buildSetBitDeletedField( 'rev_deleted', $op, $delUser, $dbw ) ],
-					[ 'rev_actor' => $actorId ],
-					__METHOD__
-				);
-			}
+			$dbw->newUpdateQueryBuilder()
+				->update( 'revision' )
+				->set( [ self::buildSetBitDeletedField( 'rev_deleted', $op, $delUser, $dbw ) ] )
+				->where( [ 'rev_actor' => $actorId ] )
+				->caller( __METHOD__ )->execute();
 
 			# Hide name from deleted edits
-			$dbw->update(
-				'archive',
-				[ self::buildSetBitDeletedField( 'ar_deleted', $op, $delUser, $dbw ) ],
-				[ 'ar_actor' => $actorId ],
-				__METHOD__
-			);
+			$dbw->newUpdateQueryBuilder()
+				->update( 'archive' )
+				->set( [ self::buildSetBitDeletedField( 'ar_deleted', $op, $delUser, $dbw ) ] )
+				->where( [ 'ar_actor' => $actorId ] )
+				->caller( __METHOD__ )->execute();
 
 			# Hide name from logs
-			$dbw->update(
-				'logging',
-				[ self::buildSetBitDeletedField( 'log_deleted', $op, $delUser, $dbw ) ],
-				[ 'log_actor' => $actorId, 'log_type != ' . $dbw->addQuotes( 'suppress' ) ],
-				__METHOD__
-			);
+			$dbw->newUpdateQueryBuilder()
+				->update( 'logging' )
+				->set( [ self::buildSetBitDeletedField( 'log_deleted', $op, $delUser, $dbw ) ] )
+				->where( [ 'log_actor' => $actorId, 'log_type != ' . $dbw->addQuotes( 'suppress' ) ] )
+				->caller( __METHOD__ )->execute();
 
 			# Hide name from RC
-			$dbw->update(
-				'recentchanges',
-				[ self::buildSetBitDeletedField( 'rc_deleted', $op, $delUser, $dbw ) ],
-				[ 'rc_actor' => $actorId ],
-				__METHOD__
-			);
+			$dbw->newUpdateQueryBuilder()
+				->update( 'recentchanges' )
+				->set( [ self::buildSetBitDeletedField( 'rc_deleted', $op, $delUser, $dbw ) ] )
+				->where( [ 'rc_actor' => $actorId ] )
+				->caller( __METHOD__ )->execute();
 
 			# Hide name from live images
-			$dbw->update(
-				'oldimage',
-				[ self::buildSetBitDeletedField( 'oi_deleted', $op, $delUser, $dbw ) ],
-				[ 'oi_actor' => $actorId ],
-				__METHOD__
-			);
+			$dbw->newUpdateQueryBuilder()
+				->update( 'oldimage' )
+				->set( [ self::buildSetBitDeletedField( 'oi_deleted', $op, $delUser, $dbw ) ] )
+				->where( [ 'oi_actor' => $actorId ] )
+				->caller( __METHOD__ )->execute();
 
 			# Hide name from deleted images
-			$dbw->update(
-				'filearchive',
-				[ self::buildSetBitDeletedField( 'fa_deleted', $op, $delUser, $dbw ) ],
-				[ 'fa_actor' => $actorId ],
-				__METHOD__
-			);
+			$dbw->newUpdateQueryBuilder()
+				->update( 'filearchive' )
+				->set( [ self::buildSetBitDeletedField( 'fa_deleted', $op, $delUser, $dbw ) ] )
+				->where( [ 'fa_actor' => $actorId ] )
+				->caller( __METHOD__ )->execute();
 		}
 
 		# Hide log entries pointing to the user page
-		$dbw->update(
-			'logging',
-			[ self::buildSetBitDeletedField( 'log_deleted', $op, $delAction, $dbw ) ],
-			[ 'log_namespace' => NS_USER, 'log_title' => $userDbKey,
-			'log_type != ' . $dbw->addQuotes( 'suppress' ) ],
-			__METHOD__
-		);
+		$dbw->newUpdateQueryBuilder()
+			->update( 'logging' )
+			->set( [ self::buildSetBitDeletedField( 'log_deleted', $op, $delAction, $dbw ) ] )
+			->where( [
+				'log_namespace' => NS_USER,
+				'log_title' => $userDbKey,
+				'log_type != ' . $dbw->addQuotes( 'suppress' )
+			] )
+			->caller( __METHOD__ )->execute();
 
 		# Hide RC entries pointing to the user page
-		$dbw->update(
-			'recentchanges',
-			[ self::buildSetBitDeletedField( 'rc_deleted', $op, $delAction, $dbw ) ],
-			[ 'rc_namespace' => NS_USER, 'rc_title' => $userDbKey, 'rc_logid > 0' ],
-			__METHOD__
-		);
+		$dbw->newUpdateQueryBuilder()
+			->update( 'recentchanges' )
+			->set( [ self::buildSetBitDeletedField( 'rc_deleted', $op, $delAction, $dbw ) ] )
+			->where( [ 'rc_namespace' => NS_USER, 'rc_title' => $userDbKey, 'rc_logid > 0' ] )
+			->caller( __METHOD__ )->execute();
 
 		return true;
 	}

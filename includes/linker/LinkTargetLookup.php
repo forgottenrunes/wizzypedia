@@ -43,7 +43,7 @@ interface LinkTargetLookup {
 	public function newLinkTargetFromRow( stdClass $row ): LinkTarget;
 
 	/**
-	 * Find an link target by $id.
+	 * Find a link target by $id.
 	 *
 	 * @param int $linkTargetId
 	 * @return LinkTarget|null Returns null if no link target with this $linkTargetId exists in the database.
@@ -64,5 +64,13 @@ interface LinkTargetLookup {
 	 * @throws RuntimeException if no linktarget ID has been assigned to this $linkTarget
 	 */
 	public function acquireLinkTargetId( LinkTarget $linkTarget, IDatabase $dbw ): int;
+
+	/**
+	 * Return link target id if exists
+	 *
+	 * @param LinkTarget $linkTarget
+	 * @return int|null linktarget ID greater then 0, null if not found
+	 */
+	public function getLinkTargetId( LinkTarget $linkTarget ): ?int;
 
 }

@@ -1,5 +1,9 @@
 <?php
 
+use MediaWiki\Html\FormOptions;
+use MediaWiki\SpecialPage\ChangesListSpecialPage;
+use Wikimedia\Rdbms\IDatabase;
+use Wikimedia\Rdbms\IReadableDatabase;
 use Wikimedia\TestingAccessWrapper;
 
 /**
@@ -21,7 +25,7 @@ class ChangesListStringOptionsFilterGroupTest extends MediaWikiUnitTestCase {
 
 		$this->assertFalse( $falseGroup->isFullCoverage );
 
-		$this->expectException( MWException::class );
+		$this->expectException( InvalidArgumentException::class );
 		$this->expectExceptionMessage( 'You must specify isFullCoverage' );
 		$undefinedFullCoverageGroup = new ChangesListStringOptionsFilterGroup( [
 			'name' => 'othergroup',
@@ -40,7 +44,7 @@ class ChangesListStringOptionsFilterGroupTest extends MediaWikiUnitTestCase {
 		$queryCallable = function (
 			string $className,
 			IContextSource $ctx,
-			IDatabase $dbr,
+			IReadableDatabase $dbr,
 			&$tables,
 			&$fields,
 			&$conds,
@@ -65,7 +69,7 @@ class ChangesListStringOptionsFilterGroupTest extends MediaWikiUnitTestCase {
 		$this->modifyQueryHelper( $groupDefinition, $input );
 	}
 
-	public function provideModifyQuery() {
+	public static function provideModifyQuery() {
 		$mixedFilters = [
 			[
 				'name' => 'foo',
@@ -104,7 +108,7 @@ class ChangesListStringOptionsFilterGroupTest extends MediaWikiUnitTestCase {
 		$noFiltersAllowedCallable = static function (
 			string $className,
 			IContextSource $ctx,
-			IDatabase $dbr,
+			IReadableDatabase $dbr,
 			&$tables,
 			&$fields,
 			&$conds,
@@ -112,7 +116,7 @@ class ChangesListStringOptionsFilterGroupTest extends MediaWikiUnitTestCase {
 			&$join_conds,
 			$actualSelectedValues
 		) use ( $message ) {
-			throw new MWException( $message );
+			throw new LogicException( $message );
 		};
 
 		$groupDefinition = [
@@ -131,7 +135,7 @@ class ChangesListStringOptionsFilterGroupTest extends MediaWikiUnitTestCase {
 		);
 	}
 
-	public function provideNoOpModifyQuery() {
+	public static function provideNoOpModifyQuery() {
 		$noFilters = [];
 
 		$normalFilters = [
@@ -164,19 +168,12 @@ class ChangesListStringOptionsFilterGroupTest extends MediaWikiUnitTestCase {
 		];
 	}
 
-	protected function getSpecialPage() {
-		return $this->getMockBuilder( ChangesListSpecialPage::class )
-			->disableOriginalConstructor()
-			->getMockForAbstractClass();
-	}
-
 	/**
 	 * @param array $groupDefinition
 	 * @param string $input Value in URL
 	 */
 	protected function modifyQueryHelper( $groupDefinition, $input ) {
-		$ctx = $this->createMock( IContextSource::class );
-		$dbr = $this->createMock( Wikimedia\Rdbms\IDatabase::class );
+		$dbr = $this->createMock( IDatabase::class );
 		$tables = [];
 		$fields = [];
 		$conds = [];
@@ -185,13 +182,12 @@ class ChangesListStringOptionsFilterGroupTest extends MediaWikiUnitTestCase {
 
 		$group = new ChangesListStringOptionsFilterGroup( $groupDefinition );
 
-		$specialPage = $this->getSpecialPage();
 		$opts = new FormOptions();
 		$opts->add( $groupDefinition[ 'name' ], $input );
 
 		$group->modifyQuery(
 			$dbr,
-			$specialPage,
+			$this->createNoOpAbstractMock( ChangesListSpecialPage::class ),
 			$tables,
 			$fields,
 			$conds,

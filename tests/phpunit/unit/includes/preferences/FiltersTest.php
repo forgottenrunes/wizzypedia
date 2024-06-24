@@ -21,6 +21,7 @@
 use MediaWiki\Preferences\IntvalFilter;
 use MediaWiki\Preferences\MultiUsernameFilter;
 use MediaWiki\Preferences\TimezoneFilter;
+use MediaWiki\User\CentralId\CentralIdLookup;
 
 /**
  * @group Preferences
@@ -50,11 +51,12 @@ class FiltersTest extends \MediaWikiUnitTestCase {
 		self::assertEquals( $expected, $result );
 	}
 
-	public function provideTimezoneFilter() {
+	public static function provideTimezoneFilter() {
 		return [
 			[ 'ZoneInfo', 'Offset|0' ],
 			[ 'ZoneInfo|bogus', 'Offset|0' ],
-			[ 'System', 'System' ],
+			[ 'System', 'System|0' ],
+			[ 'System|120', 'System|0' ],
 			[ '2:30', 'Offset|150' ],
 		];
 	}
@@ -72,7 +74,7 @@ class FiltersTest extends \MediaWikiUnitTestCase {
 		self::assertSame( $expected, $result );
 	}
 
-	public function provideMultiUsernameFilterFrom() {
+	public static function provideMultiUsernameFilterFrom() {
 		return [
 			[ '', null ],
 			[ "\n\n\n", null ],
@@ -97,7 +99,7 @@ class FiltersTest extends \MediaWikiUnitTestCase {
 		self::assertSame( $expected, $result );
 	}
 
-	public function provideMultiUsernameFilterFor() {
+	public static function provideMultiUsernameFilterFor() {
 		return [
 			[ '', '' ],
 			[ "\n", '' ],

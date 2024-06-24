@@ -1,10 +1,8 @@
 <?php
 /** Swedish (svenska)
  *
- * To improve a translation please visit https://translatewiki.net
- *
- * @ingroup Language
  * @file
+ * @ingroup Languages
  *
  * @author Ainali
  * @author Boivie
@@ -166,6 +164,7 @@ $specialPageAliases = [
 	'Recentchanges'             => [ 'Senaste_ändringar' ],
 	'Recentchangeslinked'       => [ 'Senaste_relaterade_ändringar' ],
 	'Redirect'                  => [ 'Omdirigering' ],
+	'Renameuser'                => [ 'Användarnamnbyte' ],
 	'ResetTokens'               => [ 'Återställ_nycklar' ],
 	'Revisiondelete'            => [ 'Radera_version' ],
 	'Search'                    => [ 'Sök' ],

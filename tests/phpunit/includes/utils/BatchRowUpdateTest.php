@@ -1,5 +1,7 @@
 <?php
 
+use Wikimedia\Rdbms\Platform\SQLPlatform;
+
 /**
  * Tests for BatchRowUpdate and its components
  *
@@ -37,7 +39,7 @@ class BatchRowUpdateTest extends MediaWikiIntegrationTestCase {
 
 	public function testReaderBasicIterate() {
 		$batchSize = 2;
-		$response = $this->genSelectResult( $batchSize, /*numRows*/ 5, function () {
+		$response = $this->genSelectResult( $batchSize, /*numRows*/ 5, static function () {
 			static $i = 0;
 			return [ 'id_field' => ++$i ];
 		} );
@@ -145,7 +147,7 @@ class BatchRowUpdateTest extends MediaWikiIntegrationTestCase {
 			[
 				"With single primary key must generate id > 'value'",
 				// Expected second iteration
-				[ "( id_field > '3' )" ],
+				[ "id_field > '3'" ],
 				// Primary key(s)
 				'id_field',
 			],
@@ -154,7 +156,7 @@ class BatchRowUpdateTest extends MediaWikiIntegrationTestCase {
 				'With multiple primary keys the first conditions ' .
 					'must use >= and the final condition must use >',
 				// Expected second iteration
-				[ "( id_field = '3' AND foo > '103' ) OR ( id_field > '3' )" ],
+				[ "id_field > '3' OR (id_field = '3' AND (foo > '103'))" ],
 				// Primary key(s)
 				[ 'id_field', 'foo' ],
 			],
@@ -171,7 +173,7 @@ class BatchRowUpdateTest extends MediaWikiIntegrationTestCase {
 	public function testReaderSelectConditionsMultiplePrimaryKeys(
 		$message, $expectedSecondIteration, $primaryKeys, $batchSize = 3
 	) {
-		$results = $this->genSelectResult( $batchSize, $batchSize * 3, function () {
+		$results = $this->genSelectResult( $batchSize, $batchSize * 3, static function () {
 			static $i = 0, $j = 100, $k = 1000;
 			return [ 'id_field' => ++$i, 'foo' => ++$j, 'bar' => ++$k ];
 		} );
@@ -202,9 +204,9 @@ class BatchRowUpdateTest extends MediaWikiIntegrationTestCase {
 		$db->method( 'select' )
 			->will( $this->consecutivelyReturnFromSelect( $retvals ) );
 		$db->method( 'addQuotes' )
-			->will( $this->returnCallback( static function ( $value ) {
+			->willReturnCallback( static function ( $value ) {
 				return "'$value'"; // not real quoting: doesn't matter in test
-			} ) );
+			} );
 
 		return $db;
 	}
@@ -234,15 +236,19 @@ class BatchRowUpdateTest extends MediaWikiIntegrationTestCase {
 
 	protected function mockDb( $methods = [] ) {
 		// @TODO: mock from Database
-		// FIXME: the constructor normally sets mAtomicLevels and mSrvCache
-		$databaseMysql = $this->getMockBuilder( Wikimedia\Rdbms\DatabaseMysqli::class )
+		// FIXME: the constructor normally sets mAtomicLevels and mSrvCache, and platform
+		$databaseMysql = $this->getMockBuilder( Wikimedia\Rdbms\DatabaseMySQL::class )
 			->disableOriginalConstructor()
-			->onlyMethods( array_merge( [ 'isOpen', 'getApproximateLagStatus' ], $methods ) )
+			->onlyMethods( array_merge( [ 'isOpen' ], $methods ) )
 			->getMock();
+
+		$reflection = new ReflectionClass( $databaseMysql );
+		$reflectionProperty = $reflection->getProperty( 'platform' );
+		$reflectionProperty->setAccessible( true );
+		$reflectionProperty->setValue( $databaseMysql, new SQLPlatform( $databaseMysql ) );
+
 		$databaseMysql->method( 'isOpen' )
 			->willReturn( true );
-		$databaseMysql->method( 'getApproximateLagStatus' )
-			->willReturn( [ 'lag' => 0, 'since' => 0 ] );
 		return $databaseMysql;
 	}
 }

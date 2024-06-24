@@ -26,13 +26,6 @@ if ( !process.env.MW_SERVER || !process.env.MW_SCRIPT_PATH ) {
  * - https://webdriver.io/docs/options/
  */
 exports.config = {
-	// ==================
-	// Automation Protocols
-	// ==================
-
-	// See https://webdriver.io/docs/automationProtocols/
-	automationProtocol: 'devtools',
-
 	// ======
 	// Custom conf keys for MediaWiki
 	//
@@ -106,8 +99,8 @@ exports.config = {
 	},
 	// See also: https://webdriver.io/docs/dot-reporter.html
 	reporters: [
-		// See also: https://webdriver.io/docs/dot-reporter/
-		'dot',
+		// See also: https://webdriver.io/docs/spec-reporter/
+		'spec',
 		// See also: https://webdriver.io/docs/junit-reporter/
 		[ 'junit', {
 			outputDir: logPath,
@@ -135,8 +128,8 @@ exports.config = {
 	 *
 	 * @param {Object} test Mocha Test object
 	 */
-	afterTest: function ( test ) {
-		saveScreenshot( `${test.parent}-${test.title}` );
+	afterTest: async function ( test ) {
+		await saveScreenshot( `${test.parent}-${test.title}` );
 		stopVideo( ffmpeg );
 	}
 };

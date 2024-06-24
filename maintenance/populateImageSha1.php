@@ -21,7 +21,7 @@
  * @ingroup Maintenance
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\MainConfigNames;
 use MediaWiki\Shell\Shell;
 
 require_once __DIR__ . '/Maintenance.php';
@@ -72,12 +72,11 @@ class PopulateImageSha1 extends LoggedUpdateMaintenance {
 		$t = -microtime( true );
 		$dbw = $this->getDB( DB_PRIMARY );
 		if ( $file != '' ) {
-			$res = $dbw->select(
-				'image',
-				[ 'img_name' ],
-				[ 'img_name' => $file ],
-				__METHOD__
-			);
+			$res = $dbw->newSelectQueryBuilder()
+				->select( [ 'img_name' ] )
+				->from( 'image' )
+				->where( [ 'img_name' => $file ] )
+				->caller( __METHOD__ )->fetchResultSet();
 			if ( !$res ) {
 				$this->fatalError( "No such file: $file" );
 			}
@@ -94,10 +93,17 @@ class PopulateImageSha1 extends LoggedUpdateMaintenance {
 				$this->output( "Populating img_sha1 field\n" );
 			}
 			if ( $this->hasOption( 'multiversiononly' ) ) {
-				$res = $dbw->select( 'oldimage',
-					[ 'img_name' => 'DISTINCT(oi_name)' ], $conds, __METHOD__ );
+				$res = $dbw->newSelectQueryBuilder()
+					->select( [ 'img_name' => 'DISTINCT(oi_name)' ] )
+					->from( 'oldimage' )
+					->where( $conds )
+					->caller( __METHOD__ )->fetchResultSet();
 			} else {
-				$res = $dbw->select( 'image', [ 'img_name' ], $conds, __METHOD__ );
+				$res = $dbw->newSelectQueryBuilder()
+					->select( [ 'img_name' ] )
+					->from( 'image' )
+					->where( $conds )
+					->caller( __METHOD__ )->fetchResultSet();
 			}
 		}
 
@@ -110,24 +116,24 @@ class PopulateImageSha1 extends LoggedUpdateMaintenance {
 			// in the pipe buffer. This can improve performance by up to a
 			// factor of 2.
 			$config = $this->getConfig();
-			$cmd = 'mysql -u' . Shell::escape( $config->get( 'DBuser' ) ) .
-				' -h' . Shell::escape( $config->get( 'DBserver' ) ) .
-				' -p' . Shell::escape( $config->get( 'DBpassword' ), $config->get( 'DBname' ) );
+			$cmd = 'mysql -u' . Shell::escape( $config->get( MainConfigNames::DBuser ) ) .
+				' -h' . Shell::escape( $config->get( MainConfigNames::DBserver ) ) .
+				' -p' . Shell::escape( $config->get( MainConfigNames::DBpassword ),
+					$config->get( MainConfigNames::DBname ) );
 			$this->output( "Using pipe method\n" );
 			$pipe = popen( $cmd, 'w' );
 		}
 
 		$numRows = $res->numRows();
 		$i = 0;
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 		foreach ( $res as $row ) {
 			if ( $i % $this->getBatchSize() == 0 ) {
 				$this->output( sprintf(
 					"Done %d of %d, %5.3f%%  \r", $i, $numRows, $i / $numRows * 100 ) );
-				$lbFactory->waitForReplication();
+				$this->waitForReplication();
 			}
 
-			$file = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo()
+			$file = $this->getServiceContainer()->getRepoGroup()->getLocalRepo()
 				->newFile( $row->img_name );
 			if ( !$file ) {
 				continue;
@@ -144,6 +150,8 @@ class PopulateImageSha1 extends LoggedUpdateMaintenance {
 					$sql = "UPDATE $imageTable SET img_sha1=" . $dbw->addQuotes( $sha1 ) .
 						" WHERE img_name=" . $dbw->addQuotes( $file->getName() );
 					if ( $method == 'pipe' ) {
+						// @phan-suppress-next-next-line PhanPossiblyUndeclaredVariable
+						// @phan-suppress-next-line PhanTypeMismatchArgumentNullableInternal pipe is set when used
 						fwrite( $pipe, "$sql;\n" );
 					} else {
 						$dbw->query( $sql, __METHOD__ );
@@ -165,6 +173,8 @@ class PopulateImageSha1 extends LoggedUpdateMaintenance {
 							" WHERE (oi_name=" . $dbw->addQuotes( $oldFile->getName() ) . " AND" .
 							" oi_archive_name=" . $dbw->addQuotes( $oldFile->getArchiveName() ) . ")";
 						if ( $method == 'pipe' ) {
+							// @phan-suppress-next-next-line PhanPossiblyUndeclaredVariable
+							// @phan-suppress-next-line PhanTypeMismatchArgumentNullableInternal
 							fwrite( $pipe, "$sql;\n" );
 						} else {
 							$dbw->query( $sql, __METHOD__ );
@@ -175,7 +185,9 @@ class PopulateImageSha1 extends LoggedUpdateMaintenance {
 			$i++;
 		}
 		if ( $method == 'pipe' ) {
+			// @phan-suppress-next-line PhanTypeMismatchArgumentNullableInternal,PhanPossiblyUndeclaredVariable
 			fflush( $pipe );
+			// @phan-suppress-next-line PhanTypeMismatchArgumentNullableInternal,PhanPossiblyUndeclaredVariable
 			pclose( $pipe );
 		}
 		$t += microtime( true );

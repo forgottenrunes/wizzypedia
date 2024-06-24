@@ -1,17 +1,21 @@
 <?php
 
+use MediaWiki\MainConfigNames;
 use Wikimedia\TestingAccessWrapper;
 
 /**
  * @group Media
+ * @requires extension exif
  */
 class FormatMetadataTest extends MediaWikiMediaTestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
 
-		$this->checkPHPExtension( 'exif' );
-		$this->setMwGlobals( 'wgShowEXIF', true );
+		$this->overrideConfigValues( [
+			MainConfigNames::LanguageCode => 'en',
+			MainConfigNames::ShowEXIF => true,
+		] );
 	}
 
 	/**
@@ -51,7 +55,7 @@ class FormatMetadataTest extends MediaWikiMediaTestCase {
 		$this->assertEquals( $output, $actualInput );
 	}
 
-	public function provideResolveMultivalueValue() {
+	public static function provideResolveMultivalueValue() {
 		return [
 			'nonArray' => [
 				'foo',
@@ -104,7 +108,7 @@ class FormatMetadataTest extends MediaWikiMediaTestCase {
 		$this->assertEquals( $output, FormatMetadata::getFormattedData( $input ) );
 	}
 
-	public function provideGetFormattedData() {
+	public static function provideGetFormattedData() {
 		return [
 			[
 				[ 'Software' => 'Adobe Photoshop CS6 (Macintosh)' ],
@@ -158,7 +162,7 @@ class FormatMetadataTest extends MediaWikiMediaTestCase {
 		$this->assertSame( $expected, $x );
 	}
 
-	public function provideGetPriorityLanguagesData() {
+	public static function provideGetPriorityLanguagesData() {
 		return [
 			'LanguageMl' => [
 				LanguageMl::class,

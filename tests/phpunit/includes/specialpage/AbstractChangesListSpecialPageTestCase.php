@@ -1,5 +1,11 @@
 <?php
 
+use MediaWiki\HookContainer\HookContainer;
+use MediaWiki\Html\FormOptions;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Output\OutputPage;
+use MediaWiki\SpecialPage\ChangesListSpecialPage;
+
 /**
  * Abstract base class for shared logic when testing ChangesListSpecialPage
  * and subclasses
@@ -19,9 +25,9 @@ abstract class AbstractChangesListSpecialPageTestCase extends MediaWikiIntegrati
 		global $wgGroupPermissions;
 
 		parent::setUp();
-		$this->setMwGlobals( [
-			'wgRCWatchCategoryMembership' => true,
-			'wgUseRCPatrol' => true,
+		$this->overrideConfigValues( [
+			MainConfigNames::RCWatchCategoryMembership => true,
+			MainConfigNames::UseRCPatrol => true,
 		] );
 
 		if ( isset( $wgGroupPermissions['patrollers'] ) ) {
@@ -113,7 +119,7 @@ abstract class AbstractChangesListSpecialPageTestCase extends MediaWikiIntegrati
 		// depending on which other extensions are running.
 		$this->setTemporaryHook(
 			'ChangesListSpecialPageStructuredFilters',
-			null
+			HookContainer::NOOP
 		);
 
 		// Give users patrol permissions so we can test that.
@@ -137,7 +143,7 @@ abstract class AbstractChangesListSpecialPageTestCase extends MediaWikiIntegrati
 
 		$clsp->validateOptions( $opts );
 
-		$this->assertEquals( $expectedRedirect, $redirected, 'redirection' );
+		$this->assertEquals( $expectedRedirect, $redirected, 'redirection - ' . print_r( $optionsToSet, true ) );
 
 		if ( $expectedRedirect ) {
 			if ( count( $expectedRedirectOptions ) > 0 ) {
@@ -155,4 +161,6 @@ abstract class AbstractChangesListSpecialPageTestCase extends MediaWikiIntegrati
 			);
 		}
 	}
+
+	abstract public function validateOptionsProvider();
 }

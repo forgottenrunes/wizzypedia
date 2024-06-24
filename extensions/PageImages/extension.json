@@ -6,7 +6,7 @@
 	"license-name": "WTFPL",
 	"type": "api",
 	"requires": {
-		"MediaWiki": ">= 1.37.0"
+		"MediaWiki": ">= 1.41"
 	},
 	"APIPropModules": {
 		"pageimages": "PageImages\\ApiQueryPageImages"
@@ -24,14 +24,43 @@
 		"PageImages\\Tests\\": "tests/phpunit/"
 	},
 	"Hooks": {
-		"ApiOpenSearchSuggest": "PageImages\\PageImages::onApiOpenSearchSuggest",
-		"BeforePageDisplay": "PageImages\\PageImages::onBeforePageDisplay",
-		"InfoAction": "PageImages\\PageImages::onInfoAction",
-		"ParserAfterTidy": "PageImages\\Hooks\\ParserFileProcessingHookHandlers::onParserAfterTidy",
-		"ParserModifyImageHTML": "PageImages\\Hooks\\ParserFileProcessingHookHandlers::onParserModifyImageHTML",
-		"ParserTestGlobals": "PageImages\\Hooks\\ParserFileProcessingHookHandlers::onParserTestGlobals",
-		"SearchResultProvideThumbnail": "PageImages\\Hooks\\SearchResultProvideThumbnailHookHandler::onSearchResultProvideThumbnail",
-		"SpecialMobileEditWatchlist::images": "PageImages\\PageImages::onSpecialMobileEditWatchlistImages"
+		"ApiOpenSearchSuggest": "main",
+		"BeforePageDisplay": "main",
+		"InfoAction": "main",
+		"ParserAfterTidy": "parser",
+		"ParserModifyImageHTML": "parser",
+		"ParserTestGlobals": "parser",
+		"SearchResultProvideThumbnail": "search",
+		"SpecialMobileEditWatchlist::images": "mobile"
+	},
+	"HookHandlers": {
+		"main": {
+			"class": "PageImages\\PageImages",
+			"services": [
+				"UserOptionsLookup"
+			]
+		},
+		"parser": {
+			"class": "PageImages\\Hooks\\ParserFileProcessingHookHandlers",
+			"services": [
+				"RepoGroup",
+				"MainWANObjectCache",
+				"HttpRequestFactory",
+				"DBLoadBalancerFactory",
+				"TitleFactory"
+			]
+		},
+		"search": {
+			"class": "PageImages\\Hooks\\SearchResultProvideThumbnailHookHandler",
+			"services": [
+				"SearchResultThumbnailProvider",
+				"PageProps",
+				"RepoGroup"
+			]
+		},
+		"mobile": {
+			"class": "PageImages\\Hooks\\MobileFrontendHookHandlers"
+		}
 	},
 	"JobClasses": {
 		"InitImageDataJob": "PageImages\\Job\\InitImageDataJob"
@@ -73,6 +102,11 @@
 					"db": false
 				}
 			]
+		},
+		"PageImagesOpenGraph": {
+			"description": "Enable the OpenGraph meta tags",
+			"public": true,
+			"value": true
 		},
 		"PageImagesDenylistExpiry": {
 			"value": 900

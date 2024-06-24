@@ -19,11 +19,20 @@
  * @ingroup Pager
  */
 
+namespace MediaWiki\Pager;
+
+use IContextSource;
 use MediaWiki\Cache\LinkBatchFactory;
 use MediaWiki\HookContainer\HookContainer;
+use MediaWiki\Html\FormOptions;
+use MediaWiki\Html\Html;
+use MediaWiki\Linker\Linker;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Title\Title;
 use MediaWiki\User\UserGroupManager;
+use MediaWiki\User\UserIdentityLookup;
 use MediaWiki\User\UserIdentityValue;
-use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * This class is used to get a list of active users. The ones with specials
@@ -59,29 +68,32 @@ class ActiveUsersPager extends UsersPager {
 	 * @param IContextSource $context
 	 * @param HookContainer $hookContainer
 	 * @param LinkBatchFactory $linkBatchFactory
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param UserGroupManager $userGroupManager
+	 * @param UserIdentityLookup $userIdentityLookup
 	 * @param FormOptions $opts
 	 */
 	public function __construct(
 		IContextSource $context,
 		HookContainer $hookContainer,
 		LinkBatchFactory $linkBatchFactory,
-		ILoadBalancer $loadBalancer,
+		IConnectionProvider $dbProvider,
 		UserGroupManager $userGroupManager,
+		UserIdentityLookup $userIdentityLookup,
 		FormOptions $opts
 	) {
 		parent::__construct(
 			$context,
 			$hookContainer,
 			$linkBatchFactory,
-			$loadBalancer,
+			$dbProvider,
 			$userGroupManager,
+			$userIdentityLookup,
 			null,
 			null
 		);
 
-		$this->RCMaxAge = $this->getConfig()->get( 'ActiveUserDays' );
+		$this->RCMaxAge = $this->getConfig()->get( MainConfigNames::ActiveUserDays );
 		$this->requestedUser = '';
 
 		$un = $opts->getValue( 'username' );
@@ -110,7 +122,7 @@ class ActiveUsersPager extends UsersPager {
 	public function getQueryInfo( $data = null ) {
 		$dbr = $this->getDatabase();
 
-		$activeUserSeconds = $this->getConfig()->get( 'ActiveUserDays' ) * 86400;
+		$activeUserSeconds = $this->getConfig()->get( MainConfigNames::ActiveUserDays ) * 86400;
 		$timestamp = $dbr->timestamp( (int)wfTimestamp( TS_UNIX ) - $activeUserSeconds );
 		$fname = __METHOD__ . ' (' . $this->getSqlComment() . ')';
 
@@ -218,19 +230,19 @@ class ActiveUsersPager extends UsersPager {
 
 		$uids = [];
 		foreach ( $this->mResult as $row ) {
-			$uids[] = $row->user_id;
+			$uids[] = (int)$row->user_id;
 		}
 		// Fetch the block status of the user for showing "(blocked)" text and for
 		// striking out names of suppressed users when privileged user views the list.
 		// Although the first query already hits the block table for un-privileged, this
 		// is done in two queries to avoid huge quicksorts and to make COUNT(*) correct.
 		$dbr = $this->getDatabase();
-		$res = $dbr->select( 'ipblocks',
-			[ 'ipb_user', 'deleted' => 'MAX(ipb_deleted)', 'sitewide' => 'MAX(ipb_sitewide)' ],
-			[ 'ipb_user' => $uids ],
-			__METHOD__,
-			[ 'GROUP BY' => [ 'ipb_user' ] ]
-		);
+		$res = $dbr->newSelectQueryBuilder()
+			->select( [ 'ipb_user', 'deleted' => 'MAX(ipb_deleted)', 'sitewide' => 'MAX(ipb_sitewide)' ] )
+			->from( 'ipblocks' )
+			->where( [ 'ipb_user' => $uids ] )
+			->groupBy( [ 'ipb_user' ] )
+			->caller( __METHOD__ )->fetchResultSet();
 		$this->blockStatusByUid = [];
 		foreach ( $res as $row ) {
 			$this->blockStatusByUid[$row->ipb_user] = [
@@ -291,3 +303,9 @@ class ActiveUsersPager extends UsersPager {
 	}
 
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( ActiveUsersPager::class, 'ActiveUsersPager' );

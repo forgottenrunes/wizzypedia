@@ -30,8 +30,9 @@ class SwiftFileBackendFileList extends SwiftFileBackendList {
 	 * @see Iterator::current()
 	 * @return string|bool String (relative path) or false
 	 */
+	#[\ReturnTypeWillChange]
 	public function current() {
-		list( $path, $stat ) = current( $this->bufferIter );
+		[ $path, $stat ] = current( $this->iterableBuffer );
 		$relPath = substr( $path, $this->suffixStart );
 		if ( is_array( $stat ) ) {
 			$storageDir = rtrim( $this->params['dir'], '/' );

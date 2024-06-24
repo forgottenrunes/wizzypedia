@@ -24,7 +24,15 @@
  * @author Rob Church <robchur@gmail.com>
  */
 
-use Wikimedia\Rdbms\ILoadBalancer;
+namespace MediaWiki\Specials;
+
+use MediaWiki\Linker\LinksMigration;
+use MediaWiki\SpecialPage\QueryPage;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
+use Skin;
+use stdClass;
+use Wikimedia\Rdbms\IConnectionProvider;
 
 /**
  * A special page that lists unused templates
@@ -33,12 +41,19 @@ use Wikimedia\Rdbms\ILoadBalancer;
  */
 class SpecialUnusedTemplates extends QueryPage {
 
+	private LinksMigration $linksMigration;
+
 	/**
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
+	 * @param LinksMigration $linksMigration
 	 */
-	public function __construct( ILoadBalancer $loadBalancer ) {
+	public function __construct(
+		IConnectionProvider $dbProvider,
+		LinksMigration $linksMigration
+	) {
 		parent::__construct( 'Unusedtemplates' );
-		$this->setDBLoadBalancer( $loadBalancer );
+		$this->setDatabaseProvider( $dbProvider );
+		$this->linksMigration = $linksMigration;
 	}
 
 	public function isExpensive() {
@@ -58,20 +73,33 @@ class SpecialUnusedTemplates extends QueryPage {
 	}
 
 	public function getQueryInfo() {
+		$queryInfo = $this->linksMigration->getQueryInfo(
+			'templatelinks',
+			'templatelinks',
+			'LEFT JOIN'
+		);
+		[ $ns, $title ] = $this->linksMigration->getTitleFields( 'templatelinks' );
+		$joinConds = [];
+		$templatelinksJoin = [
+			'LEFT JOIN', [ "$title = page_title",
+				"$ns = page_namespace" ] ];
+		if ( in_array( 'linktarget', $queryInfo['tables'] ) ) {
+			$joinConds['linktarget'] = $templatelinksJoin;
+		} else {
+			$joinConds['templatelinks'] = $templatelinksJoin;
+		}
 		return [
-			'tables' => [ 'page', 'templatelinks' ],
+			'tables' => array_merge( $queryInfo['tables'], [ 'page' ] ),
 			'fields' => [
 				'namespace' => 'page_namespace',
 				'title' => 'page_title',
 			],
 			'conds' => [
 				'page_namespace' => NS_TEMPLATE,
-				'tl_from IS NULL',
+				'tl_from' => null,
 				'page_is_redirect' => 0
 			],
-			'join_conds' => [ 'templatelinks' => [
-				'LEFT JOIN', [ 'tl_title = page_title',
-					'tl_namespace = page_namespace' ] ] ]
+			'join_conds' => array_merge( $joinConds, $queryInfo['joins'] )
 		];
 	}
 
@@ -109,3 +137,9 @@ class SpecialUnusedTemplates extends QueryPage {
 		return 'maintenance';
 	}
 }
+
+/**
+ * Retain the old class name for backwards compatibility.
+ * @deprecated since 1.41
+ */
+class_alias( SpecialUnusedTemplates::class, 'SpecialUnusedTemplates' );

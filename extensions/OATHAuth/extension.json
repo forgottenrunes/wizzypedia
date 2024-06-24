@@ -10,7 +10,7 @@
 	"descriptionmsg": "oathauth-desc",
 	"type": "other",
 	"requires": {
-		"MediaWiki": ">= 1.37.0"
+		"MediaWiki": ">= 1.41"
 	},
 	"license-name": "GPL-2.0-or-later AND GPL-3.0-or-later",
 	"attributes": {
@@ -21,7 +21,8 @@
 		}
 	},
 	"AutoloadNamespaces": {
-		"MediaWiki\\Extension\\OATHAuth\\": "src/"
+		"MediaWiki\\Extension\\OATHAuth\\": "src/",
+		"MediaWiki\\Extension\\OATHAuth\\Maintenance\\": "maintenance/"
 	},
 	"TestAutoloadNamespaces": {
 		"MediaWiki\\Extension\\OATHAuth\\Tests\\": "tests/phpunit/"
@@ -42,12 +43,12 @@
 	},
 	"Hooks": {
 		"AuthChangeFormFields": "main",
-		"LoadExtensionSchemaUpdates": "\\MediaWiki\\Extension\\OATHAuth\\Hook\\LoadExtensionSchemaUpdates\\UpdateTables::callback",
+		"LoadExtensionSchemaUpdates": "updater",
 		"GetPreferences": "main",
 		"getUserPermissionsErrors": "main",
 		"UserEffectiveGroups": "main",
 		"UserGetRights": "main",
-		"BeforeCreateEchoEvent": "\\MediaWiki\\Extension\\OATHAuth\\Notifications\\Manager::onBeforeCreateEchoEvent"
+		"BeforeCreateEchoEvent": "echo"
 	},
 	"HookHandlers": {
 		"main": {
@@ -58,6 +59,12 @@
 				"MainConfig",
 				"UserGroupManager"
 			]
+		},
+		"updater": {
+			"class": "MediaWiki\\Extension\\OATHAuth\\Hook\\UpdateTables"
+		},
+		"echo": {
+			"class": "MediaWiki\\Extension\\OATHAuth\\Hook\\EchoHandler"
 		}
 	},
 	"MessagesDirs": {
@@ -81,6 +88,9 @@
 		},
 		"OATHRequiredForGroups": {
 			"value": []
+		},
+		"OATHAuthMultipleDevicesMigrationStage": {
+			"value": 768
 		}
 	},
 	"ResourceModules": {
@@ -121,7 +131,7 @@
 			"class": "\\MediaWiki\\Extension\\OATHAuth\\Special\\OATHManage",
 			"services": [
 				"OATHUserRepository",
-				"OATHAuth"
+				"OATHAuthModuleRegistry"
 			]
 		},
 		"VerifyOATHForUser": {
@@ -171,15 +181,23 @@
 	"RateLimits": {
 		"badoath": {
 			"&can-bypass": false,
-			"user": [ 10, 60 ],
-			"user-global": [ 10, 60 ]
+			"user": [
+				10,
+				60
+			],
+			"user-global": [
+				10,
+				60
+			]
 		}
 	},
 	"ReauthenticateTime": {
 		"oathauth-enable": 60
 	},
 	"load_composer_autoloader": true,
-	"LogTypes": [ "oath" ],
+	"LogTypes": [
+		"oath"
+	],
 	"LogNames": {
 		"oath": "oath-log-name"
 	},
@@ -191,6 +209,16 @@
 	},
 	"LogRestrictions": {
 		"oath": "oathauth-view-log"
+	},
+	"ActionFilteredLogs": {
+		"oath": {
+			"verify": [
+				"verify"
+			],
+			"disable-other": [
+				"disable-other"
+			]
+		}
 	},
 	"manifest_version": 2
 }

@@ -1,12 +1,16 @@
 <?php
 
 use MediaWiki\FileBackend\LockManager\LockManagerGroupFactory;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Tests\Unit\DummyServicesTrait;
+use MediaWiki\WikiMap\WikiMap;
 
 /**
  * @coversDefaultClass FileBackendGroup
  */
 class FileBackendGroupIntegrationTest extends MediaWikiIntegrationTestCase {
 	use FileBackendGroupTestTrait;
+	use DummyServicesTrait;
 
 	private static function getWikiID() {
 		return WikiMap::getCurrentWikiId();
@@ -17,14 +21,19 @@ class FileBackendGroupIntegrationTest extends MediaWikiIntegrationTestCase {
 	}
 
 	private function newObj( array $options = [] ): FileBackendGroup {
-		$globals = [ 'DirectoryMode', 'FileBackends', 'ForeignFileRepos', 'LocalFileRepo' ];
+		$globals = [
+			MainConfigNames::DirectoryMode,
+			MainConfigNames::FileBackends,
+			MainConfigNames::ForeignFileRepos,
+			MainConfigNames::LocalFileRepo,
+		];
 		foreach ( $globals as $global ) {
-			$this->setMwGlobals(
-				"wg$global", $options[$global] ?? self::getDefaultOptions()[$global] );
+			$this->overrideConfigValue(
+				$global, $options[$global] ?? self::getDefaultOptions()[$global] );
 		}
 
 		$serviceMembers = [
-			'configuredROMode' => 'ConfiguredReadOnlyMode',
+			'readOnlyMode' => 'ReadOnlyMode',
 			'srvCache' => 'LocalServerObjectCache',
 			'wanCache' => 'MainWANObjectCache',
 			'mimeAnalyzer' => 'MimeAnalyzer',
@@ -34,21 +43,26 @@ class FileBackendGroupIntegrationTest extends MediaWikiIntegrationTestCase {
 
 		foreach ( $serviceMembers as $key => $name ) {
 			if ( isset( $options[$key] ) ) {
-				$this->setService( $name, $options[$key] );
+				if ( $key === 'readOnlyMode' ) {
+					$this->setService( $name, $this->getDummyReadOnlyMode( $options[$key] ) );
+				} else {
+					$this->setService( $name, $options[$key] );
+				}
+
 			}
 		}
 
-		$this->assertEmpty(
+		$this->assertSame( [],
 			array_diff( array_keys( $options ), $globals, array_keys( $serviceMembers ) ) );
 
-		$this->resetServices();
-
 		$services = $this->getServiceContainer();
-		$services->resetServiceForTesting( 'FileBackendGroup' );
 
 		$obj = $services->getFileBackendGroup();
 
 		foreach ( $serviceMembers as $key => $name ) {
+			if ( $key === 'readOnlyMode' || $key === 'mimeAnalyzer' ) {
+				continue;
+			}
 			$this->$key = $services->getService( $name );
 			if ( $key === 'srvCache' && $this->$key instanceof EmptyBagOStuff ) {
 				// ServiceWiring will have created its own HashBagOStuff that we don't have a

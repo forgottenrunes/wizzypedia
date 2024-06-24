@@ -1,6 +1,8 @@
 <?php
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Html\Html;
+use MediaWiki\MainConfigNames;
+use MediaWiki\Request\WebRequest;
 
 /**
  * A checkbox field
@@ -14,8 +16,10 @@ class HTMLCheckField extends HTMLFormField {
 	 * @stable to override
 	 */
 	public function getInputHTML( $value ) {
-		$useMediaWikiUIEverywhere = MediaWikiServices::getInstance()
-			->getMainConfig()->get( 'UseMediaWikiUIEverywhere' );
+		$useMediaWikiUIEverywhere = false;
+		if ( $this->mParent ) {
+			$useMediaWikiUIEverywhere = $this->mParent->getConfig()->get( MainConfigNames::UseMediaWikiUIEverywhere );
+		}
 
 		if ( !empty( $this->mParams['invert'] ) ) {
 			$value = !$value;
@@ -36,14 +40,26 @@ class HTMLCheckField extends HTMLFormField {
 			$attrLabel['title'] = $attr['title'];
 		}
 
+		$isCodexForm = $this->mParent instanceof CodexHTMLForm;
+		$isVForm = $this->mParent instanceof VFormHTMLForm;
+
+		if ( $isCodexForm ) {
+			$attrClass = $attr['class'] ?? '';
+			$attr['class'] = $attrClass . ' cdx-checkbox__input';
+			$attrLabel['class'] = 'cdx-checkbox__label';
+		}
+		$chkDivider = $isCodexForm ?
+				"<span class=\"cdx-checkbox__icon\">\u{00A0}</span>" :
+				"\u{00A0}";
 		$chkLabel = Xml::check( $this->mName, $value, $attr ) .
-			"\u{00A0}" .
+			$chkDivider .
 			Html::rawElement( 'label', $attrLabel, $this->mLabel );
 
-		if ( $useMediaWikiUIEverywhere || $this->mParent instanceof VFormHTMLForm ) {
+		if ( $isCodexForm || $useMediaWikiUIEverywhere || $isVForm ) {
+			$chkLabelClass = $isCodexForm ? 'cdx-checkbox' : 'mw-ui-checkbox';
 			$chkLabel = Html::rawElement(
 				'div',
-				[ 'class' => 'mw-ui-checkbox' ],
+				[ 'class' => $chkLabelClass ],
 				$chkLabel
 			);
 		}
@@ -93,7 +109,7 @@ class HTMLCheckField extends HTMLFormField {
 	 */
 	public function getLabel() {
 		if ( $this->mParent instanceof OOUIHTMLForm ) {
-			return $this->mLabel;
+			return $this->mLabel ?? '';
 		} elseif (
 			$this->mParent instanceof HTMLForm &&
 			$this->mParent->getDisplayFormat() === 'div'
@@ -123,6 +139,13 @@ class HTMLCheckField extends HTMLFormField {
 	}
 
 	/**
+	 * @return bool
+	 */
+	public function getDefault() {
+		return (bool)$this->mDefault;
+	}
+
+	/**
 	 * @stable to override
 	 * @param WebRequest $request
 	 *
@@ -139,7 +162,7 @@ class HTMLCheckField extends HTMLFormField {
 				? !$request->getBool( $this->mName )
 				: $request->getBool( $this->mName );
 		} else {
-			return (bool)$this->getDefault();
+			return $this->getDefault();
 		}
 	}
 }

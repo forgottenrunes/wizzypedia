@@ -25,12 +25,25 @@ use MediaWiki\CommentFormatter\CommentFormatter;
 use MediaWiki\Content\IContentHandlerFactory;
 use MediaWiki\Content\Renderer\ContentRenderer;
 use MediaWiki\Content\Transform\ContentTransformer;
+use MediaWiki\EditPage\EditPage;
+use MediaWiki\Language\RawMessage;
 use MediaWiki\Languages\LanguageNameUtils;
+use MediaWiki\Output\OutputPage;
 use MediaWiki\Page\PageReference;
 use MediaWiki\Page\WikiPageFactory;
+use MediaWiki\Parser\ParserOutputFlags;
+use MediaWiki\Request\FauxRequest;
 use MediaWiki\Revision\RevisionLookup;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleFormatter;
+use MediaWiki\User\TempUser\TempUserCreator;
+use MediaWiki\User\UserFactory;
+use MediaWiki\Utils\UrlUtils;
+use MediaWiki\WikiMap\WikiMap;
+use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\EnumDef;
 
 /**
  * @ingroup API
@@ -49,38 +62,21 @@ class ApiParse extends ApiBase {
 	/** @var bool */
 	private $contentIsDeleted = false, $contentIsSuppressed = false;
 
-	/** @var RevisionLookup */
-	private $revisionLookup;
-
-	/** @var SkinFactory */
-	private $skinFactory;
-
-	/** @var LanguageNameUtils */
-	private $languageNameUtils;
-
-	/** @var LinkBatchFactory */
-	private $linkBatchFactory;
-
-	/** @var LinkCache */
-	private $linkCache;
-
-	/** @var IContentHandlerFactory */
-	private $contentHandlerFactory;
-
-	/** @var Parser */
-	private $parser;
-
-	/** @var WikiPageFactory */
-	private $wikiPageFactory;
-
-	/** @var ContentTransformer */
-	private $contentTransformer;
-
-	/** @var CommentFormatter */
-	private $commentFormatter;
-
-	/** @var ContentRenderer */
-	private $contentRenderer;
+	private RevisionLookup $revisionLookup;
+	private SkinFactory $skinFactory;
+	private LanguageNameUtils $languageNameUtils;
+	private LinkBatchFactory $linkBatchFactory;
+	private LinkCache $linkCache;
+	private IContentHandlerFactory $contentHandlerFactory;
+	private ParserFactory $parserFactory;
+	private WikiPageFactory $wikiPageFactory;
+	private ContentTransformer $contentTransformer;
+	private CommentFormatter $commentFormatter;
+	private ContentRenderer $contentRenderer;
+	private TempUserCreator $tempUserCreator;
+	private UserFactory $userFactory;
+	private UrlUtils $urlUtils;
+	private TitleFormatter $titleFormatter;
 
 	/**
 	 * @param ApiMain $main
@@ -91,11 +87,15 @@ class ApiParse extends ApiBase {
 	 * @param LinkBatchFactory $linkBatchFactory
 	 * @param LinkCache $linkCache
 	 * @param IContentHandlerFactory $contentHandlerFactory
-	 * @param Parser $parser
+	 * @param ParserFactory $parserFactory
 	 * @param WikiPageFactory $wikiPageFactory
 	 * @param ContentRenderer $contentRenderer
 	 * @param ContentTransformer $contentTransformer
 	 * @param CommentFormatter $commentFormatter
+	 * @param TempUserCreator $tempUserCreator
+	 * @param UserFactory $userFactory
+	 * @param UrlUtils $urlUtils
+	 * @param TitleFormatter $titleFormatter
 	 */
 	public function __construct(
 		ApiMain $main,
@@ -106,11 +106,15 @@ class ApiParse extends ApiBase {
 		LinkBatchFactory $linkBatchFactory,
 		LinkCache $linkCache,
 		IContentHandlerFactory $contentHandlerFactory,
-		Parser $parser,
+		ParserFactory $parserFactory,
 		WikiPageFactory $wikiPageFactory,
 		ContentRenderer $contentRenderer,
 		ContentTransformer $contentTransformer,
-		CommentFormatter $commentFormatter
+		CommentFormatter $commentFormatter,
+		TempUserCreator $tempUserCreator,
+		UserFactory $userFactory,
+		UrlUtils $urlUtils,
+		TitleFormatter $titleFormatter
 	) {
 		parent::__construct( $main, $action );
 		$this->revisionLookup = $revisionLookup;
@@ -119,11 +123,15 @@ class ApiParse extends ApiBase {
 		$this->linkBatchFactory = $linkBatchFactory;
 		$this->linkCache = $linkCache;
 		$this->contentHandlerFactory = $contentHandlerFactory;
-		$this->parser = $parser;
+		$this->parserFactory = $parserFactory;
 		$this->wikiPageFactory = $wikiPageFactory;
 		$this->contentRenderer = $contentRenderer;
 		$this->contentTransformer = $contentTransformer;
 		$this->commentFormatter = $commentFormatter;
+		$this->tempUserCreator = $tempUserCreator;
+		$this->userFactory = $userFactory;
+		$this->urlUtils = $urlUtils;
+		$this->titleFormatter = $titleFormatter;
 	}
 
 	private function getPoolKey(): string {
@@ -153,6 +161,16 @@ class ApiParse extends ApiBase {
 			]
 		);
 		return $worker->execute();
+	}
+
+	private function getUserForPreview() {
+		$user = $this->getUser();
+		if ( $this->tempUserCreator->shouldAutoCreate( $user, 'edit' ) ) {
+			return $this->userFactory->newUnsavedTempUser(
+				$this->tempUserCreator->getStashedName( $this->getRequest()->getSession() )
+			);
+		}
+		return $user;
 	}
 
 	private function getPageParserOutput(
@@ -201,9 +219,6 @@ class ApiParse extends ApiBase {
 		$pageid = $params['pageid'];
 		$oldid = $params['oldid'];
 
-		$model = $params['contentmodel'];
-		$format = $params['contentformat'];
-
 		$prop = array_fill_keys( $params['prop'], true );
 
 		if ( isset( $params['section'] ) ) {
@@ -220,6 +235,7 @@ class ApiParse extends ApiBase {
 		// TODO: Does this still need $wgTitle?
 		global $wgTitle;
 
+		$format = null;
 		$redirValues = null;
 
 		$needContent = isset( $prop['wikitext'] ) ||
@@ -251,7 +267,7 @@ class ApiParse extends ApiBase {
 				$titleObj = Title::newFromLinkTarget( $revLinkTarget );
 				$wgTitle = $titleObj;
 				$pageObj = $this->wikiPageFactory->newFromTitle( $titleObj );
-				list( $popts, $reset, $suppressCache ) = $this->makeParserOptions( $pageObj, $params );
+				[ $popts, $reset, $suppressCache ] = $this->makeParserOptions( $pageObj, $params );
 				$p_result = $this->getParsedContent(
 					$pageObj, $popts, $suppressCache, $pageid, $rev, $needContent
 				);
@@ -274,8 +290,8 @@ class ApiParse extends ApiBase {
 					$pageSet->execute();
 					$redirValues = $pageSet->getRedirectTitlesAsResult( $this->getResult() );
 
-					foreach ( $pageSet->getRedirectTitles() as $title ) {
-						$pageParams = [ 'title' => $title->getFullText() ];
+					foreach ( $pageSet->getRedirectTargets() as $redirectTarget ) {
+						$pageParams = [ 'title' => $this->titleFormatter->getFullText( $redirectTarget ) ];
 					}
 				} elseif ( $pageid !== null ) {
 					$pageParams = [ 'pageid' => $pageid ];
@@ -296,12 +312,15 @@ class ApiParse extends ApiBase {
 					$oldid = $pageObj->getLatest();
 				}
 
-				list( $popts, $reset, $suppressCache ) = $this->makeParserOptions( $pageObj, $params );
+				[ $popts, $reset, $suppressCache ] = $this->makeParserOptions( $pageObj, $params );
 				$p_result = $this->getParsedContent(
 					$pageObj, $popts, $suppressCache, $pageid, null, $needContent
 				);
 			}
 		} else { // Not $oldid, $pageid, $page. Hence based on $text
+			$model = $params['contentmodel'];
+			$format = $params['contentformat'];
+
 			$titleObj = Title::newFromText( $title );
 			if ( !$titleObj || $titleObj->isExternal() ) {
 				$this->dieWithError( [ 'apierror-invalidtitle', wfEscapeWikiText( $title ) ] );
@@ -328,12 +347,12 @@ class ApiParse extends ApiBase {
 			$wgTitle = $titleObj;
 			if ( $titleObj->canExist() ) {
 				$pageObj = $this->wikiPageFactory->newFromTitle( $titleObj );
-				list( $popts, $reset ) = $this->makeParserOptions( $pageObj, $params );
-			} else { // A special page, presumably
-				// XXX: Why is this needed at all? Can't we just fail?
+				[ $popts, $reset ] = $this->makeParserOptions( $pageObj, $params );
+			} else {
+				// Allow parsing wikitext in the context of special pages (T51477)
 				$pageObj = null;
-				$popts = ParserOptions::newCanonical( $this->getContext() );
-				list( $popts, $reset ) = $this->tweakParserOptions( $popts, $titleObj, $params );
+				$popts = ParserOptions::newFromContext( $this->getContext() );
+				[ $popts, $reset ] = $this->tweakParserOptions( $popts, $titleObj, $params );
 			}
 
 			$textProvided = $text !== null;
@@ -355,10 +374,18 @@ class ApiParse extends ApiBase {
 			if ( $textProvided && !$titleProvided && $model === null ) {
 				$model = CONTENT_MODEL_WIKITEXT;
 				$this->addWarning( [ 'apiwarn-parse-nocontentmodel', $model ] );
+			} elseif ( $model === null ) {
+				$model = $titleObj->getContentModel();
+			}
+
+			$contentHandler = $this->contentHandlerFactory->getContentHandler( $model );
+			// Not in the default format, check supported or not
+			if ( $format && !$contentHandler->isSupportedFormat( $format ) ) {
+				$this->dieWithError( [ 'apierror-badformat-generic', $format, $model ] );
 			}
 
 			try {
-				$this->content = ContentHandler::makeContent( $text, $titleObj, $model, $format );
+				$this->content = $contentHandler->unserializeContent( $text, $format );
 			} catch ( MWContentSerializationException $ex ) {
 				$this->dieWithException( $ex, [
 					'wrap' => ApiMessage::create( 'apierror-contentserializationexception', 'parseerror' )
@@ -368,7 +395,7 @@ class ApiParse extends ApiBase {
 			if ( $this->section !== false ) {
 				if ( $this->section === 'new' ) {
 					// Insert the section title above the content.
-					if ( $params['sectiontitle'] !== null && $params['sectiontitle'] !== '' ) {
+					if ( $params['sectiontitle'] !== null ) {
 						$this->content = $this->content->addSectionHeader( $params['sectiontitle'] );
 					}
 				} else {
@@ -380,7 +407,7 @@ class ApiParse extends ApiBase {
 				$this->pstContent = $this->contentTransformer->preSaveTransform(
 					$this->content,
 					$titleObj,
-					$this->getUser(),
+					$this->getUserForPreview(),
 					$popts
 				);
 			}
@@ -432,16 +459,23 @@ class ApiParse extends ApiBase {
 
 		$outputPage = null;
 		$context = null;
-		if ( $skin || isset( $prop['subtitle'] ) || isset( $prop['headhtml'] ) || isset( $prop['categorieshtml'] ) ) {
+		if (
+			$skin || isset( $prop['subtitle'] ) || isset( $prop['headhtml'] ) || isset( $prop['categorieshtml'] ) ||
+			isset( $params['mobileformat'] )
+		) {
 			// Enabling the skin via 'useskin', 'subtitle', 'headhtml', or 'categorieshtml'
 			// gets OutputPage and Skin involved, which (among others) applies
 			// these hooks:
-			// - ParserOutputHooks
 			// - Hook: LanguageLinks
 			// - Hook: SkinSubPageSubtitle
 			// - Hook: OutputPageParserOutput
 			// - Hook: OutputPageMakeCategoryLinks
 			// - Hook: OutputPageBeforeHTML
+			// HACK Adding the 'mobileformat' parameter *also* enables the skin, for compatibility with legacy
+			// apps. This behavior should be considered deprecated so new users should not rely on this and
+			// always use the "useskin" parameter to enable "skin mode".
+			// Ideally this would be done with another hook so that MobileFrontend could enable skin mode, but
+			// as this is just for a deprecated feature, we are hard-coding this param into core.
 			$context = new DerivativeContext( $this->getContext() );
 			$context->setTitle( $titleObj );
 
@@ -501,6 +535,7 @@ class ApiParse extends ApiBase {
 				'enableSectionEditLinks' => !$params['disableeditsection'],
 				'wrapperDivClass' => $params['wrapoutputclass'],
 				'deduplicateStyles' => !$params['disablestylededuplication'],
+				'userLang' => $context ? $context->getLanguage() : null,
 				'skin' => $skin,
 				'includeDebugInfo' => !$params['disablepp'] && !$params['disablelimitreport']
 			] );
@@ -534,7 +569,7 @@ class ApiParse extends ApiBase {
 			$result_array['langlinks'] = $this->formatLangLinks( $langlinks );
 		}
 		if ( isset( $prop['categories'] ) ) {
-			$result_array['categories'] = $this->formatCategoryLinks( $p_result->getCategories() );
+			$result_array['categories'] = $this->formatCategoryLinks( $p_result->getCategoryMap() );
 		}
 		if ( isset( $prop['categorieshtml'] ) ) {
 			$result_array['categorieshtml'] = $outputPage->getSkin()->getCategories();
@@ -547,13 +582,19 @@ class ApiParse extends ApiBase {
 			$result_array['templates'] = $this->formatLinks( $p_result->getTemplates() );
 		}
 		if ( isset( $prop['images'] ) ) {
-			$result_array['images'] = array_keys( $p_result->getImages() );
+			// Cast image links to string since PHP coerces numeric string array keys to numbers
+			// (T346265).
+			$result_array['images'] = array_map(
+				fn ( $link ) => (string)$link,
+				array_keys( $p_result->getImages() )
+			);
 		}
 		if ( isset( $prop['externallinks'] ) ) {
 			$result_array['externallinks'] = array_keys( $p_result->getExternalLinks() );
 		}
 		if ( isset( $prop['sections'] ) ) {
 			$result_array['sections'] = $p_result->getSections();
+			$result_array['showtoc'] = $p_result->getOutputFlag( ParserOutputFlags::SHOW_TOC );
 		}
 		if ( isset( $prop['parsewarnings'] ) ) {
 			$result_array['parsewarnings'] = $p_result->getWarnings();
@@ -573,7 +614,8 @@ class ApiParse extends ApiBase {
 		}
 
 		if ( isset( $prop['subtitle'] ) ) {
-			$result_array['subtitle'] = $context->getSkin()->prepareSubtitle();
+			// Get the subtitle without its container element to support UI refreshing
+			$result_array['subtitle'] = $context->getSkin()->prepareSubtitle( false );
 		}
 
 		if ( isset( $prop['headitems'] ) ) {
@@ -626,9 +668,9 @@ class ApiParse extends ApiBase {
 
 		if ( isset( $prop['indicators'] ) ) {
 			if ( $skin ) {
-				$result_array['indicators'] = (array)$outputPage->getIndicators();
+				$result_array['indicators'] = $outputPage->getIndicators();
 			} else {
-				$result_array['indicators'] = (array)$p_result->getIndicators();
+				$result_array['indicators'] = $p_result->getIndicators();
 			}
 			ApiResult::setArrayType( $result_array['indicators'], 'BCkvp', 'name' );
 		}
@@ -665,9 +707,10 @@ class ApiParse extends ApiBase {
 				$this->dieWithError( 'apierror-parsetree-notwikitext', 'notwikitext' );
 			}
 
-			$this->parser->startExternalParse( $titleObj, $popts, Parser::OT_PREPROCESS );
+			$parser = $this->parserFactory->getInstance();
+			$parser->startExternalParse( $titleObj, $popts, Parser::OT_PREPROCESS );
 			// @phan-suppress-next-line PhanUndeclaredMethod
-			$xml = $this->parser->preprocessToDom( $this->content->getText() )->__toString();
+			$xml = $parser->preprocessToDom( $this->content->getText() )->__toString();
 			$result_array['parsetree'] = $xml;
 			$result_array[ApiResult::META_BC_SUBELEMENTS][] = 'parsetree';
 		}
@@ -706,6 +749,7 @@ class ApiParse extends ApiBase {
 	 */
 	private function makeParserOptions( WikiPage $pageObj, array $params ) {
 		$popts = $pageObj->makeParserOptions( $this->getContext() );
+		$popts->setRenderReason( 'api-parse' );
 		return $this->tweakParserOptions( $popts, $pageObj->getTitle(), $params );
 	}
 
@@ -724,6 +768,9 @@ class ApiParse extends ApiBase {
 
 		if ( $params['wrapoutputclass'] !== '' ) {
 			$popts->setWrapOutputClass( $params['wrapoutputclass'] );
+		}
+		if ( $params['parsoid'] ) {
+			$popts->setUseParsoid();
 		}
 
 		$reset = null;
@@ -752,13 +799,13 @@ class ApiParse extends ApiBase {
 		if ( $getContent || $this->section !== false || $isDeleted ) {
 			if ( $rev ) {
 				$this->content = $rev->getContent(
-					SlotRecord::MAIN, RevisionRecord::FOR_THIS_USER, $this->getUser()
+					SlotRecord::MAIN, RevisionRecord::FOR_THIS_USER, $this->getAuthority()
 				);
 				if ( !$this->content ) {
 					$this->dieWithError( [ 'apierror-missingcontent-revid', $revId ] );
 				}
 			} else {
-				$this->content = $page->getContent( RevisionRecord::FOR_THIS_USER, $this->getUser() );
+				$this->content = $page->getContent( RevisionRecord::FOR_THIS_USER, $this->getAuthority() );
 				if ( !$this->content ) {
 					$this->dieWithError( [ 'apierror-missingcontent-pageid', $page->getId() ] );
 				}
@@ -810,6 +857,7 @@ class ApiParse extends ApiBase {
 			$this->dieWithError( [ 'apierror-sectionsnotsupported-what', $what ], 'nosuchsection' );
 		}
 
+		// @phan-suppress-next-line PhanTypeMismatchReturnNullable T240141
 		return $section;
 	}
 
@@ -829,8 +877,8 @@ class ApiParse extends ApiBase {
 				$summary = $params['sectiontitle'];
 			}
 			if ( $summary !== '' ) {
-				$summary = wfMessage( 'newsectionsummary' )
-					->rawParams( $this->parser->stripSectionName( $summary ) )
+				$summary = $this->msg( 'newsectionsummary' )
+					->rawParams( $this->parserFactory->getMainInstance()->stripSectionName( $summary ) )
 					->inContentLanguage()->text();
 			}
 		}
@@ -846,7 +894,7 @@ class ApiParse extends ApiBase {
 
 			$entry['lang'] = $bits[0];
 			if ( $title ) {
-				$entry['url'] = wfExpandUrl( $title->getFullURL(), PROTO_CURRENT );
+				$entry['url'] = (string)$this->urlUtils->expand( $title->getFullURL(), PROTO_CURRENT );
 				// localised language name in 'uselang' language
 				$entry['langname'] = $this->languageNameUtils->getLanguageName(
 					$title->getInterwiki(),
@@ -874,15 +922,13 @@ class ApiParse extends ApiBase {
 		$lb = $this->linkBatchFactory->newLinkBatch();
 		$lb->setArray( [ NS_CATEGORY => $links ] );
 		$db = $this->getDB();
-		$res = $db->select( [ 'page', 'page_props' ],
-			[ 'page_title', 'pp_propname' ],
-			$lb->constructSet( 'page', $db ),
-			__METHOD__,
-			[],
-			[ 'page_props' => [
-				'LEFT JOIN', [ 'pp_propname' => 'hiddencat', 'pp_page = page_id' ]
-			] ]
-		);
+		$res = $db->newSelectQueryBuilder()
+			->select( [ 'page_title', 'pp_propname' ] )
+			->from( 'page' )
+			->where( $lb->constructSet( 'page', $db ) )
+			->leftJoin( 'page_props', null, [ 'pp_propname' => 'hiddencat', 'pp_page = page_id' ] )
+			->caller( __METHOD__ )
+			->fetchResultSet();
 		$hiddencats = [];
 		foreach ( $res as $row ) {
 			$hiddencats[$row->page_title] = isset( $row->pp_propname );
@@ -930,13 +976,13 @@ class ApiParse extends ApiBase {
 	private function formatIWLinks( $iw ) {
 		$result = [];
 		foreach ( $iw as $prefix => $titles ) {
-			foreach ( array_keys( $titles ) as $title ) {
+			foreach ( $titles as $title => $_ ) {
 				$entry = [];
 				$entry['prefix'] = $prefix;
 
 				$title = Title::newFromText( "{$prefix}:{$title}" );
 				if ( $title ) {
-					$entry['url'] = wfExpandUrl( $title->getFullURL(), PROTO_CURRENT );
+					$entry['url'] = (string)$this->urlUtils->expand( $title->getFullURL(), PROTO_CURRENT );
 				}
 
 				ApiResult::setContentValue( $entry, 'title', $title->getFullText() );
@@ -988,26 +1034,26 @@ class ApiParse extends ApiBase {
 		return [
 			'title' => null,
 			'text' => [
-				ApiBase::PARAM_TYPE => 'text',
+				ParamValidator::PARAM_TYPE => 'text',
 			],
 			'revid' => [
-				ApiBase::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_TYPE => 'integer',
 			],
 			'summary' => null,
 			'page' => null,
 			'pageid' => [
-				ApiBase::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_TYPE => 'integer',
 			],
 			'redirects' => false,
 			'oldid' => [
-				ApiBase::PARAM_TYPE => 'integer',
+				ParamValidator::PARAM_TYPE => 'integer',
 			],
 			'prop' => [
-				ApiBase::PARAM_DFLT => 'text|langlinks|categories|links|templates|' .
+				ParamValidator::PARAM_DEFAULT => 'text|langlinks|categories|links|templates|' .
 					'images|externallinks|sections|revid|displaytitle|iwlinks|' .
 					'properties|parsewarnings',
-				ApiBase::PARAM_ISMULTI => true,
-				ApiBase::PARAM_TYPE => [
+				ParamValidator::PARAM_ISMULTI => true,
+				ParamValidator::PARAM_TYPE => [
 					'text',
 					'langlinks',
 					'categories',
@@ -1038,35 +1084,36 @@ class ApiParse extends ApiBase {
 				ApiBase::PARAM_HELP_MSG_PER_VALUE => [
 					'parsetree' => [ 'apihelp-parse-paramvalue-prop-parsetree', CONTENT_MODEL_WIKITEXT ],
 				],
-				ApiBase::PARAM_DEPRECATED_VALUES => [
+				EnumDef::PARAM_DEPRECATED_VALUES => [
 					'headitems' => 'apiwarn-deprecation-parse-headitems',
 				],
 			],
 			'wrapoutputclass' => 'mw-parser-output',
+			'parsoid' => false, // since 1.41
 			'pst' => false,
 			'onlypst' => false,
 			'effectivelanglinks' => [
-				ApiBase::PARAM_DFLT => false,
-				ApiBase::PARAM_DEPRECATED => true,
+				ParamValidator::PARAM_DEFAULT => false,
+				ParamValidator::PARAM_DEPRECATED => true,
 			],
 			'section' => null,
 			'sectiontitle' => [
-				ApiBase::PARAM_TYPE => 'string',
+				ParamValidator::PARAM_TYPE => 'string',
 			],
 			'disablepp' => [
-				ApiBase::PARAM_DFLT => false,
-				ApiBase::PARAM_DEPRECATED => true,
+				ParamValidator::PARAM_DEFAULT => false,
+				ParamValidator::PARAM_DEPRECATED => true,
 			],
 			'disablelimitreport' => false,
 			'disableeditsection' => false,
 			'disablestylededuplication' => false,
 			'showstrategykeys' => false,
 			'generatexml' => [
-				ApiBase::PARAM_DFLT => false,
+				ParamValidator::PARAM_DEFAULT => false,
 				ApiBase::PARAM_HELP_MSG => [
 					'apihelp-parse-param-generatexml', CONTENT_MODEL_WIKITEXT
 				],
-				ApiBase::PARAM_DEPRECATED => true,
+				ParamValidator::PARAM_DEPRECATED => true,
 			],
 			'preview' => false,
 			'sectionpreview' => false,
@@ -1074,13 +1121,13 @@ class ApiParse extends ApiBase {
 			'useskin' => [
 				// T237856; We use all installed skins here to allow hidden (but usable) skins
 				// to continue working correctly with some features such as Live Preview
-				ApiBase::PARAM_TYPE => array_keys( $this->skinFactory->getInstalledSkins() ),
+				ParamValidator::PARAM_TYPE => array_keys( $this->skinFactory->getInstalledSkins() ),
 			],
 			'contentformat' => [
-				ApiBase::PARAM_TYPE => $this->contentHandlerFactory->getAllContentFormats(),
+				ParamValidator::PARAM_TYPE => $this->contentHandlerFactory->getAllContentFormats(),
 			],
 			'contentmodel' => [
-				ApiBase::PARAM_TYPE => $this->contentHandlerFactory->getContentModels(),
+				ParamValidator::PARAM_TYPE => $this->contentHandlerFactory->getContentModels(),
 			],
 		];
 	}
@@ -1099,6 +1146,6 @@ class ApiParse extends ApiBase {
 	}
 
 	public function getHelpUrls() {
-		return 'https://www.mediawiki.org/wiki/Special:MyLanguage/API:Parsing_wikitext#parse';
+		return 'https://www.mediawiki.org/wiki/Special:MyLanguage/API:Parsing_wikitext';
 	}
 }
