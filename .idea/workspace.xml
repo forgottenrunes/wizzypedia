@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="84151509-eded-4404-b7a1-34bd639327e7" name="Changes" comment="" />
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ComposerConfigs">
+    <option name="configs">
+      <option value="$PROJECT_DIR$/extensions/ImageMap/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/TextExtracts/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/TitleBlacklist/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/ReplaceText/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/Math/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/ConfirmAccount/composer.json" />
+      <option value="$PROJECT_DIR$/skins/MinervaNeue/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/SecureLinkFixer/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/PageForms/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/Thanks/composer.json" />
+      <option value="$PROJECT_DIR$/skins/Timeless/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/DataTransfer/composer.json" />
+      <option value="$PROJECT_DIR$/tests/phpunit/data/composer/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/PageImages/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/TwitterTag/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/Interwiki/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/SyntaxHighlight_GeSHi/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/OATHAuth/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/TemplateStyles/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/Poem/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/MultimediaViewer/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/AWS/composer.json" />
+      <option value="$PROJECT_DIR$/skins/MonoBook/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/VisualEditor/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/SpamBlacklist/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/WikiEditor/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/Renameuser/composer.json" />
+      <option value="$PROJECT_DIR$/skins/Vector/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/LoginNotify/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/CiteThisPage/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/MobileFrontend/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/UploadWizard/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/Nuke/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/CategoryTree/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/AbuseFilter/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/Popups/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/Cite/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/Linter/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/InputBox/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/ParserFunctions/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/LocalisationUpdate/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/Scribunto/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/Cargo/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/PdfHandler/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/DiscussionTools/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/TemplateData/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/Echo/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/ConfirmEdit/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/Gadgets/composer.json" />
+      <option value="$PROJECT_DIR$/extensions/CodeEditor/composer.json" />
+    </option>
+  </component>
+  <component name="ComposerSettings" synchronizationState="SYNCHRONIZE">
+    <pharConfigPath>$PROJECT_DIR$/composer.json</pharConfigPath>
+    <execution />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="CSS File" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="PhpWorkspaceProjectConfiguration" interpreter_name="C:\wamp64\bin\php\php8.3.6\php.exe">
+    <include_path>
+      <path value="$PROJECT_DIR$/vendor/microsoft/tolerant-php-parser" />
+      <path value="$PROJECT_DIR$/vendor/theseer/tokenizer" />
+      <path value="$PROJECT_DIR$/vendor/aws/aws-sdk-php" />
+      <path value="$PROJECT_DIR$/vendor/aws/aws-crt-php" />
+      <path value="$PROJECT_DIR$/vendor/justinrainbow/json-schema" />
+      <path value="$PROJECT_DIR$/vendor/zordius/lightncandy" />
+      <path value="$PROJECT_DIR$/vendor/phpunit/php-file-iterator" />
+      <path value="$PROJECT_DIR$/vendor/phpunit/php-code-coverage" />
+      <path value="$PROJECT_DIR$/vendor/phpunit/php-timer" />
+      <path value="$PROJECT_DIR$/vendor/phpunit/phpunit" />
+      <path value="$PROJECT_DIR$/vendor/phpunit/php-text-template" />
+      <path value="$PROJECT_DIR$/vendor/phpunit/php-invoker" />
+      <path value="$PROJECT_DIR$/vendor/psr/log" />
+      <path value="$PROJECT_DIR$/vendor/tysonandre/var_representation_polyfill" />
+      <path value="$PROJECT_DIR$/vendor/psr/http-message" />
+      <path value="$PROJECT_DIR$/vendor/psr/http-client" />
+      <path value="$PROJECT_DIR$/vendor/psr/container" />
+      <path value="$PROJECT_DIR$/vendor/myclabs/deep-copy" />
+      <path value="$PROJECT_DIR$/vendor/psr/http-factory" />
+      <path value="$PROJECT_DIR$/vendor/psr/cache" />
+      <path value="$PROJECT_DIR$/vendor/netresearch/jsonmapper" />
+      <path value="$PROJECT_DIR$/vendor/seld/jsonlint" />
+      <path value="$PROJECT_DIR$/vendor/felixfbecker/advanced-json-rpc" />
+      <path value="$PROJECT_DIR$/vendor/wmde/hamcrest-html-matchers" />
+      <path value="$PROJECT_DIR$/vendor/giorgiosironi/eris" />
+      <path value="$PROJECT_DIR$/vendor/phpdocumentor/reflection-docblock" />
+      <path value="$PROJECT_DIR$/vendor/phpdocumentor/type-resolver" />
+      <path value="$PROJECT_DIR$/vendor/phpdocumentor/reflection-common" />
+      <path value="$PROJECT_DIR$/vendor/johnkary/phpunit-speedtrap" />
+      <path value="$PROJECT_DIR$/vendor/nikic/php-parser" />
+      <path value="$PROJECT_DIR$/vendor/phar-io/manifest" />
+      <path value="$PROJECT_DIR$/vendor/phar-io/version" />
+      <path value="$PROJECT_DIR$/vendor/pleonasm/bloom-filter" />
+      <path value="$PROJECT_DIR$/vendor/oojs/oojs-ui" />
+      <path value="$PROJECT_DIR$/vendor/sabre/event" />
+      <path value="$PROJECT_DIR$/vendor/mediawiki/mediawiki-phan-config" />
+      <path value="$PROJECT_DIR$/vendor/mediawiki/mediawiki-codesniffer" />
+      <path value="$PROJECT_DIR$/vendor/symfony/console" />
+      <path value="$PROJECT_DIR$/vendor/mediawiki/phan-taint-check-plugin" />
+      <path value="$PROJECT_DIR$/vendor/symfony/string" />
+      <path value="$PROJECT_DIR$/vendor/symfony/service-contracts" />
+      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-intl-grapheme" />
+      <path value="$PROJECT_DIR$/vendor/psy/psysh" />
+      <path value="$PROJECT_DIR$/vendor/symfony/deprecation-contracts" />
+      <path value="$PROJECT_DIR$/vendor/symfony/var-dumper" />
+      <path value="$PROJECT_DIR$/vendor/symfony/yaml" />
+      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-php82" />
+      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-php83" />
+      <path value="$PROJECT_DIR$/vendor/pear/mail" />
+      <path value="$PROJECT_DIR$/vendor/pear/net_smtp" />
+      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-php81" />
+      <path value="$PROJECT_DIR$/vendor/webmozart/assert" />
+      <path value="$PROJECT_DIR$/vendor/pear/net_url2" />
+      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-php80" />
+      <path value="$PROJECT_DIR$/vendor/pear/pear_exception" />
+      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-intl-normalizer" />
+      <path value="$PROJECT_DIR$/vendor/pear/net_socket" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/wait-condition-loop" />
+      <path value="$PROJECT_DIR$/vendor/pear/console_getopt" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/alea" />
+      <path value="$PROJECT_DIR$/vendor/pear/mail_mime" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/common-passwords" />
+      <path value="$PROJECT_DIR$/vendor/pear/pear-core-minimal" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/composer-merge-plugin" />
+      <path value="$PROJECT_DIR$/vendor/liuggio/statsd-php-client" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/assert" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/parsoid" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/purtle" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/at-ease" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/shellbox" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/minify" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/cldr-plural-rule-parser" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/remex-html" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/ip-utils" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/xmp-reader" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/running-stat" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/ip-set" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/timestamp" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/html-formatter" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/services" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/dodo" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/wrappedstring" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/cdb" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/scoped-callback" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/object-factory" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/bcp-47-code" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/base-convert" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/wikipeg" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/request-timeout" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/testing-access-wrapper" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/zest-css" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/langconv" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/utfnormal" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/php-session-serializer" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/idle-dom" />
+      <path value="$PROJECT_DIR$/vendor/hamcrest/hamcrest-php" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/normalized-exception" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/less.php" />
+      <path value="$PROJECT_DIR$/vendor/wikimedia/relpath" />
+      <path value="$PROJECT_DIR$/vendor/mtdowling/jmespath.php" />
+      <path value="$PROJECT_DIR$/vendor/monolog/monolog" />
+      <path value="$PROJECT_DIR$/vendor/guzzlehttp/promises" />
+      <path value="$PROJECT_DIR$/vendor/guzzlehttp/psr7" />
+      <path value="$PROJECT_DIR$/vendor/squizlabs/php_codesniffer" />
+      <path value="$PROJECT_DIR$/vendor/phpstan/phpdoc-parser" />
+      <path value="$PROJECT_DIR$/vendor/guzzlehttp/guzzle" />
+      <path value="$PROJECT_DIR$/vendor/ralouphie/getallheaders" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/object-enumerator" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/lines-of-code" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/diff" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/type" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/cli-parser" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/exporter" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/code-unit" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/comparator" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/resource-operations" />
+      <path value="$PROJECT_DIR$/vendor/phan/phan" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/recursion-context" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/complexity" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/version" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/object-reflector" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/code-unit-reverse-lookup" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/global-state" />
+      <path value="$PROJECT_DIR$/vendor/sebastian/environment" />
+      <path value="$PROJECT_DIR$/vendor/php-parallel-lint/php-parallel-lint" />
+      <path value="$PROJECT_DIR$/vendor/php-parallel-lint/php-console-highlighter" />
+      <path value="$PROJECT_DIR$/vendor/php-parallel-lint/php-console-color" />
+      <path value="$PROJECT_DIR$/vendor/cssjanus/cssjanus" />
+      <path value="$PROJECT_DIR$/vendor/doctrine/cache" />
+      <path value="$PROJECT_DIR$/vendor/doctrine/event-manager" />
+      <path value="$PROJECT_DIR$/vendor/composer" />
+      <path value="$PROJECT_DIR$/vendor/doctrine/deprecations" />
+      <path value="$PROJECT_DIR$/vendor/doctrine/dbal" />
+      <path value="$PROJECT_DIR$/vendor/doctrine/sql-formatter" />
+      <path value="$PROJECT_DIR$/vendor/doctrine/instantiator" />
+      <path value="$PROJECT_DIR$/extensions/TemplateStyles/vendor/wikimedia/at-ease" />
+      <path value="$PROJECT_DIR$/extensions/TemplateStyles/vendor/wikimedia/utfnormal" />
+      <path value="$PROJECT_DIR$/extensions/TemplateStyles/vendor/wikimedia/css-sanitizer" />
+      <path value="$PROJECT_DIR$/extensions/TemplateStyles/vendor/composer" />
+    </include_path>
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 5
+}</component>
+  <component name="ProjectId" id="2iQiTRNXstnmf6YgVyA4gw51rOy" />
+  <component name="ProjectLevelVcsManager">
+    <ConfirmationsSetting value="2" id="Add" />
+  </component>
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ASKED_ADD_EXTERNAL_FILES": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "git-widget-placeholder": "css-update",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "C:/xampp/htdocs/wizzypedia",
+    "list.type.of.created.stylesheet": "CSS",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\xampp\htdocs\wizzypedia" />
+    </key>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-1d06a55b98c1-0b3e54e931b4-JavaScript-PS-241.17011.119" />
+        <option value="bundled-php-predefined-ba97393d7c68-48a1a656d44e-com.jetbrains.php.sharedIndexes-PS-241.17011.119" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="84151509-eded-4404-b7a1-34bd639327e7" name="Changes" comment="" />
+      <created>1719429208270</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1719429208270</updated>
+      <workItem from="1719429209482" duration="2805000" />
+      <workItem from="1719485975371" duration="4618000" />
+      <workItem from="1719509250887" duration="2832000" />
+      <workItem from="1719570830873" duration="156000" />
+      <workItem from="1719580416668" duration="1666000" />
+      <workItem from="1719583139542" duration="2304000" />
+      <workItem from="1719589398427" duration="14000" />
+      <workItem from="1719824336769" duration="701000" />
+      <workItem from="1719841606974" duration="944000" />
+      <workItem from="1719845017740" duration="1719000" />
+      <workItem from="1719905108306" duration="881000" />
+      <workItem from="1719920457382" duration="624000" />
+      <workItem from="1719924361191" duration="976000" />
+      <workItem from="1719925367406" duration="3579000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>
