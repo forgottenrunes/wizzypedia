@@ -68,6 +68,24 @@ $wgDBpassword = getenv("DB_PASS");
 # MySQL specific settings
 $wgDBprefix = "";
 
+# CRITICAL: Limit connection pool for JawsDB
+$wgDBservers = [
+    [
+        'host' => getenv("DB_SERVER"),
+        'dbname' => getenv("DB_NAME"),
+        'user' => getenv("DB_USER"),
+        'password' => getenv("DB_PASS"),
+        'type' => 'mysql',
+        'flags' => DBO_DEFAULT,
+        'max lag' => 30,
+        'max threads' => 5,  # Limit concurrent connections per process
+    ],
+];
+
+# Connection pool settings
+$wgDBConnectionTimeout = 3;  # Timeout faster to free connections
+$wgDBTransactionTimeout = 5;  # Kill long transactions
+
 # MySQL table options to use during installation or update
 $wgDBTableOptions = "ENGINE=InnoDB, DEFAULT CHARSET=binary";
 
@@ -75,9 +93,55 @@ $wgDBTableOptions = "ENGINE=InnoDB, DEFAULT CHARSET=binary";
 # This has no effect unless $wgSharedDB is also set.
 $wgSharedTables[] = "actor";
 
-## Shared memory settings
-$wgMainCacheType = CACHE_NONE;
+## Database Connection Optimization for JawsDB (150 connections)
+# DISABLE persistent connections - they can cause connection hoarding
+$wgDBpersistent = false;
+$wgDBmysql5 = true;
+
+# Connection pooling settings
+$wgDBerrorLog = true;  # Enable logging to debug connection issues
+$wgDBconnectionError = true;
+
+# Aggressive connection management
+$wgMaxShellMemory = 307200;  # Limit shell memory
+$wgMaxShellFileSize = 102400;  # Limit shell operations
+$wgMaxShellTime = 30;  # Timeout shell operations
+$wgMaxShellWallClockTime = 30;
+
+## Shared memory settings - CRITICAL FOR REDUCING DB LOAD
+# Use APCu if available (common on Heroku)
+if ( function_exists( 'apcu_fetch' ) ) {
+    $wgMainCacheType = CACHE_ACCEL;
+    $wgMessageCacheType = CACHE_ACCEL;
+    $wgParserCacheType = CACHE_ACCEL;
+    $wgSessionCacheType = CACHE_ACCEL;
+} else {
+    # Fallback to DB caching (better than CACHE_NONE)
+    $wgMainCacheType = CACHE_DB;
+    $wgMessageCacheType = CACHE_DB;
+    $wgParserCacheType = CACHE_DB;
+    $wgSessionCacheType = CACHE_DB;
+}
+
 $wgMemCachedServers = [];
+
+# Session handling optimization
+$wgSessionsInObjectCache = true;
+
+# Parser cache settings to reduce DB queries
+$wgParserCacheExpireTime = 86400; # 24 hours
+$wgEnableParserCache = true;
+
+# Disable ALL background operations on page requests
+$wgJobRunRate = 0;
+$wgRunJobsAsync = false;  # Never run jobs async
+$wgJobTypeConf = [
+    'default' => [
+        'class' => 'JobQueueDB',
+        'order' => 'fifo',
+        'claimTTL' => 300,  # 5 minutes claim timeout
+    ],
+];
 
 ## To enable image uploads, make sure the 'images' directory
 ## is writable, then set this to true:
@@ -248,3 +312,67 @@ $wgGroupPermissions['barren-group']['barren'] = true;
 $wgGroupPermissions['sysop']['barren'] = true;
 
 $wgGroupPermissions['*']['createaccount'] = false;
+
+## Additional Database Optimization for JawsDB Connection Limits
+# Reduce the number of database queries
+$wgMiserMode = true; # Enables various performance optimizations
+
+# Disable some features that require many DB queries
+$wgDisableCounters = true; # Disable page view counters
+$wgDisableInternalSearch = false; # Keep internal search enabled but optimize it
+
+# Cache expiry settings
+$wgCacheEpoch = '20230101000000'; # Invalidate cache if needed
+$wgStyleVersion = '303'; # Increment to invalidate cached CSS/JS
+
+# Optimize file cache for anonymous users
+$wgUseFileCache = true;
+$wgFileCacheDirectory = "$IP/cache/html";
+$wgShowIPinHeader = false;
+
+# Resource loader optimization
+$wgResourceLoaderMaxage = [
+    'versioned' => 30 * 24 * 60 * 60, // 30 days
+    'unversioned' => 5 * 60 // 5 minutes
+];
+
+# Reduce expensive parser function calls
+$wgExpensiveParserFunctionLimit = 100;
+
+# Database query optimization
+$wgAntiLockFlags = ALF_NO_LINK_LOCK | ALF_NO_BLOCK_LOCK;
+
+# Enable HTTP caching
+$wgUseSquid = true;
+$wgUsePrivateIPs = true;
+
+## AGGRESSIVE CONNECTION MANAGEMENT FOR 150+ CONNECTION ISSUES
+# Reduce connection timeout to free up stale connections faster
+ini_set('mysql.connect_timeout', 3);
+ini_set('default_socket_timeout', 3);
+
+# Limit PHP execution to prevent long-running scripts
+set_time_limit(30);
+
+# Disable features that create multiple connections
+$wgEnableUserEmail = false;  # Disable email features temporarily
+$wgEnotifUserTalk = false;
+$wgEnotifWatchlist = false;
+
+# Use single database connection for all operations
+$wgDBssl = false;  # SSL can cause connection overhead
+$wgDBcompress = false;  # Compression can keep connections open longer
+
+# Aggressive query limits
+$wgAPIMaxDBRows = 500;  # Limit API database queries
+$wgFeedLimit = 20;  # Limit RSS feed queries
+$wgQueryCacheLimit = 100;  # Limit query cache
+
+# Disable expensive operations
+$wgAllowSlowParserFunctions = false;
+$wgExpensiveParserFunctionLimit = 50;  # Reduced from 100
+$wgAllowExternalImages = false;  # External images can cause connection issues
+
+# Connection pooling hack - force connection reuse
+$wgDBconnection = null;  # Force new connections to close
+$wgDBtrxLevel = 0;  # No nested transactions

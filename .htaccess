@@ -1,10 +1,95 @@
-RewriteEngine On
-# RewriteRule ^/?fr/wiki(/.*)?$ %{DOCUMENT_ROOT}/index.php [L]
-# RewriteRule ^/fr*$ %{DOCUMENT_ROOT}/index.php [L]
+# MediaWiki Performance Optimization for Heroku/JawsDB
+# This helps reduce database connections by enabling browser caching
 
+# Enable compression
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json
+</IfModule>
+
+# Browser caching for static assets
+<IfModule mod_expires.c>
+    ExpiresActive On
+    
+    # Default expiration: 1 hour
+    ExpiresDefault "access plus 1 hour"
+    
+    # Images: 1 month
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType image/gif "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/webp "access plus 1 month"
+    ExpiresByType image/svg+xml "access plus 1 month"
+    ExpiresByType image/x-icon "access plus 1 month"
+    
+    # CSS and JavaScript: 1 week
+    ExpiresByType text/css "access plus 1 week"
+    ExpiresByType text/javascript "access plus 1 week"
+    ExpiresByType application/javascript "access plus 1 week"
+    
+    # Fonts: 1 month
+    ExpiresByType font/ttf "access plus 1 month"
+    ExpiresByType font/woff "access plus 1 month"
+    ExpiresByType font/woff2 "access plus 1 month"
+    ExpiresByType application/font-woff "access plus 1 month"
+</IfModule>
+
+# Cache-Control headers
+<IfModule mod_headers.c>
+    # Static assets
+    <FilesMatch "\.(jpg|jpeg|png|gif|svg|ico|css|js|woff|woff2|ttf)$">
+        Header set Cache-Control "public, max-age=2592000"
+    </FilesMatch>
+    
+    # HTML pages - shorter cache
+    <FilesMatch "\.(html|htm)$">
+        Header set Cache-Control "public, max-age=3600"
+    </FilesMatch>
+    
+    # Prevent caching of dynamic content
+    <FilesMatch "\.(php)$">
+        Header set Cache-Control "no-cache, no-store, must-revalidate"
+        Header set Pragma "no-cache"
+        Header set Expires "0"
+    </FilesMatch>
+</IfModule>
+
+# Security headers
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+</IfModule>
+
+# Rate limiting and bot protection
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # Block bad bots that ignore robots.txt
+    RewriteCond %{HTTP_USER_AGENT} (MJ12bot|AhrefsBot|SemrushBot|DotBot|DataForSeoBot) [NC]
+    RewriteRule .* - [F,L]
+    
+    # Block empty user agents (often bad bots)
+    RewriteCond %{HTTP_USER_AGENT} ^-?$
+    RewriteRule .* - [F,L]
+    
+    # Prevent rapid-fire requests to api.php
+    RewriteCond %{REQUEST_URI} ^/api\.php [NC]
+    RewriteCond %{HTTP_USER_AGENT} !^MediaWiki [NC]
+    RewriteRule .* - [F,L]
+</IfModule>
+
+# Connection timeout settings for Apache
+<IfModule mod_reqtimeout.c>
+    RequestReadTimeout header=10-20,MinRate=500 body=10-30,MinRate=500
+</IfModule>
+
+# Limit request methods
+<LimitExcept GET POST HEAD>
+    Order deny,allow
+    Deny from all
+</LimitExcept>
+
+# Rewrite rules for MediaWiki short URLs (already configured)
 RewriteEngine On
-RewriteBase /
-RewriteRule ^/(.*):(.*) /index.php/$1:$2
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(.*) /index.php/$1 [L,QSA]
+RewriteRule ^/?wiki(/.*)?$ %{DOCUMENT_ROOT}/index.php [L]
+RewriteRule ^/?$ %{DOCUMENT_ROOT}/index.php [L]
