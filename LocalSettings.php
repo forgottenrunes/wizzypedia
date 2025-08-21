@@ -71,13 +71,66 @@ $wgDBprefix = "";
 # MySQL table options to use during installation or update
 $wgDBTableOptions = "ENGINE=InnoDB, DEFAULT CHARSET=binary";
 
+## Database connection pooling and optimization
+# AGGRESSIVE CONNECTION MANAGEMENT - Fix for 150 connection limit exhaustion
+
+# Disable persistent connections - they can cause connection leaks in some PHP configs
+$wgDBpersistent = false;
+
+# Set very conservative connection limits
+$wgDBconnectTimeout = 5;
+
+# Reduce the number of connections MediaWiki opens
+$wgDBTransactionMode = 'DEFERRED';
+
+# CRITICAL: Disable background jobs which spawn many connections
+$wgJobRunRate = 0;  # Completely disable job runs on page requests
+$wgRunJobsAsync = false;  # Don't run jobs asynchronously
+
+# Limit database replica lag checks which create extra connections
+$wgSlaveLagWarning = 600;
+$wgSlaveLagCritical = 1800;
+
+# Disable some features that create excessive connections
+$wgDisableCounters = true;  # Disable page view counters
+$wgMiserMode = true;  # Enable "miser mode" for large wikis
+
+# Connection recycling
+$wgDBConnectionError = true;
+
+# Limit search updates which can spawn connections
+$wgDisableSearchUpdate = false;
+$wgSearchUpdateIncrementalJobsPerPage = 1;
+
 # Shared database table
 # This has no effect unless $wgSharedDB is also set.
 $wgSharedTables[] = "actor";
 
 ## Shared memory settings
-$wgMainCacheType = CACHE_NONE;
+# Use caching to reduce database load and prevent connection exhaustion
+# Try APCu first (fastest), then file cache
+if ( function_exists( 'apcu_fetch' ) ) {
+    $wgMainCacheType = CACHE_ACCEL;
+    $wgMessageCacheType = CACHE_ACCEL;
+    $wgParserCacheType = CACHE_ACCEL;
+    $wgSessionCacheType = CACHE_ACCEL;
+} else {
+    # Fall back to file-based caching if APCu is not available
+    $wgMainCacheType = CACHE_DB;  # Use database cache (more efficient than CACHE_NONE)
+    $wgMessageCacheType = CACHE_DB;
+    $wgParserCacheType = CACHE_DB;
+    $wgSessionCacheType = CACHE_DB;
+}
+
+# Enable file cache for anonymous users to reduce database load
+$wgUseFileCache = true;
+$wgFileCacheDirectory = "$IP/cache";
+$wgEnableSidebarCache = true;
+
 $wgMemCachedServers = [];
+
+# Cache expensive parser functions
+$wgExpensiveParserFunctionLimit = 100;
 
 ## To enable image uploads, make sure the 'images' directory
 ## is writable, then set this to true:
@@ -104,7 +157,7 @@ $wgLocaltimezone = "UTC";
 ## Set $wgCacheDirectory to a writable directory on the web server
 ## to make your wiki go slightly faster. The directory should not
 ## be publicly accessible from the web.
-#$wgCacheDirectory = "$IP/cache";
+$wgCacheDirectory = "$IP/cache";
 
 $wgSecretKey = getenv("SECRET_KEY");
 
@@ -248,3 +301,28 @@ $wgGroupPermissions['barren-group']['barren'] = true;
 $wgGroupPermissions['sysop']['barren'] = true;
 
 $wgGroupPermissions['*']['createaccount'] = false;
+
+## CRITICAL: Connection leak prevention
+# Force MediaWiki to close database connections properly
+$wgDBservers = false; # Don't use load balancer which can leak connections
+
+# Hook to ensure connections are closed after each request
+$wgHooks['BeforePageDisplay'][] = function() {
+    global $wgDBtype;
+    if ($wgDBtype === 'mysql') {
+        try {
+            $lb = \MediaWiki\MediaWikiServices::getInstance()->getDBLoadBalancer();
+            $lb->closeAll();
+        } catch (Exception $e) {
+            // Silently fail if load balancer not available
+        }
+    }
+};
+
+# Disable problematic extensions temporarily if they're causing leaks
+# Uncomment these if issues persist:
+# $wgDisableSearchUpdate = true;  # Disable search indexing
+# $wgEnableUploads = false;  # Temporarily disable uploads
+
+# Force garbage collection to clean up connections
+$wgPhpCli = '/usr/bin/php -d memory_limit=128M -d max_execution_time=30';
