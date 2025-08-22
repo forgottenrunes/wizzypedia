@@ -76,8 +76,14 @@ $wgDBTableOptions = "ENGINE=InnoDB, DEFAULT CHARSET=binary";
 $wgSharedTables[] = "actor";
 
 ## Shared memory settings
-$wgMainCacheType = CACHE_NONE;
-$wgMemCachedServers = [];
+# Include Redis configuration if available (for Heroku deployment)
+if (file_exists("$IP/redis-production-config.php")) {
+    require_once "$IP/redis-production-config.php";
+} else {
+    # Fallback to no caching if Redis config not found
+    $wgMainCacheType = CACHE_NONE;
+    $wgMemCachedServers = [];
+}
 
 ## To enable image uploads, make sure the 'images' directory
 ## is writable, then set this to true:
