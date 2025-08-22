@@ -14,15 +14,15 @@ if (getenv('REDIS_URL')) {
     $redisUrl = parse_url(getenv('REDIS_URL'));
     
     if ($redisUrl) {
-        // Configure Redis for MediaWiki (without PHP Redis extension)
-        // Use RESTBagOStuff which doesn't require the Redis PHP extension
+        // Configure Redis for MediaWiki
         $wgObjectCaches['redis'] = [
-            'class' => 'RESTBagOStuff',
-            'url' => getenv('REDIS_URL'),
-            'httpParams' => [
-                'timeout' => 3,
-                'connectTimeout' => 2,
-            ],
+            'class' => 'RedisBagOStuff',
+            'servers' => [ $redisUrl['host'] . ':' . $redisUrl['port'] ],
+            'password' => isset($redisUrl['pass']) ? $redisUrl['pass'] : null,
+            'persistent' => true,
+            'dbDomain' => false,
+            'serializer' => 'php',
+            'loggroup' => 'redis',
         ];
         
         // Use Redis for all caching
