@@ -1,0 +1,11 @@
+# Robots.txt for wizzypedia
+# Block all bots from all pages to reduce server load
+
+User-agent: *
+Disallow: /
+
+# If you want to allow specific bots in the future, you can add exceptions above this block
+# For example:
+# User-agent: Googlebot
+# Disallow: /Special:
+# Crawl-delay: 10

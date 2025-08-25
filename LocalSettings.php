@@ -220,6 +220,16 @@ $wgScribuntoDefaultEngine = 'luastandalone';
 # End of automatically generated settings.
 # Add more configuration options below.
 
+# Performance optimization: Limit Cargo query sizes to prevent runaway queries
+$wgCargoDefaultQueryLimit = 50;   # Reduced from default 100
+$wgCargoMaxQueryLimit = 200;      # Reduced from default 5000
+
+# Restrict Special:Drilldown to logged-in users only
+# This uses MediaWiki's built-in permission system
+$wgGroupPermissions['*']['drilldown'] = false;      # Remove from anonymous users
+$wgGroupPermissions['user']['drilldown'] = true;    # Grant to logged-in users
+$wgGroupPermissions['sysop']['drilldown'] = true;   # Ensure sysops have access
+
 
 $wgUploadWizardConfig = [
 	'tutorial' => [
