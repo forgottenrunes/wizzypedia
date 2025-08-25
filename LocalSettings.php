@@ -24,6 +24,10 @@ $wgMetaNamespace = "Wizzypedia";
 
 $wgShowExceptionDetails = true;
 
+# Suppress PHP deprecation warnings (useful for PHP 8.1+ compatibility)
+$wgDevelopmentWarnings = false;
+error_reporting(E_ALL & ~E_DEPRECATED);
+
 ## The URL base path to the directory containing the wiki;
 ## defaults for all runtime URL paths are based off of this.
 ## For more information on customizing the URLs
